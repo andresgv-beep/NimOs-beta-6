@@ -320,16 +320,14 @@ func destroyPoolZfs(poolName string) map[string]interface{} {
 		}
 	}
 
-	// 2. Kill processes and unmount everything
+	// 2. Unmount submounts (children first) — NO fuser on the pool mount point
+	// fuser -km kills EVERYTHING with an open fd there, including nginx
 	if mountPoint != "" {
-		runCmd("fuser", []string{"-km", mountPoint}, opts)
-		// Unmount submounts (children first)
 		mountsOut, _ := runCmd("findmnt", []string{"-rn", "-o", "TARGET", mountPoint}, opts)
 		mounts := strings.Split(strings.TrimSpace(mountsOut.Stdout), "\n")
 		for i := len(mounts) - 1; i >= 0; i-- {
 			m := strings.TrimSpace(mounts[i])
 			if m != "" && m != mountPoint {
-				runCmd("fuser", []string{"-km", m}, opts)
 				runCmd("umount", []string{"-f", "-l", m}, opts)
 			}
 		}
@@ -341,15 +339,9 @@ func destroyPoolZfs(poolName string) map[string]interface{} {
 		datasets := strings.Split(strings.TrimSpace(datasetsOut.Stdout), "\n")
 		for i := len(datasets) - 1; i >= 0; i-- {
 			ds := strings.TrimSpace(datasets[i])
-			if ds == "" {
-				continue
+			if ds != "" {
+				runCmd("zfs", []string{"unmount", "-f", ds}, opts)
 			}
-			dsMountOut, _ := runCmd("zfs", []string{"get", "-H", "-o", "value", "mountpoint", ds}, CmdOptions{Timeout: 5 * time.Second})
-			dsMount := strings.TrimSpace(dsMountOut.Stdout)
-			if dsMount != "" && dsMount != "-" && dsMount != "none" && dsMount != "legacy" {
-				runCmd("fuser", []string{"-km", dsMount}, opts)
-			}
-			runCmd("zfs", []string{"unmount", "-f", ds}, opts)
 		}
 	}
 	time.Sleep(1 * time.Second)

@@ -1,0 +1,27 @@
+[Unit]
+Description=NimOS Permissions Daemon
+Documentation=https://github.com/andresgv-beep/NimOs-beta-5
+After=local-fs.target zfs-mount.service
+Before=nimbusos.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/nimbusos/daemon/nimos-daemon
+Restart=always
+RestartSec=3
+
+# Security hardening
+PrivateNetwork=false
+ProtectHome=false
+ProtectSystem=false
+ReadWritePaths=/run /nimbus /var/lib /etc /home /tmp /var/tmp /var/log /var/cache /opt/nimbusos /usr/local/bin /usr/bin /usr/sbin /usr/lib /usr/share /var/run
+NoNewPrivileges=false
+
+# Logging
+StandardOutput=append:/var/log/nimbusos/daemon.log
+StandardError=append:/var/log/nimbusos/daemon-error.log
+
+[Install]
+WantedBy=multi-user.target

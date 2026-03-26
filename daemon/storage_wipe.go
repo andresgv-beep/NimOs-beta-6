@@ -226,9 +226,6 @@ type Step struct {
 }
 
 func runSteps(op JournalOp, steps []Step) error {
-	storageMu.Lock()
-	defer storageMu.Unlock()
-
 	var completed []int
 
 	for i := op.Step; i < len(steps); i++ {
@@ -323,6 +320,14 @@ func preFlightCheck(diskPath string) error {
 //   8. Force kernel to re-read partition table
 //   9. VERIFY: lsblk must show zero partitions
 func wipeDiskGo(diskPath string) map[string]interface{} {
+	storageMu.Lock()
+	defer storageMu.Unlock()
+
+	return wipeDiskInternal(diskPath)
+}
+
+// wipeDiskInternal does the actual wipe — called with lock already held
+func wipeDiskInternal(diskPath string) map[string]interface{} {
 
 	// Pre-flight
 	if err := preFlightCheck(diskPath); err != nil {

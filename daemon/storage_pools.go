@@ -130,11 +130,15 @@ func createPoolZfs(body map[string]interface{}) map[string]interface{} {
 		Data: map[string]string{"name": name, "type": "zfs", "vdevType": vdevType},
 	}
 
+	// Take exclusive lock for the entire pool creation
+	storageMu.Lock()
+	defer storageMu.Unlock()
+
 	steps := []Step{
 		// 0. Wipe all disks
 		{Name: "wipe_disks", Policy: FailFast, Do: func() error {
 			for _, d := range disks {
-				result := wipeDiskGo(d)
+				result := wipeDiskInternal(d)
 				if errMsg, ok := result["error"].(string); ok && errMsg != "" {
 					return fmt.Errorf("wipe %s: %s", d, errMsg)
 				}
@@ -273,6 +277,9 @@ func createPoolZfs(body map[string]interface{}) map[string]interface{} {
 // ─── Destroy Pool ZFS ────────────────────────────────────────────────────────
 
 func destroyPoolZfs(poolName string) map[string]interface{} {
+	storageMu.Lock()
+	defer storageMu.Unlock()
+
 	conf := getStorageConfigFull()
 	confPools, _ := conf["pools"].([]interface{})
 

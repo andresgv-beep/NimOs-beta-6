@@ -1,0 +1,351 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+// ═══════════════════════════════════
+// Shares HTTP handlers
+// ═══════════════════════════════════
+
+func handleSharesRoutes(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	method := r.Method
+
+	// GET /api/shares — list all shared folders
+	if path == "/api/shares" && method == "GET" {
+		sharesListHTTP(w, r)
+		return
+	}
+
+	// POST /api/shares — create shared folder
+	if path == "/api/shares" && method == "POST" {
+		sharesCreateHTTP(w, r)
+		return
+	}
+
+	// Match /api/shares/:name
+	shareMatch := regexp.MustCompile(`^/api/shares/([a-zA-Z0-9_-]+)$`)
+	matches := shareMatch.FindStringSubmatch(path)
+	if matches == nil {
+		jsonError(w, 404, "Not found")
+		return
+	}
+	target := matches[1]
+
+	switch method {
+	case "PUT":
+		sharesUpdateHTTP(w, r, target)
+	case "DELETE":
+		sharesDeleteHTTP(w, r, target)
+	default:
+		jsonError(w, 405, "Method not allowed")
+	}
+}
+
+// GET /api/shares
+func sharesListHTTP(w http.ResponseWriter, r *http.Request) {
+	session := requireAuth(w, r)
+	if session == nil {
+		return
+	}
+
+	shares, err := dbSharesList()
+	if err != nil {
+		jsonError(w, 500, err.Error())
+		return
+	}
+
+	role, _ := session["role"].(string)
+	username, _ := session["username"].(string)
+
+	if role != "admin" {
+		// Filter: only shares where this user has permission
+		var filtered []map[string]interface{}
+		for _, s := range shares {
+			perms, _ := s["permissions"].(map[string]string)
+			if perm, ok := perms[username]; ok && (perm == "rw" || perm == "ro") {
+				s["myPermission"] = perm
+				filtered = append(filtered, s)
+			}
+		}
+		if filtered == nil {
+			filtered = []map[string]interface{}{}
+		}
+		jsonOk(w, filtered)
+		return
+	}
+
+	jsonOk(w, shares)
+}
+
+// POST /api/shares
+func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
+	session := requireAdmin(w, r)
+	if session == nil {
+		return
+	}
+
+	body, err := readBody(r)
+	if err != nil {
+		jsonError(w, 400, err.Error())
+		return
+	}
+
+	name := strings.TrimSpace(bodyStr(body, "name"))
+	description := bodyStr(body, "description")
+	poolName := bodyStr(body, "pool")
+
+	if name == "" {
+		jsonError(w, 400, "Folder name required")
+		return
+	}
+	if len(name) > 64 {
+		jsonError(w, 400, "Folder name too long (max 64 characters)")
+		return
+	}
+	if matched, _ := regexp.MatchString(`[^a-zA-Z0-9_\- ]`, name); matched {
+		jsonError(w, 400, "Name can only contain letters, numbers, spaces, -, _")
+		return
+	}
+
+	safeName := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), " ", "-"))
+
+	// Check if share already exists
+	if existing, _ := dbSharesGet(safeName); existing != nil {
+		jsonError(w, 400, "Shared folder already exists")
+		return
+	}
+
+	// Determine target pool from storage config
+	targetPool := findTargetPool(poolName)
+	if targetPool == nil {
+		jsonError(w, 400, "No storage pool available. Create a pool in Storage Manager first.")
+		return
+	}
+
+	mountPoint, _ := targetPool["mountPoint"].(string)
+
+	// Verify the pool is actually mounted — not just a leftover directory on the system disk
+	if !isPathOnMountedPool(mountPoint) {
+		jsonError(w, 503, "Storage pool is not mounted. Check Storage Manager for pool status.")
+		return
+	}
+
+	folderPath := filepath.Join(mountPoint, "shares", safeName)
+	volumeName, _ := targetPool["name"].(string)
+
+	// Call daemon ops to create share with proper filesystem permissions
+	daemonResult := handleOp(Request{
+		Op:        "share.create",
+		ShareName: safeName,
+		PoolPath:  mountPoint,
+	})
+
+	if !daemonResult.Ok {
+		jsonError(w, 500, fmt.Sprintf("Failed to create share: %s", daemonResult.Error))
+		return
+	}
+
+	// Register in DB
+	username := session["username"].(string)
+	if err := dbSharesCreate(safeName, name, description, folderPath, volumeName, volumeName, username); err != nil {
+		jsonError(w, 500, err.Error())
+		return
+	}
+
+	// Set admin as rw
+	dbShareSetPermission(safeName, username, "rw")
+
+	jsonOk(w, map[string]interface{}{
+		"ok":   true,
+		"name": safeName,
+		"path": folderPath,
+		"pool": volumeName,
+	})
+}
+
+// PUT /api/shares/:name
+func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
+	session := requireAdmin(w, r)
+	if session == nil {
+		return
+	}
+
+	share, err := dbSharesGet(target)
+	if err != nil || share == nil {
+		jsonError(w, 404, "Shared folder not found")
+		return
+	}
+
+	body, _ := readBody(r)
+
+	// Update simple fields
+	updates := map[string]interface{}{}
+	if desc, ok := body["description"]; ok {
+		updates["description"] = desc
+	}
+	if rb, ok := body["recycleBin"]; ok {
+		updates["recycleBin"] = rb
+	}
+	if len(updates) > 0 {
+		dbSharesUpdate(target, updates)
+	}
+
+	// Handle permission changes
+	if permsRaw, ok := body["permissions"]; ok {
+		if newPermsMap, ok := permsRaw.(map[string]interface{}); ok {
+			// Get current permissions
+			oldPerms, _ := share["permissions"].(map[string]string)
+			if oldPerms == nil {
+				oldPerms = map[string]string{}
+			}
+
+			// Collect all users
+			allUsers := map[string]bool{}
+			for u := range oldPerms {
+				allUsers[u] = true
+			}
+			for u := range newPermsMap {
+				allUsers[u] = true
+			}
+
+			for username := range allUsers {
+				oldPerm := oldPerms[username]
+				newPerm := ""
+				if v, ok := newPermsMap[username]; ok {
+					newPerm, _ = v.(string)
+				}
+				if newPerm == "" {
+					newPerm = "none"
+				}
+				if oldPerm == newPerm {
+					continue
+				}
+
+				switch newPerm {
+				case "none":
+					handleOp(Request{Op: "share.remove_user", ShareName: target, Username: username})
+				case "rw":
+					handleOp(Request{Op: "share.add_user_rw", ShareName: target, Username: username})
+				case "ro":
+					handleOp(Request{Op: "share.add_user_ro", ShareName: target, Username: username})
+				}
+
+				// Update DB
+				dbShareSetPermission(target, username, newPerm)
+			}
+		}
+	}
+
+	// Handle app permission changes
+	if appsRaw, ok := body["appPermissions"]; ok {
+		if newApps, ok := appsRaw.([]interface{}); ok {
+			// Get current app permissions
+			oldApps, _ := share["appPermissions"].([]map[string]interface{})
+
+			// Remove old apps not in new list
+			for _, oldApp := range oldApps {
+				uid, _ := oldApp["uid"]
+				appId, _ := oldApp["appId"].(string)
+				found := false
+				for _, na := range newApps {
+					if naMap, ok := na.(map[string]interface{}); ok {
+						if naMap["uid"] == uid {
+							found = true
+							break
+						}
+					}
+				}
+				if !found {
+					if uidNum, err := checkUid(uid); err == nil {
+						handleOp(Request{Op: "share.remove_app", ShareName: target, AppId: appId, Uid: uidNum})
+					}
+				}
+			}
+
+			// Add/update new apps
+			for _, na := range newApps {
+				if naMap, ok := na.(map[string]interface{}); ok {
+					perm, _ := naMap["permission"].(string)
+					appId, _ := naMap["appId"].(string)
+					if uid, err := checkUid(naMap["uid"]); err == nil && perm != "" {
+						handleOp(Request{Op: "share.add_app", ShareName: target, AppId: appId, Uid: uid, Permission: perm})
+					}
+				}
+			}
+		}
+	}
+
+	jsonOk(w, map[string]interface{}{"ok": true})
+}
+
+// DELETE /api/shares/:name
+func sharesDeleteHTTP(w http.ResponseWriter, r *http.Request, target string) {
+	session := requireAdmin(w, r)
+	if session == nil {
+		return
+	}
+
+	if share, _ := dbSharesGet(target); share == nil {
+		jsonError(w, 404, "Shared folder not found")
+		return
+	}
+
+	// Remove group (files preserved)
+	handleOp(Request{Op: "share.delete", ShareName: target})
+
+	// Remove from DB
+	dbSharesDelete(target)
+
+	jsonOk(w, map[string]interface{}{"ok": true})
+}
+
+// ═══════════════════════════════════
+// Storage config helper (reads storage.json for pool info)
+// ═══════════════════════════════════
+
+const storageConfigFile = "/var/lib/nimbusos/config/storage.json"
+
+type storageConfig struct {
+	Pools       []map[string]interface{} `json:"pools"`
+	PrimaryPool string                   `json:"primaryPool"`
+}
+
+func getStorageConfigGo() *storageConfig {
+	data, err := os.ReadFile(storageConfigFile)
+	if err != nil {
+		return &storageConfig{}
+	}
+	var conf storageConfig
+	json.Unmarshal(data, &conf)
+	return &conf
+}
+
+func findTargetPool(poolName string) map[string]interface{} {
+	conf := getStorageConfigGo()
+	if len(conf.Pools) == 0 {
+		return nil
+	}
+	if poolName != "" {
+		for _, p := range conf.Pools {
+			if n, _ := p["name"].(string); n == poolName {
+				return p
+			}
+		}
+	}
+	// Return primary pool
+	for _, p := range conf.Pools {
+		if n, _ := p["name"].(string); n == conf.PrimaryPool {
+			return p
+		}
+	}
+	// Return first pool
+	return conf.Pools[0]
+}

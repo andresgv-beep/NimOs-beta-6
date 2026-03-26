@@ -21,12 +21,12 @@ import (
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const nimbusPoolsDir = "/nimbus/pools"
-const storageConfigFile = "/var/lib/nimbusos/config/storage.json"
+// storageConfigFile is declared in shares.go
 
 // ─── Global vars ─────────────────────────────────────────────────────────────
 
 var hasBtrfs bool
-var hasZfs bool
+// hasZfs is declared in hardware.go
 var storageAlertsGo []map[string]interface{}
 
 // ─── Config read/write (needed by docker.go, shares.go) ─────────────────────

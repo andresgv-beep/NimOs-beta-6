@@ -386,8 +386,55 @@ func destroyPoolZfs(poolName string) map[string]interface{} {
 	runCmd("partprobe", nil, opts)
 	rescanSCSIBuses()
 
+	// 8. Clean orphan directories — safe here because pool is already destroyed
+	cleanOrphanPoolDirs()
+
 	logMsg("ZFS pool '%s' destroyed", poolName)
 	return map[string]interface{}{"ok": true}
+}
+
+// cleanOrphanPoolDirs removes directories in /nimbus/pools/ that are not
+// associated with any configured pool and have nothing mounted on them.
+// Safe to call AFTER pool operations (destroy, create), never at startup
+// before ZFS has mounted.
+func cleanOrphanPoolDirs() {
+	conf := getStorageConfigFull()
+	confPools, _ := conf["pools"].([]interface{})
+
+	// Build set of known mount points
+	knownMounts := map[string]bool{}
+	for _, poolRaw := range confPools {
+		pm, _ := poolRaw.(map[string]interface{})
+		if mp, _ := pm["mountPoint"].(string); mp != "" {
+			knownMounts[mp] = true
+		}
+	}
+
+	entries, err := os.ReadDir(nimbusPoolsDir)
+	if err != nil {
+		return
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dirPath := filepath.Join(nimbusPoolsDir, e.Name())
+
+		// Skip known pools
+		if knownMounts[dirPath] {
+			continue
+		}
+
+		// Skip if something real is mounted here
+		if isPathOnMountedPool(dirPath) {
+			continue
+		}
+
+		// Orphan on system disk — safe to remove
+		os.RemoveAll(dirPath)
+		logMsg("Cleaned orphan directory: %s", dirPath)
+	}
 }
 
 // ─── Create Pool BTRFS ───────────────────────────────────────────────────────

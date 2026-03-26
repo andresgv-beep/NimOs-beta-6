@@ -4,6 +4,8 @@
 
   export let activeTab = 'disks';
 
+  const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}` });
+
   let loading = true;
   let pools = [];
   let eligible = [];
@@ -32,7 +34,158 @@
   let restoreMsg = '';
   let restoreMsgError = false;
 
-  const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}` });
+  // ── ZFS: Snapshots ──────────────────────────────────────────────────────────
+  let snapshots = [];
+  let snapsLoading = false;
+  let snapPool = '';
+  let newSnapName = '';
+  let snapMsg = ''; let snapMsgError = false;
+
+  async function loadSnapshots(pool) {
+    if (!pool) return;
+    snapsLoading = true;
+    try {
+      const res = await fetch(`/api/storage/snapshots?pool=${encodeURIComponent(pool)}`, { headers: hdrs() });
+      const data = await res.json();
+      snapshots = data.snapshots || [];
+    } catch { snapshots = []; }
+    snapsLoading = false;
+  }
+
+  async function createSnap() {
+    snapMsg = '';
+    const res = await fetch('/api/storage/snapshot', {
+      method: 'POST',
+      headers: { ...hdrs(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pool: snapPool, name: newSnapName || undefined }),
+    });
+    const data = await res.json();
+    if (data.ok) { snapMsg = 'Snapshot creado'; snapMsgError = false; newSnapName = ''; loadSnapshots(snapPool); }
+    else { snapMsg = data.error || 'Error'; snapMsgError = true; }
+  }
+
+  async function deleteSnap(snapshot) {
+    if (!confirm(`¿Borrar snapshot ${snapshot}?`)) return;
+    const res = await fetch('/api/storage/snapshot', {
+      method: 'DELETE',
+      headers: { ...hdrs(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshot }),
+    });
+    const data = await res.json();
+    if (data.ok) loadSnapshots(snapPool);
+    else alert(data.error || 'Error');
+  }
+
+  async function rollbackSnap(snapshot) {
+    if (!confirm(`¿Rollback a ${snapshot}? Se perderán los cambios posteriores.`)) return;
+    const res = await fetch('/api/storage/snapshot/rollback', {
+      method: 'POST',
+      headers: { ...hdrs(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshot }),
+    });
+    const data = await res.json();
+    if (data.ok) { snapMsg = 'Rollback completado'; snapMsgError = false; loadSnapshots(snapPool); }
+    else { snapMsg = data.error || 'Error en rollback'; snapMsgError = true; }
+  }
+
+  // ── ZFS: Scrub ──────────────────────────────────────────────────────────────
+  let scrubPool = '';
+  let scrubStatus = { status: 'idle', progress: 0, errors: 0 };
+  let scrubLoading = false;
+  let scrubMsg = ''; let scrubMsgError = false;
+  let scrubInterval = null;
+
+  async function loadScrubStatus(pool) {
+    if (!pool) return;
+    try {
+      const res = await fetch(`/api/storage/scrub/status?pool=${encodeURIComponent(pool)}`, { headers: hdrs() });
+      scrubStatus = await res.json();
+    } catch { scrubStatus = { status: 'idle', progress: 0, errors: 0 }; }
+  }
+
+  async function startScrub() {
+    scrubMsg = '';
+    const res = await fetch('/api/storage/scrub', {
+      method: 'POST',
+      headers: { ...hdrs(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pool: scrubPool }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      scrubMsg = 'Scrub iniciado'; scrubMsgError = false;
+      scrubInterval = setInterval(() => loadScrubStatus(scrubPool), 3000);
+      loadScrubStatus(scrubPool);
+    } else { scrubMsg = data.error || 'Error'; scrubMsgError = true; }
+  }
+
+  // ── ZFS: Datasets ──────────────────────────────────────────────────────────
+  let datasets = [];
+  let dsLoading = false;
+  let dsPool = '';
+  let newDs = { name: '', quota: '' };
+  let dsMsg = ''; let dsMsgError = false;
+
+  async function loadDatasets(pool) {
+    if (!pool) return;
+    dsLoading = true;
+    try {
+      const res = await fetch(`/api/storage/datasets?pool=${encodeURIComponent(pool)}`, { headers: hdrs() });
+      const data = await res.json();
+      datasets = data.datasets || [];
+    } catch { datasets = []; }
+    dsLoading = false;
+  }
+
+  async function createDs() {
+    dsMsg = '';
+    const quota = newDs.quota ? parseInt(newDs.quota) * 1024 * 1024 * 1024 : 0;
+    const res = await fetch('/api/storage/dataset', {
+      method: 'POST',
+      headers: { ...hdrs(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pool: dsPool, name: newDs.name, quota }),
+    });
+    const data = await res.json();
+    if (data.ok) { dsMsg = 'Dataset creado'; dsMsgError = false; newDs = { name: '', quota: '' }; loadDatasets(dsPool); }
+    else { dsMsg = data.error || 'Error'; dsMsgError = true; }
+  }
+
+  async function deleteDs(dataset) {
+    if (!confirm(`¿Borrar dataset ${dataset}?`)) return;
+    const res = await fetch('/api/storage/dataset', {
+      method: 'DELETE',
+      headers: { ...hdrs(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataset }),
+    });
+    const data = await res.json();
+    if (data.ok) loadDatasets(dsPool);
+    else alert(data.error || 'Error');
+  }
+
+  // ── Reactive: load ZFS data when tab changes ────────────────────────────────
+  $: if (activeTab === 'snapshots' && pools.length > 0) {
+    if (!snapPool) snapPool = pools[0]?.name || '';
+    loadSnapshots(snapPool);
+  }
+  $: if (activeTab === 'datasets' && pools.length > 0) {
+    if (!dsPool) dsPool = pools[0]?.name || '';
+    loadDatasets(dsPool);
+  }
+  $: if (activeTab === 'scrub' && pools.length > 0) {
+    if (!scrubPool) scrubPool = pools[0]?.name || '';
+    loadScrubStatus(scrubPool);
+  }
+  $: if (snapPool && activeTab === 'snapshots') loadSnapshots(snapPool);
+  $: if (dsPool   && activeTab === 'datasets')  loadDatasets(dsPool);
+  $: if (scrubPool && activeTab === 'scrub')     loadScrubStatus(scrubPool);
+
+  function fmtDate(raw) {
+    if (!raw) return '—';
+    // ZFS gives "Thu Mar 26 19:30 2026" — try to parse
+    const d = new Date(raw);
+    if (!isNaN(d)) return d.toLocaleString('es-ES', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    return raw;
+  }
+
 
   async function load() {
     loading = true;
@@ -528,6 +681,164 @@
       {#if restoreMsg}
         <div class="pool-msg" class:error={restoreMsgError} style="margin-top:10px">{restoreMsg}</div>
       {/if}
+
+    {:else if activeTab === 'snapshots'}
+
+      <!-- Pool selector -->
+      <div class="zfs-toolbar">
+        <div class="section-label" style="margin:0">Snapshots ZFS</div>
+        <select class="form-select zfs-pool-sel" bind:value={snapPool} on:change={() => loadSnapshots(snapPool)}>
+          {#each pools.filter(p => p.type === 'zfs' || p.filesystem === 'zfs') as p}
+            <option value={p.name}>{p.name}</option>
+          {/each}
+          {#if pools.filter(p => p.type === 'zfs' || p.filesystem === 'zfs').length === 0}
+            {#each pools as p}<option value={p.name}>{p.name}</option>{/each}
+          {/if}
+        </select>
+        <div class="zfs-create-row">
+          <input class="form-input zfs-snap-input" type="text" placeholder="nombre (auto si vacío)" bind:value={newSnapName} />
+          <button class="btn-accent zfs-btn" on:click={createSnap}>+ Snapshot</button>
+        </div>
+      </div>
+
+      {#if snapsLoading}
+        <div class="zfs-loading"><div class="spinner"></div></div>
+      {:else if snapshots.length === 0}
+        <div class="zfs-empty">◈ No hay snapshots en este pool</div>
+      {:else}
+        <div class="zfs-list">
+          {#each snapshots as snap}
+            <div class="zfs-row">
+              <div class="zfs-row-icon snap-icon">◈</div>
+              <div class="zfs-row-info">
+                <div class="zfs-row-name">{snap.name.split('@')[1] || snap.name}</div>
+                <div class="zfs-row-meta">{snap.name.split('@')[0]} · {fmtDate(snap.created)}</div>
+              </div>
+              <div class="zfs-row-sizes">
+                <span class="zfs-size-badge">usado {fmt(snap.used)}</span>
+                <span class="zfs-size-badge refer">ref {fmt(snap.refer)}</span>
+              </div>
+              <div class="zfs-row-actions">
+                <button class="zfs-action-btn rollback" on:click={() => rollbackSnap(snap.name)} title="Rollback">⟲</button>
+                <button class="zfs-action-btn del" on:click={() => deleteSnap(snap.name)} title="Borrar">✕</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      {#if snapMsg}<div class="pool-msg" class:error={snapMsgError} style="margin-top:10px">{snapMsg}</div>{/if}
+
+    {:else if activeTab === 'datasets'}
+
+      <div class="zfs-toolbar">
+        <div class="section-label" style="margin:0">Datasets ZFS</div>
+        <select class="form-select zfs-pool-sel" bind:value={dsPool} on:change={() => loadDatasets(dsPool)}>
+          {#each pools.filter(p => p.type === 'zfs' || p.filesystem === 'zfs') as p}
+            <option value={p.name}>{p.name}</option>
+          {/each}
+          {#if pools.filter(p => p.type === 'zfs' || p.filesystem === 'zfs').length === 0}
+            {#each pools as p}<option value={p.name}>{p.name}</option>{/each}
+          {/if}
+        </select>
+        <div class="zfs-create-row">
+          <input class="form-input zfs-snap-input" type="text" placeholder="nombre del dataset" bind:value={newDs.name} />
+          <input class="form-input zfs-quota-input" type="number" placeholder="quota GB (0=sin)" bind:value={newDs.quota} min="0" />
+          <button class="btn-accent zfs-btn" on:click={createDs}>+ Dataset</button>
+        </div>
+      </div>
+
+      {#if dsLoading}
+        <div class="zfs-loading"><div class="spinner"></div></div>
+      {:else if datasets.length === 0}
+        <div class="zfs-empty">⊟ No hay datasets en este pool</div>
+      {:else}
+        <div class="zfs-list">
+          {#each datasets as ds}
+            <div class="zfs-row">
+              <div class="zfs-row-icon ds-icon">⊟</div>
+              <div class="zfs-row-info">
+                <div class="zfs-row-name">{ds.name.split('/').slice(1).join('/') || ds.name}</div>
+                <div class="zfs-row-meta">{ds.mountpoint} · {ds.type}</div>
+              </div>
+              <div class="zfs-row-sizes">
+                <span class="zfs-size-badge">usado {fmt(ds.used)}</span>
+                <span class="zfs-size-badge refer">libre {fmt(ds.avail)}</span>
+                {#if ds.quota > 0}<span class="zfs-size-badge quota">quota {fmt(ds.quota)}</span>{/if}
+              </div>
+              {#if ds.quota > 0}
+                {@const pct = Math.min(100, (ds.used / ds.quota) * 100)}
+                <div class="ds-quota-bar" title="{pct.toFixed(0)}%">
+                  <div class="ds-quota-fill" style="width:{pct}%;background:{pct>85?'var(--red)':pct>60?'var(--amber)':'var(--accent)'}"></div>
+                </div>
+              {/if}
+              <div class="zfs-row-actions">
+                <button class="zfs-action-btn del" on:click={() => deleteDs(ds.name)} title="Borrar">✕</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      {#if dsMsg}<div class="pool-msg" class:error={dsMsgError} style="margin-top:10px">{dsMsg}</div>{/if}
+
+    {:else if activeTab === 'scrub'}
+
+      <div class="zfs-toolbar">
+        <div class="section-label" style="margin:0">Scrub ZFS</div>
+        <select class="form-select zfs-pool-sel" bind:value={scrubPool} on:change={() => loadScrubStatus(scrubPool)}>
+          {#each pools.filter(p => p.type === 'zfs' || p.filesystem === 'zfs') as p}
+            <option value={p.name}>{p.name}</option>
+          {/each}
+          {#if pools.filter(p => p.type === 'zfs' || p.filesystem === 'zfs').length === 0}
+            {#each pools as p}<option value={p.name}>{p.name}</option>{/each}
+          {/if}
+        </select>
+      </div>
+
+      <div class="scrub-card">
+        <div class="scrub-status-row">
+          <div class="scrub-status-indicator"
+            class:idle={scrubStatus.status==='idle'}
+            class:running={scrubStatus.status==='scrubbing'}
+            class:done={scrubStatus.status==='done'}
+            class:err={scrubStatus.status==='error'}></div>
+          <div class="scrub-status-label">
+            {#if scrubStatus.status === 'idle'}Inactivo
+            {:else if scrubStatus.status === 'scrubbing'}Scrub en progreso…
+            {:else if scrubStatus.status === 'done'}Completado
+            {:else}Error
+            {/if}
+          </div>
+          {#if scrubStatus.errors !== undefined}
+            <div class="scrub-errors" class:has-err={scrubStatus.errors > 0}>
+              {scrubStatus.errors} error{scrubStatus.errors !== 1 ? 'es' : ''}
+            </div>
+          {/if}
+        </div>
+
+        {#if scrubStatus.status === 'scrubbing'}
+          <div class="scrub-progress-wrap">
+            <div class="scrub-progress-track">
+              <div class="scrub-progress-fill" style="width:{scrubStatus.progress || 0}%"></div>
+            </div>
+            <div class="scrub-pct">{scrubStatus.progress || 0}%</div>
+          </div>
+          {#if scrubStatus.eta}
+            <div class="scrub-eta">ETA: {fmtDate(scrubStatus.eta)}</div>
+          {/if}
+        {/if}
+      </div>
+
+      {#if scrubStatus.status !== 'scrubbing'}
+        <button class="btn-accent" style="margin-top:12px;width:fit-content" on:click={startScrub}>
+          ⌖ Iniciar Scrub
+        </button>
+      {:else}
+        <button class="btn-secondary" style="margin-top:12px;width:fit-content;opacity:.5" disabled>
+          Scrub en progreso…
+        </button>
+      {/if}
+      {#if scrubMsg}<div class="pool-msg" class:error={scrubMsgError} style="margin-top:10px">{scrubMsg}</div>{/if}
+
     {/if}
 
   </div>
@@ -719,4 +1030,79 @@
   .pool-msg { font-size:11px; color:var(--green); padding:6px 0; }
   .pool-msg.error { color:var(--red); }
   .pool-sep { height:1px; background:var(--border); margin:12px 0; }
+
+  /* ── ZFS SHARED ── */
+  .zfs-toolbar {
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+  .zfs-pool-sel { width:140px; padding:6px 10px; font-size:11px; }
+  .zfs-create-row { display:flex; align-items:center; gap:6px; margin-left:auto; }
+  .zfs-snap-input { width:180px; padding:6px 10px; font-size:11px; }
+  .zfs-quota-input { width:110px; padding:6px 10px; font-size:11px; }
+  .zfs-btn { padding:6px 12px; font-size:11px; white-space:nowrap; }
+  .zfs-loading { display:flex; align-items:center; justify-content:center; padding:40px; }
+  .zfs-empty { font-size:12px; color:var(--text-3); padding:30px 0; text-align:center; }
+
+  /* ── ZFS LIST ROWS ── */
+  .zfs-list { display:flex; flex-direction:column; gap:4px; }
+  .zfs-row {
+    display:flex; align-items:center; gap:10px;
+    padding:9px 12px; border-radius:8px;
+    border:1px solid var(--border); background:var(--ibtn-bg);
+    transition:border-color .15s;
+  }
+  .zfs-row:hover { border-color:var(--border-hi); }
+  .zfs-row-icon { font-size:14px; flex-shrink:0; width:18px; text-align:center; }
+  .snap-icon { color:var(--accent); }
+  .ds-icon   { color:var(--accent2); }
+  .zfs-row-info { flex:1; min-width:0; }
+  .zfs-row-name { font-size:12px; font-weight:600; color:var(--text-1); font-family:'DM Mono',monospace; }
+  .zfs-row-meta { font-size:10px; color:var(--text-3); margin-top:1px; }
+  .zfs-row-sizes { display:flex; gap:5px; flex-shrink:0; }
+  .zfs-size-badge {
+    padding:2px 7px; border-radius:4px; font-size:9px; font-weight:600;
+    background:var(--ibtn-bg); border:1px solid var(--border); color:var(--text-3);
+    font-family:'DM Mono',monospace;
+  }
+  .zfs-size-badge.refer { color:var(--text-2); }
+  .zfs-size-badge.quota { color:var(--amber); border-color:rgba(251,191,36,0.25); background:rgba(251,191,36,0.08); }
+  .zfs-row-actions { display:flex; gap:5px; flex-shrink:0; }
+  .zfs-action-btn {
+    width:26px; height:26px; border-radius:6px; border:1px solid var(--border);
+    background:var(--ibtn-bg); color:var(--text-3); font-size:11px;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    transition:all .15s;
+  }
+  .zfs-action-btn:hover { color:var(--text-1); border-color:var(--border-hi); }
+  .zfs-action-btn.del:hover  { color:var(--red);    border-color:rgba(248,113,113,0.35); background:rgba(248,113,113,0.08); }
+  .zfs-action-btn.rollback:hover { color:var(--accent); border-color:rgba(124,111,255,0.35); background:rgba(124,111,255,0.08); }
+
+  /* ── DATASET QUOTA BAR ── */
+  .ds-quota-bar { width:60px; height:4px; background:rgba(128,128,128,0.12); border-radius:2px; overflow:hidden; flex-shrink:0; }
+  .ds-quota-fill { height:100%; border-radius:2px; transition:width .3s; }
+
+  /* ── SCRUB ── */
+  .scrub-card {
+    padding:16px 18px; border-radius:10px;
+    border:1px solid var(--border); background:var(--ibtn-bg);
+    max-width:420px; display:flex; flex-direction:column; gap:12px;
+  }
+  .scrub-status-row { display:flex; align-items:center; gap:10px; }
+  .scrub-status-indicator {
+    width:10px; height:10px; border-radius:50%; flex-shrink:0;
+    background:rgba(128,128,128,0.3);
+  }
+  .scrub-status-indicator.idle    { background:rgba(128,128,128,0.3); }
+  .scrub-status-indicator.running { background:var(--accent); box-shadow:0 0 6px rgba(124,111,255,0.6); animation:ledBlink 1.5s ease-in-out infinite; }
+  .scrub-status-indicator.done    { background:var(--green);  box-shadow:0 0 5px rgba(74,222,128,0.5); }
+  .scrub-status-indicator.err     { background:var(--red); }
+  .scrub-status-label { font-size:13px; font-weight:600; color:var(--text-1); }
+  .scrub-errors { margin-left:auto; font-size:10px; font-family:'DM Mono',monospace; color:var(--text-3); }
+  .scrub-errors.has-err { color:var(--red); }
+  .scrub-progress-wrap { display:flex; align-items:center; gap:10px; }
+  .scrub-progress-track { flex:1; height:6px; background:rgba(128,128,128,0.12); border-radius:3px; overflow:hidden; }
+  .scrub-progress-fill  { height:100%; border-radius:3px; background:linear-gradient(90deg, var(--accent), var(--accent2)); transition:width .5s; }
+  .scrub-pct { font-size:11px; font-family:'DM Mono',monospace; color:var(--text-2); flex-shrink:0; width:36px; text-align:right; }
+  .scrub-eta { font-size:10px; color:var(--text-3); }
 </style>

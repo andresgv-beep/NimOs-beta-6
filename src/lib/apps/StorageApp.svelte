@@ -7,17 +7,20 @@
 
   // Sidebar items — Storage-specific sections
   const sidebarItems = [
-    { id: 'disks',   label: 'Disks',           icon: 'disk'    },
-    { id: 'pools',   label: 'Storage Manager', icon: 'pool'    },
-    { id: 'health',  label: 'Health',          icon: 'health'  },
-    { id: 'restore', label: 'Restore Pool',    icon: 'restore' },
+    { id: 'disks',    label: 'Disks',           icon: 'disk'     },
+    { id: 'pools',    label: 'Storage Manager', icon: 'pool'     },
+    { id: 'health',   label: 'Health',          icon: 'health'   },
+    { id: 'restore',  label: 'Restore Pool',    icon: 'restore'  },
+    { id: 'snapshots',label: 'Snapshots',       icon: 'snapshot' },
+    { id: 'datasets', label: 'Datasets',        icon: 'dataset'  },
+    { id: 'scrub',    label: 'Scrub',           icon: 'scrub'    },
   ];
 
   $: userName = $user?.username || 'User';
   $: userRole = $user?.role     || 'user';
 
   // Tab label for titlebar subtitle
-  const tabLabel = { disks: 'Disks', pools: 'Storage Manager', health: 'Health', restore: 'Restore Pool' };
+  const tabLabel = { disks: 'Disks', pools: 'Storage Manager', health: 'Health', restore: 'Restore Pool', snapshots: 'Snapshots', datasets: 'Datasets', scrub: 'Scrub' };
 </script>
 
 <div class="storage-app-root">
@@ -44,6 +47,9 @@
           {:else if item.icon === 'pool'}▦
           {:else if item.icon === 'health'}♡
           {:else if item.icon === 'restore'}⟲
+          {:else if item.icon === 'snapshot'}◈
+          {:else if item.icon === 'dataset'}⊟
+          {:else if item.icon === 'scrub'}⌖
           {:else}●
           {/if}
         </span>
@@ -72,10 +78,13 @@
 
         <div class="tb-tabs">
           <TabNav tabs={[
-            { id:'disks',   label:'Disks'           },
-            { id:'pools',   label:'Storage Manager'  },
-            { id:'health',  label:'Health'           },
-            { id:'restore', label:'Restore Pool'     },
+            { id:'disks',     label:'Disks'           },
+            { id:'pools',     label:'Storage Manager'  },
+            { id:'health',    label:'Health'           },
+            { id:'restore',   label:'Restore Pool'     },
+            { id:'snapshots', label:'Snapshots'        },
+            { id:'datasets',  label:'Datasets'         },
+            { id:'scrub',     label:'Scrub'            },
           ]} bind:active={activeTab} />
         </div>
       </div>

@@ -434,12 +434,7 @@ func checkStorageHealthGo() []map[string]interface{} {
 	return alerts
 }
 
-// ─── Wipe (stub — will be replaced by storage_wipe.go) ──────────────────────
-
-func wipeDiskGo(diskPath string) map[string]interface{} {
-	// TODO: replace with wipeDiskNew from plan v2
-	return map[string]interface{}{"error": "Wipe not yet reimplemented — pending storage rewrite"}
-}
+// ─── Wipe (implemented in storage_wipe.go) ──────────────────────────────────
 
 // ─── Scan / Restore (stubs) ──────────────────────────────────────────────────
 

@@ -1,0 +1,103 @@
+/* ═══════════════════════════════════════
+   NimOS — Global Theme Tokens
+   Three themes: midnight (default), dark, light
+   ═══════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'DM Sans', sans-serif; }
+
+/* ── Midnight (default) ── */
+:root {
+  --accent:     #7c6fff;
+  --accent2:    #c054f0;
+  --text-1:     rgba(255,255,255,0.92);
+  --text-2:     rgba(255,255,255,0.50);
+  --text-3:     rgba(255,255,255,0.27);
+  --border:     rgba(255,255,255,0.07);
+  --border-hi:  rgba(124,111,255,0.50);
+  --active-bg:  rgba(124,111,255,0.18);
+  --bg-frame:   #111028;
+  --bg-sidebar: #111028;
+  --bg-inner:   #1c1b3a;
+  --bg-bar:     #1c1b3a;
+  --ibtn-bg:    rgba(255,255,255,0.06);
+  --badge-bg:   rgba(255,255,255,0.09);
+  --badge-cl:   rgba(255,255,255,0.50);
+  --storage-bg: rgba(255,255,255,0.05);
+  --green:      #4ade80;
+  --amber:      #fbbf24;
+  --red:        #f87171;
+  --blue:       #60a5fa;
+
+  --wallpaper:
+    radial-gradient(ellipse 80% 60% at 10% 50%, rgba(80,140,255,1.0) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 80% at 90% 20%, rgba(230,80,255,1.0) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 50% at 50% 90%, rgba(140,80,255,0.90) 0%, transparent 50%),
+    linear-gradient(140deg, #3020a0 0%, #601080 100%);
+
+  --window-border: rgba(255,255,255,0.12);
+  --window-shadow: 0 32px 90px rgba(0,0,0,0.60);
+  --taskbar-height: 48px;
+}
+
+/* ── Dark ── */
+[data-theme="dark"] {
+  --accent:     #7c6fff;
+  --accent2:    #c054f0;
+  --text-1:     rgba(255,255,255,0.90);
+  --text-2:     rgba(255,255,255,0.48);
+  --text-3:     rgba(255,255,255,0.26);
+  --border:     rgba(255,255,255,0.07);
+  --border-hi:  rgba(124,111,255,0.45);
+  --active-bg:  rgba(124,111,255,0.16);
+  --bg-frame:   #181818;
+  --bg-sidebar: #181818;
+  --bg-inner:   #212121;
+  --bg-bar:     #212121;
+  --ibtn-bg:    rgba(255,255,255,0.06);
+  --badge-bg:   rgba(255,255,255,0.08);
+  --badge-cl:   rgba(255,255,255,0.48);
+  --storage-bg: rgba(255,255,255,0.05);
+  --green:      #4ade80;
+  --amber:      #fbbf24;
+  --red:        #f87171;
+  --blue:       #60a5fa;
+
+  --wallpaper: linear-gradient(140deg, #141414 0%, #1a1a1a 100%);
+  --window-border: rgba(255,255,255,0.10);
+  --window-shadow: 0 32px 90px rgba(0,0,0,0.60);
+}
+
+/* ── Light ── */
+[data-theme="light"] {
+  --accent:     #5b4ff0;
+  --accent2:    #a030d0;
+  --text-1:     rgba(0,0,0,0.92);
+  --text-2:     rgba(0,0,0,0.72);
+  --text-3:     rgba(0,0,0,0.52);
+  --border:     rgba(0,0,0,0.13);
+  --border-hi:  rgba(91,79,240,0.50);
+  --active-bg:  rgba(91,79,240,0.12);
+  --bg-frame:   #dddde4;
+  --bg-sidebar: #dddde4;
+  --bg-inner:   #ebebef;
+  --bg-bar:     #ebebef;
+  --ibtn-bg:    rgba(0,0,0,0.07);
+  --badge-bg:   rgba(0,0,0,0.08);
+  --badge-cl:   rgba(0,0,0,0.65);
+  --storage-bg: rgba(0,0,0,0.06);
+  --green:      #16a34a;
+  --amber:      #d97706;
+  --red:        #dc2626;
+  --blue:       #2563eb;
+
+  --wallpaper:
+    radial-gradient(ellipse 80% 60% at 10% 50%, rgba(160,180,255,0.7) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 80% at 90% 20%, rgba(220,160,255,0.6) 0%, transparent 50%),
+    linear-gradient(140deg, #dcd8f8 0%, #ede8fc 100%);
+
+  --window-border: rgba(0,0,0,0.10);
+  --window-shadow: 0 32px 90px rgba(0,0,0,0.18);
+}

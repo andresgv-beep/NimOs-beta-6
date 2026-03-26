@@ -179,48 +179,10 @@ func startupStorage() {
 	logMsg("startup: Storage initialization...")
 	conf := getStorageConfigFull()
 	confPools, _ := conf["pools"].([]interface{})
-
-	// Build set of known pool mount points
-	knownMounts := map[string]bool{}
-	for _, poolRaw := range confPools {
-		pm, _ := poolRaw.(map[string]interface{})
-		if mp, _ := pm["mountPoint"].(string); mp != "" {
-			knownMounts[mp] = true
-		}
-	}
-
-	// Clean orphan directories in /nimbus/pools/
-	// These are leftover from pools destroyed manually or from previous installs.
-	entries, err := os.ReadDir(nimbusPoolsDir)
-	if err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			dirPath := filepath.Join(nimbusPoolsDir, e.Name())
-
-			// Skip if this is a known pool
-			if knownMounts[dirPath] {
-				continue
-			}
-
-			// Check if something real is mounted here
-			if isPathOnMountedPool(dirPath) {
-				logMsg("startup: Unknown mount at %s — skipping cleanup", dirPath)
-				continue
-			}
-
-			// Orphan directory on system disk — remove it
-			os.RemoveAll(dirPath)
-			logMsg("startup: Removed orphan directory %s", dirPath)
-		}
-	}
-
 	if len(confPools) == 0 {
 		logMsg("startup: No pools configured")
 		return
 	}
-
 	// Verify pools are mounted and create dirs if needed
 	for _, poolRaw := range confPools {
 		pm, _ := poolRaw.(map[string]interface{})

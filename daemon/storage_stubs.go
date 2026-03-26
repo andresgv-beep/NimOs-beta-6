@@ -681,7 +681,14 @@ func handleStorageRoutes(w http.ResponseWriter, r *http.Request) {
 
 		switch urlPath {
 		case "/api/storage/pool":
-			jsonError(w, 503, "Pool creation pending storage rewrite")
+			poolType := bodyStr(body, "type")
+			if poolType == "zfs" || (hasZfs && poolType == "") {
+				jsonOk(w, createPoolZfs(body))
+			} else if poolType == "btrfs" && hasBtrfs {
+				jsonOk(w, createPoolBtrfs(body))
+			} else {
+				jsonError(w, 400, "No supported filesystem available")
+			}
 		case "/api/storage/scan":
 			rescanSCSIBuses()
 			jsonOk(w, map[string]interface{}{"ok": true, "disks": detectStorageDisksGo()})
@@ -693,9 +700,31 @@ func handleStorageRoutes(w http.ResponseWriter, r *http.Request) {
 				jsonOk(w, wipeDiskGo(disk))
 			}
 		case "/api/storage/pool/destroy":
-			jsonError(w, 503, "Pool destroy pending storage rewrite")
+			poolName := bodyStr(body, "name")
+			if poolName == "" {
+				jsonError(w, 400, "Provide pool name")
+			} else {
+				conf := getStorageConfigFull()
+				confPools, _ := conf["pools"].([]interface{})
+				poolType := ""
+				for _, p := range confPools {
+					pm, _ := p.(map[string]interface{})
+					if n, _ := pm["name"].(string); n == poolName {
+						poolType, _ = pm["type"].(string)
+						break
+					}
+				}
+				switch poolType {
+				case "zfs":
+					jsonOk(w, destroyPoolZfs(poolName))
+				case "btrfs":
+					jsonOk(w, destroyPoolBtrfs(poolName))
+				default:
+					jsonError(w, 400, fmt.Sprintf("Unknown pool type '%s'", poolType))
+				}
+			}
 		case "/api/storage/pool/restore":
-			jsonError(w, 503, "Pool restore pending storage rewrite")
+			jsonError(w, 503, "Pool restore pending implementation")
 		case "/api/storage/backup":
 			backupConfigToPoolGo()
 			jsonOk(w, map[string]interface{}{"ok": true})

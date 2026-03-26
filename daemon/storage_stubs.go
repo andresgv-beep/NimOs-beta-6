@@ -666,6 +666,15 @@ func handleStorageRoutes(w http.ResponseWriter, r *http.Request) {
 			jsonOk(w, checkStorageHealthGo())
 		case "/api/storage/restorable":
 			jsonOk(w, map[string]interface{}{"pools": scanForRestorablePoolsGo()})
+		case "/api/storage/snapshots":
+			pool := r.URL.Query().Get("pool")
+			jsonOk(w, listSnapshots(pool))
+		case "/api/storage/scrub/status":
+			pool := r.URL.Query().Get("pool")
+			jsonOk(w, getScrubStatus(pool))
+		case "/api/storage/datasets":
+			pool := r.URL.Query().Get("pool")
+			jsonOk(w, listDatasets(pool))
 		default:
 			jsonError(w, 404, "Not found")
 		}
@@ -728,6 +737,22 @@ func handleStorageRoutes(w http.ResponseWriter, r *http.Request) {
 		case "/api/storage/backup":
 			backupConfigToPoolGo()
 			jsonOk(w, map[string]interface{}{"ok": true})
+		case "/api/storage/snapshot":
+			if method == "POST" {
+				jsonOk(w, createSnapshot(body))
+			} else if method == "DELETE" {
+				jsonOk(w, deleteSnapshot(body))
+			}
+		case "/api/storage/snapshot/rollback":
+			jsonOk(w, rollbackSnapshot(body))
+		case "/api/storage/scrub":
+			jsonOk(w, startScrub(body))
+		case "/api/storage/dataset":
+			if method == "POST" {
+				jsonOk(w, createDataset(body))
+			} else if method == "DELETE" {
+				jsonOk(w, deleteDataset(body))
+			}
 		default:
 			jsonError(w, 404, "Not found")
 		}

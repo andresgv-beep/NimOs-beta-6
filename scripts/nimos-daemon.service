@@ -1,6 +1,6 @@
 [Unit]
 Description=NimOS Permissions Daemon
-Documentation=https://github.com/andresgv-beep/NimOs-beta-5
+Documentation=https://github.com/andresgv-beep/NimOs-beta-6
 After=local-fs.target zfs-mount.service
 Before=nimbusos.service
 

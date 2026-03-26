@@ -3,7 +3,7 @@
 set -euo pipefail
 
 DIR="/opt/nimbusos"
-URL="https://github.com/andresgv-beep/NimOs-beta-5/archive/refs/heads/main.tar.gz"
+URL="https://github.com/andresgv-beep/NimOs-beta-6/archive/refs/heads/main.tar.gz"
 RESULT_FILE="/var/log/nimbusos/update-result.json"
 LOG_FILE="/var/log/nimbusos/update.log"
 

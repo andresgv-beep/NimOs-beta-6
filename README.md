@@ -15,7 +15,7 @@ To recreate this project with the same configuration:
 
 ```sh
 # recreate this project
-npx sv@0.12.7 create --template minimal --no-types --install npm NimOs-beta-5-svelte
+npx sv@0.12.7 create --template minimal --no-types --install npm NimOs-beta-6-svelte
 ```
 
 ## Developing

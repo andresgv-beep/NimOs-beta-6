@@ -3,14 +3,14 @@
 # ║  NimOS Beta 5 Installer                                    ║
 # ║  Transforms Ubuntu/Debian Server into a NimOS NAS          ║
 # ║  curl -fsSL https://raw.githubusercontent.com/               ║
-# ║    andresgv-beep/NimOs-beta-5/main/install.sh | sudo bash  ║
+# ║    andresgv-beep/NimOs-beta-6/main/install.sh | sudo bash  ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 set -euo pipefail
 
 # ── Config ──
-NIMBUS_VERSION="5.0.0-beta"
-NIMBUS_REPO="https://github.com/andresgv-beep/NimOs-beta-5"
+NIMBUS_VERSION="6.0.0-beta"
+NIMBUS_REPO="https://github.com/andresgv-beep/NimOs-beta-6"
 NIMBUS_BRANCH="main"
 INSTALL_DIR="/opt/nimbusos"
 DATA_DIR="/var/lib/nimbusos"
@@ -238,7 +238,7 @@ install_nimos() {
   step "Installing NimOS application"
 
   # Download via tarball (no git auth needed)
-  TARBALL_URL="https://github.com/andresgv-beep/NimOs-beta-5/archive/refs/heads/${NIMBUS_BRANCH}.tar.gz"
+  TARBALL_URL="https://github.com/andresgv-beep/NimOs-beta-6/archive/refs/heads/${NIMBUS_BRANCH}.tar.gz"
   
   if [[ -d "$INSTALL_DIR/daemon" ]]; then
     log "Updating existing installation..."

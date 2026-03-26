@@ -1,0 +1,15 @@
+export const APP_META = {
+  files:        { name: 'Files',           icon: '/icons/files.png',       width: 860, height: 540 },
+  nimsettings:  { name: 'NimSettings',     icon: '/icons/settings.png',    width: 880, height: 580 },
+  storage:      { name: 'Storage',         icon: '/icons/storage.png',     width: 900, height: 580 },
+  network:      { name: 'Network',         icon: '/icons/network.png',     width: 860, height: 560 },
+  nimtorrent:   { name: 'NimTorrent',      icon: '/icons/nimtorrent.png',  width: 820, height: 520 },
+  monitor:      { name: 'System Monitor',  icon: '/icons/monitor.png',     width: 700, height: 480 },
+  containers:   { name: 'Containers',      icon: '/icons/containers.png',  width: 800, height: 520 },
+  mediaplayer:  { name: 'Media Player',    icon: '/icons/media.png',       width: 650, height: 500 },
+  appstore:     { name: 'App Store',       icon: '/icons/appstore.png',    width: 900, height: 600 },
+  nimbackup:    { name: 'NimBackup',       icon: '/icons/nimbackup.png',   width: 920, height: 600 },
+  texteditor:   { name: 'Notes',           icon: '/icons/notes.png',       width: 860, height: 560 },
+  terminal:     { name: 'Terminal',        icon: '/icons/terminal.png',    width: 700, height: 450 },
+  vms:          { name: 'Virtual Machines',icon: '/icons/vms.png',         width: 850, height: 550 },
+};

@@ -460,8 +460,13 @@ func enrichSharesWithQuota(shares []map[string]interface{}) {
 		zpoolName, _ := targetPool["zpoolName"].(string)
 		mountPoint, _ := targetPool["mountPoint"].(string)
 
+		shares[i]["poolType"] = poolType
+		sharePath := filepath.Join(mountPoint, "shares", sharName)
+		shares[i]["mountPoint"] = sharePath
+
 		if poolType == "zfs" && zpoolName != "" {
 			datasetName := zpoolName + "/shares/" + sharName
+			// Get quota
 			res, err := runCmd("zfs", []string{"get", "-Hp", "-o", "value", "quota", datasetName}, opts)
 			if err == nil {
 				val := strings.TrimSpace(res.Stdout)
@@ -470,11 +475,27 @@ func enrichSharesWithQuota(shares []map[string]interface{}) {
 					fmt.Sscanf(val, "%d", &q)
 					shares[i]["quota"] = q
 				} else {
-					shares[i]["quota"] = 0
+					shares[i]["quota"] = int64(0)
 				}
 			}
+			// Get used
+			res, err = runCmd("zfs", []string{"get", "-Hp", "-o", "value", "used", datasetName}, opts)
+			if err == nil {
+				var u int64
+				fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d", &u)
+				shares[i]["used"] = u
+			}
+			// Get available
+			res, err = runCmd("zfs", []string{"get", "-Hp", "-o", "value", "available", datasetName}, opts)
+			if err == nil {
+				var a int64
+				fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d", &a)
+				shares[i]["available"] = a
+			}
+
 		} else if poolType == "btrfs" && mountPoint != "" {
 			subvolPath := filepath.Join(mountPoint, "shares", sharName)
+			// Get quota from subvolume show
 			res, err := runCmd("btrfs", []string{"subvolume", "show", subvolPath}, opts)
 			if err == nil {
 				for _, line := range strings.Split(res.Stdout, "\n") {
@@ -485,14 +506,86 @@ func enrichSharesWithQuota(shares []map[string]interface{}) {
 						if valStr != "-" && valStr != "none" {
 							shares[i]["quota"] = parseHumanBytes(valStr)
 						} else {
-							shares[i]["quota"] = 0
+							shares[i]["quota"] = int64(0)
 						}
-						break
+					}
+					if strings.HasPrefix(line, "Usage referenced:") {
+						valStr := strings.TrimPrefix(line, "Usage referenced:")
+						shares[i]["used"] = parseHumanBytes(strings.TrimSpace(valStr))
 					}
 				}
 			}
+			// Get available from df
+			dfRes, err := runCmd("df", []string{"-B1", "--output=avail", subvolPath}, opts)
+			if err == nil {
+				lines := strings.Split(strings.TrimSpace(dfRes.Stdout), "\n")
+				if len(lines) > 1 {
+					var a int64
+					fmt.Sscanf(strings.TrimSpace(lines[1]), "%d", &a)
+					shares[i]["available"] = a
+				}
+			}
+		}
+
+		// File stats by category — scan the share directory
+		shares[i]["fileStats"] = getFileStatsByCategory(sharePath)
+	}
+}
+
+// getFileStatsByCategory scans a directory and returns bytes used per file category
+func getFileStatsByCategory(dirPath string) map[string]int64 {
+	stats := map[string]int64{
+		"video":    0,
+		"image":    0,
+		"audio":    0,
+		"document": 0,
+		"other":    0,
+	}
+
+	// Use find + stat for efficiency — avoid walking huge trees in Go
+	opts := CmdOptions{Timeout: 10 * time.Second}
+	res, err := runCmd("find", []string{dirPath, "-type", "f", "-printf", "%s %f\\n"}, opts)
+	if err != nil {
+		return stats
+	}
+
+	videoExts := map[string]bool{"mp4": true, "mkv": true, "avi": true, "mov": true, "wmv": true, "flv": true, "webm": true, "m4v": true, "ts": true}
+	imageExts := map[string]bool{"jpg": true, "jpeg": true, "png": true, "gif": true, "bmp": true, "svg": true, "webp": true, "tiff": true, "raw": true, "heic": true}
+	audioExts := map[string]bool{"mp3": true, "flac": true, "wav": true, "aac": true, "ogg": true, "wma": true, "m4a": true, "opus": true}
+	docExts := map[string]bool{"pdf": true, "doc": true, "docx": true, "xls": true, "xlsx": true, "ppt": true, "pptx": true, "txt": true, "csv": true, "md": true, "rtf": true, "odt": true}
+
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		spaceIdx := strings.IndexByte(line, ' ')
+		if spaceIdx < 1 {
+			continue
+		}
+		var size int64
+		fmt.Sscanf(line[:spaceIdx], "%d", &size)
+		fileName := strings.ToLower(line[spaceIdx+1:])
+
+		ext := ""
+		if dotIdx := strings.LastIndexByte(fileName, '.'); dotIdx >= 0 {
+			ext = fileName[dotIdx+1:]
+		}
+
+		if videoExts[ext] {
+			stats["video"] += size
+		} else if imageExts[ext] {
+			stats["image"] += size
+		} else if audioExts[ext] {
+			stats["audio"] += size
+		} else if docExts[ext] {
+			stats["document"] += size
+		} else {
+			stats["other"] += size
 		}
 	}
+
+	return stats
 }
 
 // parseHumanBytes converts "55.88GiB" or "10.00MiB" to bytes

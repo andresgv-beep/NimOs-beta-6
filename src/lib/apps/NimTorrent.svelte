@@ -470,10 +470,10 @@
   @keyframes fadeUp { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
   .t-icon { width:18px; height:18px; flex-shrink:0; opacity:.5; } .t-icon svg { width:100%; height:100%; }
   .torrent-row:hover .t-icon, .torrent-row.selected .t-icon { opacity:.9; }
-  .t-main { flex:1; min-width:0; }
-  .t-name { font-size:12px; font-weight:500; color:var(--text-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .t-meta { display:flex; gap:8px; margin-top:2px; }
-  .t-meta span { font-size:9px; color:var(--text-3); font-family:'DM Mono',monospace; }
+  .t-main { flex:1; min-width:0; overflow:hidden; }
+  .t-name { font-size:12px; font-weight:500; color:var(--text-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .t-meta { display:flex; gap:8px; margin-top:2px; overflow:hidden; }
+  .t-meta span { font-size:9px; color:var(--text-3); font-family:'DM Mono',monospace; white-space:nowrap; flex-shrink:0; }
   .t-dl { color:#4ade80 !important; } .t-ul { color:#60a5fa !important; } .t-eta { opacity:.7; }
   .t-progress { display:flex; align-items:center; gap:6px; flex-shrink:0; width:140px; }
   .t-bar-bg { flex:1; height:3px; background:rgba(128,128,128,0.15); border-radius:2px; overflow:hidden; }

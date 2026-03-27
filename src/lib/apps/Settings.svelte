@@ -2,23 +2,25 @@
   import { onMount } from 'svelte';
   import { prefs, setPref, THEMES, ACCENT_COLORS } from '$lib/stores/theme.js';
   import TabNav from '$lib/components/TabNav.svelte';
+  import ShareWizard from '$lib/components/ShareWizard.svelte';
   import { user } from '$lib/stores/auth.js';
   import { getToken } from '$lib/stores/auth.js';
 
   const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}` });
 
   // ── Navegación ──
-  let activeView = 'permissions';
+  let activeView = 'shares';
 
   const sidebarSections = [
     {
       label: 'Sistema',
       items: [
-        { id: 'monitor',     label: 'Monitor',     icon: 'monitor'  },
-        { id: 'users',       label: 'Users',       icon: 'users'    },
-        { id: 'permissions', label: 'Permissions', icon: 'folder'   },
-        { id: 'portal',      label: 'Portal',      icon: 'portal'   },
-        { id: 'updates',     label: 'Updates',     icon: 'updates'  },
+        { id: 'monitor',     label: 'Monitor',            icon: 'monitor'  },
+        { id: 'users',       label: 'Users',              icon: 'users'    },
+        { id: 'shares',      label: 'Carpetas compartidas', icon: 'folder' },
+        { id: 'permissions', label: 'App Permissions',    icon: 'lock'     },
+        { id: 'portal',      label: 'Portal',             icon: 'portal'   },
+        { id: 'updates',     label: 'Updates',            icon: 'updates'  },
       ]
     },
     {
@@ -39,11 +41,11 @@
   let pools       = [];
   let loading     = false;
   let editingShare = null;
-  let wizardStep  = 1;
+  let showShareWizard = false;
   let savingShare = false;
   let shareMsg    = '';
   let shareMsgError = false;
-  let permsSub    = 'sharefolders'; // sharefolders | apppermissions
+  let permsSub    = 'sharefolders'; // kept for compat
 
   // ── App Permissions state ──
   let appPermUsers = [];
@@ -127,7 +129,7 @@
   async function loadView(view) {
     loading = true;
     try {
-      if (view === 'permissions') {
+      if (view === 'shares') {
         const [sr, ur, pr] = await Promise.all([
           fetch('/api/shares',        { headers: hdrs() }),
           fetch('/api/users',         { headers: hdrs() }),
@@ -136,6 +138,8 @@
         const sd = await sr.json(); shares = sd.shares || sd || [];
         const ud = await ur.json(); users  = ud.users  || ud || [];
         const pd = await pr.json(); pools  = Array.isArray(pd) ? pd : (pd.pools || []);
+      } else if (view === 'permissions') {
+        await loadAppPermissions();
       } else if (view === 'users') {
         const r = await fetch('/api/users', { headers: hdrs() });
         const d = await r.json(); usersList = d.users || d || [];
@@ -175,19 +179,12 @@
   async function saveShare() {
     savingShare = true; shareMsg = '';
     try {
-      if (editingShare._isNew) {
-        if (!editingShare.name.trim()) { shareMsg = 'Nombre requerido'; shareMsgError = true; savingShare = false; return; }
-        const res  = await fetch('/api/shares', { method: 'POST', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: editingShare.name.trim(), description: editingShare.description, pool: editingShare.pool }) });
-        const data = await res.json();
-        if (!data.ok) { shareMsg = data.error || 'Error al crear'; shareMsgError = true; savingShare = false; return; }
-        await fetch(`/api/shares/${data.name}`, { method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ permissions: editingShare._perms }) });
-      } else {
-        const res  = await fetch(`/api/shares/${editingShare.name}`, { method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ description: editingShare.description, permissions: editingShare._perms }) });
-        const data = await res.json();
-        if (!data.ok) { shareMsg = data.error || 'Error al guardar'; shareMsgError = true; savingShare = false; return; }
-      }
+      if (!editingShare.name.trim()) { shareMsg = 'Nombre requerido'; shareMsgError = true; savingShare = false; return; }
+      const res  = await fetch(`/api/shares/${editingShare.name}`, { method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ description: editingShare.description, permissions: editingShare._perms }) });
+      const data = await res.json();
+      if (!data.ok) { shareMsg = data.error || 'Error al guardar'; shareMsgError = true; savingShare = false; return; }
       editingShare = null;
-      loadView('permissions');
+      loadView('shares');
     } catch (e) { shareMsg = 'Error de conexión'; shareMsgError = true; }
     savingShare = false;
   }
@@ -197,7 +194,7 @@
     try {
       const res = await fetch(`/api/shares/${name}`, { method: 'DELETE', headers: hdrs() });
       const d   = await res.json();
-      if (d.ok) loadView('permissions'); else alert(d.error || 'Error');
+      if (d.ok) loadView('shares'); else alert(d.error || 'Error');
     } catch { alert('Error de conexión'); }
   }
 
@@ -377,7 +374,7 @@
   }
 
   // Reactive: load app perms when switching to that sub-tab
-  $: if (permsSub === 'apppermissions' && appPermApps.length === 0) loadAppPermissions();
+  $: if (activeView === 'permissions' && appPermApps.length === 0) loadAppPermissions();
 </script>
 
 <div class="s2-root">
@@ -413,6 +410,8 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             {:else if item.icon === 'info'}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            {:else if item.icon === 'lock'}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             {/if}
           </span>
           {item.label}
@@ -447,6 +446,11 @@
               { id:'escala',  label:'Escala'  },
             ]} bind:active={appearanceTab} />
           </div>
+        {:else if activeView === 'shares' && pools.length > 0}
+          <button class="tb-new-share-btn" on:click={startNewShare}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:10px;height:10px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nueva carpeta compartida
+          </button>
         {/if}
       </div>
 
@@ -490,104 +494,83 @@
           {/if}
           <button class="btn-accent" style="margin-top:14px" on:click={startNewUser}>+ Nuevo usuario</button>
 
-        {:else if activeView === 'permissions'}
-          <!-- Sub-tabs -->
-          <div class="sub-tabs">
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="sub-tab" class:active={permsSub === 'sharefolders'} on:click={() => permsSub = 'sharefolders'}>Shared Folders</div>
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="sub-tab" class:active={permsSub === 'apppermissions'} on:click={() => permsSub = 'apppermissions'}>App Permissions</div>
-          </div>
-
-          {#if permsSub === 'sharefolders'}
-            {#if shares.length > 0}
-              <div class="share-list">
-                {#each shares as s}
-                  <div class="share-row">
-                    <div class="share-folder-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                    </div>
-                    <span class="share-name">{s.displayName || s.name}</span>
-                    <span class="share-pool">{s.pool || '—'}</span>
-                    <div class="share-protocols">
-                      <span class="proto smb" class:on={s.smb}>SMB</span>
-                      <span class="proto nfs" class:on={s.nfs}>NFS</span>
-                      <span class="proto ftp" class:on={s.ftp}>FTP</span>
-                    </div>
-                    <span class="share-users">
-                      {Object.keys(s.permissions || {}).length} usuario{Object.keys(s.permissions || {}).length !== 1 ? 's' : ''}
-                    </span>
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <button class="btn-more" on:click={() => startEditShare(s)} title="Opciones">···</button>
+        {:else if activeView === 'shares'}
+          {#if shares.length > 0}
+            <div class="share-list">
+              {#each shares as s}
+                <div class="share-row">
+                  <div class="share-folder-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                   </div>
+                  <span class="share-name">{s.displayName || s.name}</span>
+                  <span class="share-pool">{s.pool || '—'}</span>
+                  <div class="share-protocols">
+                    <span class="proto smb" class:on={s.smb}>SMB</span>
+                    <span class="proto nfs" class:on={s.nfs}>NFS</span>
+                    <span class="proto ftp" class:on={s.ftp}>FTP</span>
+                  </div>
+                  <span class="share-users">
+                    {Object.keys(s.permissions || {}).length} usuario{Object.keys(s.permissions || {}).length !== 1 ? 's' : ''}
+                  </span>
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <button class="btn-more" on:click={() => startEditShare(s)} title="Opciones">···</button>
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="empty-state">
+              <div class="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div class="empty-title">Sin carpetas compartidas</div>
+              <div class="empty-desc">Crea un pool de almacenamiento primero para poder compartir carpetas.</div>
+            </div>
+          {/if}
+
+        {:else if activeView === 'permissions'}
+          <div class="section-label">Permisos de aplicaciones</div>
+          <p class="appperm-desc">Controla qué aplicaciones puede usar cada usuario. Los administradores siempre tienen acceso total. Files y Media Player son públicas por defecto.</p>
+          {#if appPermLoading}
+            <div class="s-loading"><div class="spinner"></div></div>
+          {:else if appPermUsers.length === 0}
+            <div class="empty-state">
+              <div class="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+              </div>
+              <div class="empty-title">Sin usuarios</div>
+              <div class="empty-desc">Crea usuarios no-admin para gestionar sus permisos de aplicaciones.</div>
+            </div>
+          {:else}
+            <div class="appperm-grid">
+              <div class="appperm-header">
+                <div class="appperm-user-col">Usuario</div>
+                {#each appPermApps as app}
+                  <div class="appperm-app-col" title={app.name}>{app.name}</div>
                 {/each}
               </div>
-            {:else}
-              <div class="empty-state">
-                <div class="empty-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                </div>
-                <div class="empty-title">Sin carpetas compartidas</div>
-                <div class="empty-desc">Crea un pool de almacenamiento primero para poder compartir carpetas.</div>
-              </div>
-            {/if}
-            {#if pools.length > 0}
-              <button class="btn-accent" style="margin-top:16px" on:click={startNewShare}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:11px;height:11px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Nueva carpeta compartida
-              </button>
-            {/if}
-
-          {:else}
-            <div class="section-label">Permisos de aplicaciones</div>
-            <p class="appperm-desc">Controla qué aplicaciones puede usar cada usuario. Los administradores siempre tienen acceso total. Files y Media Player son públicas por defecto.</p>
-
-            {#if appPermLoading}
-              <div class="s-loading"><div class="spinner"></div></div>
-            {:else if appPermUsers.length === 0}
-              <div class="empty-state">
-                <div class="empty-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-                </div>
-                <div class="empty-title">Sin usuarios</div>
-                <div class="empty-desc">Crea usuarios no-admin para gestionar sus permisos de aplicaciones.</div>
-              </div>
-            {:else}
-              <div class="appperm-grid">
-                <!-- Header row -->
-                <div class="appperm-header">
-                  <div class="appperm-user-col">Usuario</div>
+              {#each appPermUsers as u}
+                <div class="appperm-row">
+                  <div class="appperm-user-col">
+                    <span class="appperm-avatar">{(u.username || '?')[0].toUpperCase()}</span>
+                    <span class="appperm-username">{u.username}</span>
+                  </div>
                   {#each appPermApps as app}
-                    <div class="appperm-app-col" title={app.name}>{app.name}</div>
+                    <div class="appperm-app-col">
+                      <!-- svelte-ignore a11y_click_events_have_key_events -->
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <div class="appperm-toggle" class:on={hasGrant(u.username, app.id)} on:click={() => toggleAppAccess(u.username, app.id)} title={hasGrant(u.username, app.id) ? 'Revocar acceso' : 'Dar acceso'}>
+                        <div class="appperm-toggle-dot"></div>
+                      </div>
+                    </div>
                   {/each}
                 </div>
-                <!-- User rows -->
-                {#each appPermUsers as u}
-                  <div class="appperm-row">
-                    <div class="appperm-user-col">
-                      <span class="appperm-avatar">{(u.username || '?')[0].toUpperCase()}</span>
-                      <span class="appperm-username">{u.username}</span>
-                    </div>
-                    {#each appPermApps as app}
-                      <div class="appperm-app-col">
-                        <!-- svelte-ignore a11y_click_events_have_key_events -->
-                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div class="appperm-toggle" class:on={hasGrant(u.username, app.id)} on:click={() => toggleAppAccess(u.username, app.id)} title={hasGrant(u.username, app.id) ? 'Revocar acceso' : 'Dar acceso'}>
-                          <div class="appperm-toggle-dot"></div>
-                        </div>
-                      </div>
-                    {/each}
-                  </div>
-                {/each}
-              </div>
-              {#if appPermMsg}
-                <div class="appperm-msg" class:error={appPermMsgError}>{appPermMsg}</div>
-              {/if}
-              <button class="btn-secondary" style="margin-top:12px" on:click={loadAppPermissions}>↻ Recargar</button>
+              {/each}
+            </div>
+            {#if appPermMsg}
+              <div class="appperm-msg" class:error={appPermMsgError}>{appPermMsg}</div>
             {/if}
+            <button class="btn-secondary" style="margin-top:12px" on:click={loadAppPermissions}>↻ Recargar</button>
           {/if}
 
         {:else if activeView === 'portal'}
@@ -882,112 +865,31 @@
 
 <!-- ══ MODAL — Carpeta compartida ══ -->
 {#if editingShare}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="modal-overlay" on:click|self={() => editingShare = null}></div>
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">{editingShare._isNew ? 'Nueva carpeta compartida' : `Editar: ${editingShare.displayName || editingShare.name}`}</div>
-      <div class="modal-steps">
-        <div class="modal-step" class:active={wizardStep === 1} class:done={wizardStep > 1}>1</div>
-        {#if editingShare._isNew}
-          <div class="modal-step-line" class:done={wizardStep > 1}></div>
-          <div class="modal-step" class:active={wizardStep === 2}>2</div>
-        {/if}
-      </div>
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="modal-close" on:click={() => editingShare = null}>✕</div>
-    </div>
-    <div class="modal-body">
-      {#if wizardStep === 1}
-        {#if editingShare._isNew}
-          <div class="modal-step-label">Información básica</div>
-          <div class="form-field">
-            <label class="form-label">Nombre <span style="color:var(--red)">*</span></label>
-            <input class="form-input" type="text" placeholder="documentos" bind:value={editingShare.name} autofocus />
-          </div>
-          <div class="form-field">
-            <label class="form-label">Descripción</label>
-            <input class="form-input" type="text" placeholder="Opcional" bind:value={editingShare.description} />
-          </div>
-          <div class="form-field">
-            <label class="form-label">Pool de almacenamiento</label>
-            <select class="form-select" bind:value={editingShare.pool}>
-              {#each pools as pool}
-                <option value={pool.name}>{pool.name} — {pool.totalFormatted || '—'} ({pool.raidLevel})</option>
-              {/each}
-            </select>
-          </div>
-        {:else}
-          <div class="modal-step-label">Permisos de usuario</div>
-          <div class="perm-table">
-            <div class="perm-header"><span class="perm-col-user">Usuario</span><span class="perm-col-perm">Permiso</span></div>
-            {#each users as u}
-              <div class="perm-row">
-                <div class="perm-col-user">
-                  <span class="perm-avatar">{(u.username || '?')[0].toUpperCase()}</span>
-                  <span class="perm-name">{u.username}</span>
-                  {#if u.role === 'admin'}<span class="perm-admin-tag">admin</span>{/if}
-                </div>
-                <div class="perm-col-perm">
-                  <select class="form-select perm-select"
-                    value={editingShare._perms[u.username] || 'none'}
-                    on:change={(e) => { editingShare._perms[u.username] = e.target.value; editingShare = editingShare; }}>
-                    <option value="none">Sin acceso</option>
-                    <option value="ro">Solo lectura</option>
-                    <option value="rw">Lectura / Escritura</option>
-                  </select>
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {:else if wizardStep === 2}
-        <div class="modal-step-label">Permisos de usuario</div>
-        <div class="perm-table">
-          <div class="perm-header"><span class="perm-col-user">Usuario</span><span class="perm-col-perm">Permiso</span></div>
-          {#each users as u}
-            <div class="perm-row">
-              <div class="perm-col-user">
-                <span class="perm-avatar">{(u.username || '?')[0].toUpperCase()}</span>
-                <span class="perm-name">{u.username}</span>
-                {#if u.role === 'admin'}<span class="perm-admin-tag">admin</span>{/if}
-              </div>
-              <div class="perm-col-perm">
-                <select class="form-select perm-select"
-                  value={editingShare._perms[u.username] || 'none'}
-                  on:change={(e) => { editingShare._perms[u.username] = e.target.value; editingShare = editingShare; }}>
-                  <option value="none">Sin acceso</option>
-                  <option value="ro">Solo lectura</option>
-                  <option value="rw">Lectura / Escritura</option>
-                </select>
-              </div>
-            </div>
-          {/each}
-        </div>
-        <div class="modal-summary">
-          <div class="summary-label">Resumen</div>
-          <div class="summary-row"><span>Nombre</span><span>{editingShare.name}</span></div>
-          {#if editingShare.description}<div class="summary-row"><span>Descripción</span><span>{editingShare.description}</span></div>{/if}
-          <div class="summary-row"><span>Pool</span><span>{editingShare.pool}</span></div>
-        </div>
-      {/if}
-      {#if shareMsg}<div class="share-msg" class:error={shareMsgError}>{shareMsg}</div>{/if}
-    </div>
-    <div class="modal-footer">
-      {#if wizardStep === 2}
-        <button class="btn-secondary" on:click={() => wizardStep = 1}>← Anterior</button>
-      {:else}
-        <button class="btn-secondary" on:click={() => editingShare = null}>Cancelar</button>
-      {/if}
-      {#if editingShare._isNew && wizardStep === 1}
-        <button class="btn-accent" on:click={() => { if (!editingShare.name.trim()) { shareMsg = 'Nombre requerido'; shareMsgError = true; return; } shareMsg = ''; wizardStep = 2; }}>Siguiente →</button>
-      {:else}
-        <button class="btn-accent" on:click={saveShare} disabled={savingShare}>{savingShare ? 'Guardando...' : editingShare._isNew ? 'Crear carpeta' : 'Guardar cambios'}</button>
-      {/if}
-    </div>
-  </div>
+  <ShareWizard
+    {pools}
+    {users}
+    {editingShare}
+    on:close={() => editingShare = null}
+    on:save={async (e) => {
+      savingShare = true; shareMsg = '';
+      try {
+        const s = e.detail;
+        if (s._isNew) {
+          const res  = await fetch('/api/shares', { method: 'POST', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: s.name.trim(), description: s.description, pool: s.pool }) });
+          const data = await res.json();
+          if (!data.ok) { shareMsg = data.error || 'Error al crear'; shareMsgError = true; savingShare = false; return; }
+          await fetch(`/api/shares/${data.name}`, { method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ permissions: s._perms }) });
+        } else {
+          const res  = await fetch(`/api/shares/${s.name}`, { method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ description: s.description, permissions: s._perms }) });
+          const data = await res.json();
+          if (!data.ok) { shareMsg = data.error || 'Error al guardar'; shareMsgError = true; savingShare = false; return; }
+        }
+        editingShare = null;
+        loadView('shares');
+      } catch { shareMsg = 'Error de conexión'; shareMsgError = true; }
+      savingShare = false;
+    }}
+  />
 {/if}
 
 <!-- ══ MODAL — Usuario ══ -->
@@ -1255,6 +1157,14 @@
   .opt-btn.active { background:var(--active-bg); border-color:var(--border-hi); color:var(--text-1); }
   .opt-btn:disabled { opacity:.4; cursor:not-allowed; }
   .tb-tabs { margin-left:auto; }
+  .tb-new-share-btn {
+    margin-left:auto; display:flex; align-items:center; gap:6px;
+    padding:5px 12px; border-radius:8px; border:none; cursor:pointer;
+    background:linear-gradient(135deg, var(--accent), var(--accent2));
+    color:#fff; font-size:11px; font-weight:600; font-family:inherit;
+    transition:opacity .15s;
+  }
+  .tb-new-share-btn:hover { opacity:.88; }
 
   /* ── Wallpapers ── */
   .wall-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }

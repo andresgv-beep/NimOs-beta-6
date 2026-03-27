@@ -7,8 +7,8 @@
   import Desktop from '$lib/components/Desktop.svelte';
 
   onMount(async () => {
-    await init();
-    await loadPrefs();
+    // Cargar prefs e init en paralelo — no bloquear uno al otro
+    await Promise.all([init(), loadPrefs()]);
   });
 </script>
 

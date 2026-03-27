@@ -1044,22 +1044,35 @@ func handleUpdateCheck(w http.ResponseWriter) {
 
 func handleUpdateApply(w http.ResponseWriter) {
 	script := "/opt/nimbusos/scripts/update.sh"
+	os.MkdirAll("/opt/nimbusos/scripts", 0755)
+	os.MkdirAll("/var/log/nimbusos", 0755)
+
+	// Si no existe el script, descargarlo de GitHub
 	if _, err := os.Stat(script); err != nil {
-		jsonError(w, 400, "Update script not found")
+		logMsg("update.sh not found, downloading from GitHub...")
+		out, ok := run(`curl -fsSL "https://raw.githubusercontent.com/andresgv-beep/NimOs-beta-6/main/scripts/update.sh" -o /opt/nimbusos/scripts/update.sh`)
+		if !ok || out == "" {
+			// intentar igual, curl devuelve "" en éxito
+		}
+		if err2 := os.Chmod(script, 0755); err2 != nil {
+			jsonError(w, 500, "Failed to download update script")
+			return
+		}
+	}
+
+	// Verificar que ahora existe
+	if _, err := os.Stat(script); err != nil {
+		jsonError(w, 400, "Update script not found and could not be downloaded")
 		return
 	}
-	os.MkdirAll("/var/log/nimbusos", 0755)
+
 	os.Remove("/var/log/nimbusos/update-result.json")
 
-	// Launch update in a fully detached process so it survives daemon restart.
-	// The script does "systemctl stop/restart nimos-daemon" which kills us,
-	// so the child must be in its own session (setsid) to not receive our SIGTERM.
 	cmd := exec.Command("setsid", "bash", script)
 	cmd.Dir = "/opt/nimbusos"
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
-	// Redirect stdout/stderr to log file
 	logFile, err := os.OpenFile("/var/log/nimbusos/update.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err == nil {
 		cmd.Stdout = logFile
@@ -1069,7 +1082,6 @@ func handleUpdateApply(w http.ResponseWriter) {
 		jsonError(w, 500, fmt.Sprintf("Failed to start update: %v", err))
 		return
 	}
-	// Do NOT call cmd.Wait() — let the process run independently
 	jsonOk(w, map[string]interface{}{"ok": true, "message": "Update started."})
 }
 

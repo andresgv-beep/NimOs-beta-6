@@ -24,8 +24,8 @@ namespace fs = std::filesystem;
 TorrentEngine::TorrentEngine(const std::string& config_path, const std::string& state_path)
     : config_path_(config_path), state_path_(state_path)
 {
-    // Read default save path from config or use default
-    default_save_path_ = "/data/torrents";
+    // Read default save path from config or use fallback
+    default_save_path_ = "";
 
     // Try to read config
     std::ifstream conf(config_path_);
@@ -38,9 +38,43 @@ TorrentEngine::TorrentEngine(const std::string& config_path, const std::string& 
         }
     }
 
-    // Ensure directories exist
-    fs::create_directories(default_save_path_);
-    fs::create_directories(state_path_);
+    // Validate save path — must be under /nimbus/pools/ (not system disk)
+    // If invalid or not mounted, use empty string (user must choose per-torrent)
+    if (!default_save_path_.empty()) {
+        if (default_save_path_.find("/nimbus/pools/") != 0) {
+            std::cerr << "[torrentd] WARNING: download_dir '" << default_save_path_ 
+                      << "' is not under /nimbus/pools/ — ignoring to protect system disk\n";
+            default_save_path_ = "";
+        } else {
+            // Check if the pool is actually mounted
+            try {
+                if (!fs::exists(default_save_path_)) {
+                    std::cerr << "[torrentd] WARNING: download_dir '" << default_save_path_ 
+                              << "' does not exist (pool not mounted?) — downloads disabled until path exists\n";
+                    // Don't clear — it may mount later. Just don't create dirs.
+                }
+            } catch (...) {
+                default_save_path_ = "";
+            }
+        }
+    }
+
+    // Only create directories if the path exists and is on a real pool
+    if (!default_save_path_.empty()) {
+        try {
+            if (fs::exists(default_save_path_.substr(0, default_save_path_.rfind('/')))) {
+                fs::create_directories(default_save_path_);
+            }
+        } catch (std::exception& e) {
+            std::cerr << "[torrentd] WARNING: cannot create download dir: " << e.what() << "\n";
+        }
+    }
+
+    try {
+        fs::create_directories(state_path_);
+    } catch (std::exception& e) {
+        std::cerr << "[torrentd] ERROR: cannot create state dir: " << e.what() << "\n";
+    }
 
     // Configure libtorrent session
     lt::settings_pack settings;

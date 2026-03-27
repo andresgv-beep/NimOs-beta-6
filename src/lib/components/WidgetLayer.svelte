@@ -7,10 +7,11 @@
 
   // ── Widget config ──
   const WIDGET_TYPES = {
-    clock:   { name: 'Reloj',   icon: '🕐', cols: 2, rows: 2 },
-    sysmon:  { name: 'Sistema', icon: '📊', cols: 2, rows: 2 },
-    network: { name: 'Red',     icon: '🌐', cols: 2, rows: 2 },
-    storage: { name: 'Storage', icon: '💾', cols: 2, rows: 2 },
+    clock:   { name: 'Reloj',      icon: '🕐', cols: 2, rows: 2 },
+    sysmon:  { name: 'Sistema',    icon: '📊', cols: 2, rows: 2 },
+    network: { name: 'Red',        icon: '🌐', cols: 2, rows: 2 },
+    storage: { name: 'Storage',    icon: '💾', cols: 2, rows: 2 },
+    torrent: { name: 'NimTorrent', icon: '⬇', cols: 4, rows: 2 },
   };
 
   const SIZE_PRESETS = {
@@ -18,6 +19,7 @@
     sysmon:  [{ label: '1×1', cols:2, rows:2 }, { label: '1×2', cols:4, rows:2 }, { label: '2×2', cols:4, rows:4 }],
     network: [{ label: '1×1', cols:2, rows:2 }, { label: '1×2', cols:4, rows:2 }],
     storage: [{ label: '1×1', cols:2, rows:2 }, { label: '1×2', cols:4, rows:2 }, { label: '2×2', cols:4, rows:4 }],
+    torrent: [{ label: '1×2', cols:4, rows:2 }, { label: '2×2', cols:4, rows:4 }],
   };
 
   const DEFAULT_LAYOUT = [
@@ -157,16 +159,21 @@
   function resetLayout() { widgets = resolveLayout(DEFAULT_LAYOUT); saveLayout(); closeMenu(); }
 
   // ── Data polling ──
-  let pollTimer, sysData = {}, storageData = {}, netData = {};
+  let pollTimer, sysData = {}, storageData = {}, netData = {}, torrentData = { torrents: [], dlSpeed: 0, ulSpeed: 0 };
 
   async function fetchData() {
     try {
-      const [sys, stor, net] = await Promise.all([
+      const [sys, stor, net, tor] = await Promise.all([
         fetch('/api/system',         { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
         fetch('/api/storage/status', { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
         fetch('/api/network',        { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/torrent/list',   { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
       ]);
       sysData = sys || {}; storageData = stor || {}; netData = net || {};
+      if (tor?.torrents) {
+        torrentData = tor;
+        updateTorrentChart();
+      }
       updateNetCharts();
     } catch {}
   }
@@ -328,6 +335,42 @@
       const role = canvas.dataset.role;
       drawNetChart(canvas, role==='dl' ? dlHist : ulHist, role==='dl' ? '#3b82f6' : '#a855f7');
     });
+  }
+
+  // ── Torrent chart ──
+  const TOR_HIST = 30;
+  let torDlHist = Array(TOR_HIST).fill(0);
+
+  function updateTorrentChart() {
+    const dl = torrentData.dlSpeed || 0;
+    torDlHist = [...torDlHist.slice(-(TOR_HIST-1)), dl];
+    drawTorrentCharts();
+  }
+
+  function drawTorrentCharts() {
+    document.querySelectorAll('.wg-tor-canvas').forEach(canvas => {
+      if (!canvas) return;
+      const dpr = window.devicePixelRatio || 1;
+      const W = canvas.parentElement?.offsetWidth || 80;
+      const H = 28;
+      canvas.width = W*dpr; canvas.height = H*dpr;
+      canvas.style.width = W+'px'; canvas.style.height = H+'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+      const max = Math.max(...torDlHist, 1);
+      const pts = torDlHist.map((v, i) => [(i/(torDlHist.length-1||1))*W, H-(v/max)*(H-3)-1]);
+      ctx.beginPath();
+      pts.forEach(([x,y], i) => i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y));
+      ctx.strokeStyle = '#5ba8ff'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
+      ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+      ctx.fillStyle = 'rgba(91,168,255,0.10)'; ctx.fill();
+    });
+  }
+
+  function fmtTorSpeed(bps) {
+    if (!bps || bps <= 0) return '0 KB/s';
+    if (bps >= 1e6) return (bps/1e6).toFixed(1) + ' MB/s';
+    return (bps/1e3).toFixed(0) + ' KB/s';
   }
 </script>
 
@@ -585,6 +628,53 @@
                 <div class="wg-empty">Sin pools</div>
               {/if}
             {/if}
+          {:else if widget.type === 'torrent'}
+            {@const is2x2tor = widget.rows >= 4}
+            {@const activeTorrents = (torrentData.torrents || []).filter(t => t.progress < 100)}
+            {@const allTorrents    = torrentData.torrents || []}
+            {@const maxRows = is2x2tor ? 8 : 4}
+
+            <div class="wg-header">NimTorrent</div>
+            <div class="wg-tor-header">
+              <div class="wg-tor-speeds">
+                <div class="wg-tor-speed">
+                  <span class="wg-net-arrow dl">↓</span>
+                  <span class="wg-net-val">{fmtTorSpeed(torrentData.dlSpeed)}</span>
+                </div>
+                <div class="wg-tor-speed">
+                  <span class="wg-net-arrow ul">↑</span>
+                  <span class="wg-net-val">{fmtTorSpeed(torrentData.ulSpeed)}</span>
+                </div>
+              </div>
+              <canvas class="wg-tor-canvas"></canvas>
+            </div>
+            {#if allTorrents.length === 0}
+              <div class="wg-empty">Sin torrents activos</div>
+            {:else}
+              <div class="wg-tor-list">
+                {#each allTorrents.slice(0, maxRows) as t}
+                  {@const done = t.progress >= 100}
+                  <div class="wg-tor-row" class:done>
+                    <div class="wg-tor-top">
+                      <span class="wg-tor-name">{t.name}</span>
+                      {#if !done}
+                        <span class="wg-tor-spd">↓ {fmtTorSpeed(t.dlSpeed)}</span>
+                      {:else}
+                        <span class="wg-tor-done">completado</span>
+                      {/if}
+                    </div>
+                    <div class="wg-tor-track">
+                      <div class="wg-tor-fill" style="width:{Math.min(100,t.progress||0)}%;background:{done?'rgba(74,222,128,0.4)':'#5ba8ff'}"></div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            <div class="wg-tor-footer">
+              <span>{activeTorrents.length} activo{activeTorrents.length !== 1 ? 's' : ''}</span>
+              <div class="wg-tor-dot"></div>
+            </div>
+
           {/if}
 
         </div>
@@ -1040,5 +1130,41 @@
   :global(.wg-day-item.today) { color:var(--text-1); font-weight:600; background:var(--ibtn-bg); border-color:var(--border-hi); }
   .wg-lcd-date { display:flex; flex-direction:column; align-items:center; gap:1px; }
   .wg-lcd-datenum { font-size:18px; font-weight:500; color:var(--text-1); font-family:'DM Sans',sans-serif; line-height:1; }
-  .wg-lcd-datemon { font-size:8px; color:var(--text-3); font-family:'DM Sans',sans-serif; letter-spacing:.06em; text-transform:uppercase; }
+  /* ── TORRENT WIDGET ── */
+  .wg-tor-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px; flex-shrink: 0;
+  }
+  .wg-tor-speeds {
+    display: flex; flex-direction: column; gap: 1px; flex-shrink: 0;
+  }
+  .wg-tor-speed {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .wg-tor-canvas {
+    flex: 1; display: block; min-width: 0;
+  }
+  .wg-tor-list {
+    display: flex; flex-direction: column; gap: 6px; flex: 1; overflow: hidden;
+  }
+  .wg-tor-row { display: flex; flex-direction: column; gap: 3px; }
+  .wg-tor-top { display: flex; align-items: center; gap: 6px; }
+  .wg-tor-name {
+    flex: 1; min-width: 0; font-size: 10px; font-weight: 500;
+    color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wg-tor-row.done .wg-tor-name { color: var(--text-3); }
+  .wg-tor-spd { font-size: 9px; font-family: 'DM Mono', monospace; color: #5ba8ff; flex-shrink: 0; }
+  .wg-tor-done { font-size: 9px; font-family: 'DM Mono', monospace; color: var(--text-3); flex-shrink: 0; }
+  .wg-tor-track { height: 2px; background: var(--ibtn-bg); border-radius: 2px; overflow: hidden; }
+  .wg-tor-fill { height: 100%; border-radius: 2px; transition: width .8s ease; }
+  .wg-tor-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 6px; flex-shrink: 0;
+    font-size: 9px; color: var(--text-3); font-family: 'DM Sans', sans-serif;
+  }
+  .wg-tor-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--green); box-shadow: 0 0 4px rgba(74,222,128,0.5);
+  }
 </style>

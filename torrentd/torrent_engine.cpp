@@ -277,6 +277,17 @@ void TorrentEngine::loadState() {
                 std::vector<char> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 
                 lt::add_torrent_params p = lt::read_resume_data(buf);
+
+                // OVERRIDE save_path: force to current pool, ignore stale paths
+                // This prevents writing to system disk when pools change
+                if (!default_save_path_.empty()) {
+                    if (p.save_path.find("/nimbus/pools/") != 0) {
+                        std::cerr << "[torrentd] Overriding stale save_path '" << p.save_path 
+                                  << "' → '" << default_save_path_ << "'\n";
+                        p.save_path = default_save_path_;
+                    }
+                }
+
                 // Force running state on load
                 p.flags &= ~lt::torrent_flags::paused;
                 p.flags &= ~lt::torrent_flags::auto_managed;
@@ -298,7 +309,18 @@ void TorrentEngine::loadState() {
                 std::getline(f, save_path);
 
                 lt::add_torrent_params p = lt::parse_magnet_uri(magnet);
-                p.save_path = save_path.empty() ? default_save_path_ : save_path;
+
+                // Force save_path to current pool — never use stale paths
+                if (!default_save_path_.empty()) {
+                    p.save_path = default_save_path_;
+                } else if (!save_path.empty() && save_path.find("/nimbus/pools/") == 0) {
+                    p.save_path = save_path;
+                } else {
+                    std::cerr << "[torrentd] Skipping magnet " << hash 
+                              << " — no valid pool path available\n";
+                    continue;
+                }
+
                 // Force running state on load
                 p.flags &= ~lt::torrent_flags::paused;
                 p.flags &= ~lt::torrent_flags::auto_managed;

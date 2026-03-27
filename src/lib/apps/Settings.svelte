@@ -163,6 +163,51 @@
   $: loadView(activeView);
 
   // ── Shares ──
+  let shareMenu = null;      // name del share amb menú obert
+  let quotaModal = null;     // { name, quotaGB: '' }
+  let quotaSaving = false;
+  let quotaMsg = ''; let quotaMsgError = false;
+  let deleteModal = null;    // { name, confirm: '' }
+  let deleteSaving = false;
+
+  function toggleMenu(name) { shareMenu = shareMenu === name ? null : name; }
+
+  function openQuota(s) {
+    shareMenu = null;
+    const currentGB = s.quota ? Math.round(s.quota / 1e9) : '';
+    quotaModal = { name: s.name, quotaGB: currentGB === 0 ? '' : String(currentGB) };
+    quotaMsg = ''; quotaMsgError = false;
+  }
+
+  function openDelete(s) { shareMenu = null; deleteModal = { name: s.name, confirm: '' }; deleteSaving = false; }
+
+  async function saveQuota() {
+    quotaSaving = true; quotaMsg = '';
+    const bytes = quotaModal.quotaGB !== '' ? Math.round(Number(quotaModal.quotaGB) * 1e9) : 0;
+    try {
+      const res = await fetch(`/api/shares/${quotaModal.name}`, {
+        method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quota: bytes }),
+      });
+      const d = await res.json();
+      if (d.ok) { quotaModal = null; loadView('shares'); }
+      else { quotaMsg = d.error || 'Error'; quotaMsgError = true; }
+    } catch { quotaMsg = 'Error de conexión'; quotaMsgError = true; }
+    quotaSaving = false;
+  }
+
+  async function confirmDelete() {
+    if (deleteModal.confirm !== deleteModal.name) return;
+    deleteSaving = true;
+    try {
+      const res = await fetch(`/api/shares/${deleteModal.name}`, { method: 'DELETE', headers: hdrs() });
+      const d = await res.json();
+      if (d.ok) { deleteModal = null; loadView('shares'); }
+      else alert(d.error || 'Error');
+    } catch { alert('Error de conexión'); }
+    deleteSaving = false;
+  }
+
   function startNewShare() {
     editingShare = { _isNew: true, name: '', description: '', pool: pools[0]?.name || '', _perms: {} };
     for (const u of users) { if (u.role === 'admin') editingShare._perms[u.username] = 'rw'; }
@@ -377,6 +422,7 @@
   $: if (activeView === 'permissions' && appPermApps.length === 0) loadAppPermissions();
 </script>
 
+<svelte:window on:click={(e) => { if (shareMenu && !e.target.closest('.share-menu-wrap')) shareMenu = null; }} />
 <div class="s2-root">
 
   <!-- ── SIDEBAR ── -->
@@ -514,7 +560,28 @@
                   </span>
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <button class="btn-more" on:click={() => startEditShare(s)} title="Opciones">···</button>
+                  <div class="share-menu-wrap">
+                    <button class="btn-more" on:click={() => toggleMenu(s.name)} title="Opciones">···</button>
+                    {#if shareMenu === s.name}
+                      <!-- svelte-ignore a11y_click_events_have_key_events -->
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <div class="share-dropdown">
+                        <div class="sd-item" on:click={() => { shareMenu = null; startEditShare(s); }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:13px;height:13px"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                          Editar permisos
+                        </div>
+                        <div class="sd-item" on:click={() => openQuota(s)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:13px;height:13px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                          Cambiar quota
+                        </div>
+                        <div class="sd-sep"></div>
+                        <div class="sd-item danger" on:click={() => openDelete(s)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:13px;height:13px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                          Eliminar carpeta
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
                 </div>
               {/each}
             </div>
@@ -863,6 +930,66 @@
   </div>
 </div>
 
+<!-- ══ MODAL — Quota ══ -->
+{#if quotaModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click|self={() => quotaModal = null}></div>
+  <div class="modal" style="width:360px">
+    <div class="modal-header">
+      <div class="modal-title">Cambiar quota — {quotaModal.name}</div>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="modal-close" on:click={() => quotaModal = null}>✕</div>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label class="form-label">Capacidad asignada</label>
+        <div style="position:relative;display:flex;align-items:center">
+          <input class="form-input" type="number" min="1" placeholder="Sin límite" bind:value={quotaModal.quotaGB} style="padding-right:40px" />
+          <span style="position:absolute;right:12px;font-size:11px;color:var(--text-3);font-family:'DM Mono',monospace;pointer-events:none">GB</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px">
+          {quotaModal.quotaGB === '' ? 'Sin límite — usa todo el espacio del pool' : `Se asignarán ${quotaModal.quotaGB} GB`}
+        </div>
+      </div>
+      {#if quotaMsg}<div class="share-msg" class:error={quotaMsgError}>{quotaMsg}</div>{/if}
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" on:click={() => quotaModal = null}>Cancelar</button>
+      <button class="btn-accent" on:click={saveQuota} disabled={quotaSaving}>{quotaSaving ? 'Guardando...' : 'Guardar'}</button>
+    </div>
+  </div>
+{/if}
+
+<!-- ══ MODAL — Eliminar carpeta ══ -->
+{#if deleteModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click|self={() => deleteModal = null}></div>
+  <div class="modal" style="width:380px">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--red)">Eliminar carpeta compartida</div>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="modal-close" on:click={() => deleteModal = null}>✕</div>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-2);margin:0">Los archivos del pool <strong>no se eliminarán</strong>, solo se dejará de compartir la carpeta.</p>
+      <div class="form-field">
+        <label class="form-label">Escribe <span style="color:var(--text-1);font-family:'DM Mono',monospace">{deleteModal.name}</span> para confirmar</label>
+        <input class="form-input" type="text" placeholder={deleteModal.name} bind:value={deleteModal.confirm} />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" on:click={() => deleteModal = null}>Cancelar</button>
+      <button class="btn-danger" on:click={confirmDelete} disabled={deleteModal.confirm !== deleteModal.name || deleteSaving}>
+        {deleteSaving ? 'Eliminando...' : 'Eliminar'}
+      </button>
+    </div>
+  </div>
+{/if}
+
 <!-- ══ MODAL — Carpeta compartida ══ -->
 {#if editingShare}
   <ShareWizard
@@ -1039,6 +1166,28 @@
   .share-users { font-size:10px; color:var(--text-3); flex-shrink:0; min-width:58px; text-align:right; }
   .btn-more { width:30px; height:30px; flex-shrink:0; border-radius:7px; border:1px solid var(--border); background:transparent; color:var(--text-3); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; padding-bottom:2px; transition:all .15s; }
   .btn-more:hover { color:var(--text-1); border-color:var(--border-hi); background:var(--active-bg); }
+
+  .share-menu-wrap { position:relative; flex-shrink:0; }
+  .share-dropdown {
+    position:absolute; right:0; top:calc(100% + 4px); z-index:50;
+    background:var(--bg-inner); border:1px solid var(--border);
+    border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    padding:4px; min-width:170px;
+    animation:dropIn .12s cubic-bezier(0.16,1,0.3,1) both;
+  }
+  @keyframes dropIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+  .sd-item {
+    display:flex; align-items:center; gap:8px;
+    padding:7px 10px; border-radius:7px; cursor:pointer;
+    font-size:11px; color:var(--text-2); transition:all .1s;
+  }
+  .sd-item:hover { background:var(--active-bg); color:var(--text-1); }
+  .sd-item.danger { color:var(--red); }
+  .sd-item.danger:hover { background:rgba(248,113,113,0.10); }
+  .sd-sep { height:1px; background:var(--border); margin:3px 6px; }
+  .btn-danger { padding:8px 16px; border-radius:8px; border:none; background:rgba(248,113,113,0.15); color:var(--red); font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s; border:1px solid rgba(248,113,113,0.3); }
+  .btn-danger:hover { background:rgba(248,113,113,0.25); }
+  .btn-danger:disabled { opacity:.4; cursor:not-allowed; }
 
   /* ── Users ── */
   .user-list { display:flex; flex-direction:column; }

@@ -1002,7 +1002,7 @@
       try {
         const s = e.detail;
         if (s._isNew) {
-          const res  = await fetch('/api/shares', { method: 'POST', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: s.name.trim(), description: s.description, pool: s.pool }) });
+          const res  = await fetch('/api/shares', { method: 'POST', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: s.name.trim(), description: s.description, pool: s.pool, quotaBytes: s.quotaBytes || 0 }) });
           const data = await res.json();
           if (!data.ok) { shareMsg = data.error || 'Error al crear'; shareMsgError = true; savingShare = false; return; }
           await fetch(`/api/shares/${data.name}`, { method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ permissions: s._perms }) });

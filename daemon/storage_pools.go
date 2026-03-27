@@ -522,7 +522,7 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 			return nil
 		}},
 
-		// 1. Create BTRFS filesystem (with retry — kernel may hold device references)
+		// 1. Create BTRFS filesystem (with retry + module reset fallback)
 		{Name: "mkfs_btrfs", Policy: FailFast, Do: func() error {
 			args := []string{"-f", "-L", label}
 
@@ -541,30 +541,71 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 			args = append(args, disks...)
 
 			// Retry loop — BTRFS kernel module may hold device references
-			// from previous multi-device pools even after wipe + forget
-			for attempt := 0; attempt < 5; attempt++ {
-				// Force kernel to release BTRFS device associations
+			for attempt := 0; attempt < 3; attempt++ {
 				runCmd("btrfs", []string{"device", "scan", "--forget"}, optsShort)
 				runCmd("udevadm", []string{"settle", "--timeout=3"}, optsShort)
-				runCmd("partprobe", nil, optsShort)
 				time.Sleep(time.Duration(500+attempt*500) * time.Millisecond)
 
-				logMsg("BTRFS: mkfs attempt %d/5 — mkfs.btrfs %s", attempt+1, strings.Join(args, " "))
+				logMsg("BTRFS: mkfs attempt %d/3 — mkfs.btrfs %s", attempt+1, strings.Join(args, " "))
 				_, err := runCmd("mkfs.btrfs", args, opts)
 				if err == nil {
 					return nil
 				}
 
 				if strings.Contains(err.Error(), "Device or resource busy") {
-					logMsg("BTRFS: device busy, retrying in %dms...", 1000+attempt*1000)
-					time.Sleep(time.Duration(1000+attempt*1000) * time.Millisecond)
+					logMsg("BTRFS: device busy, retrying...")
+					time.Sleep(time.Duration(1+attempt) * time.Second)
 					continue
 				}
-
-				// Non-busy error — fail immediately
 				return err
 			}
-			return fmt.Errorf("mkfs.btrfs failed after 5 attempts: devices still busy")
+
+			// Fallback: reset BTRFS kernel module (safe only if nothing mounted)
+			logMsg("BTRFS: devices still busy after 3 attempts — attempting module reset")
+
+			// Safety check: no BTRFS mounts active
+			mountOut, _ := runCmd("mount", nil, optsShort)
+			if strings.Contains(mountOut.Stdout, "type btrfs") {
+				return fmt.Errorf("mkfs.btrfs failed: devices busy and BTRFS mounts still active — cannot reset module")
+			}
+
+			// Safety check: no BTRFS filesystems registered
+			fsShow, _ := runCmd("btrfs", []string{"filesystem", "show"}, optsShort)
+			hasBtrfsActive := false
+			for _, line := range strings.Split(fsShow.Stdout, "\n") {
+				if strings.Contains(line, "/dev/") {
+					hasBtrfsActive = true
+					break
+				}
+			}
+
+			if hasBtrfsActive {
+				// Forget first, then check again
+				runCmd("btrfs", []string{"device", "scan", "--forget"}, optsShort)
+				time.Sleep(1 * time.Second)
+				fsShow2, _ := runCmd("btrfs", []string{"filesystem", "show"}, optsShort)
+				if strings.Contains(fsShow2.Stdout, "/dev/") {
+					return fmt.Errorf("mkfs.btrfs failed: devices busy and BTRFS filesystems still registered")
+				}
+			}
+
+			// Safe to reset module
+			logMsg("BTRFS: no active mounts or filesystems — resetting kernel module")
+			_, err := runCmd("modprobe", []string{"-r", "btrfs"}, optsShort)
+			if err != nil {
+				return fmt.Errorf("mkfs.btrfs failed: cannot unload BTRFS module: %s", err)
+			}
+			time.Sleep(1 * time.Second)
+			runCmd("modprobe", []string{"btrfs"}, optsShort)
+			time.Sleep(1 * time.Second)
+
+			// Final attempt after module reset
+			logMsg("BTRFS: module reset complete — final mkfs attempt")
+			_, err = runCmd("mkfs.btrfs", args, opts)
+			if err != nil {
+				return fmt.Errorf("mkfs.btrfs failed even after module reset: %s", err)
+			}
+			return nil
 		}, Undo: func() error {
 			runCmd("btrfs", []string{"device", "scan", "--forget"}, optsShort)
 			for _, d := range disks {

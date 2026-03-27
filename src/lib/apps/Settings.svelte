@@ -130,6 +130,7 @@
     loading = true;
     try {
       if (view === 'shares') {
+        selectedShare = null;
         const [sr, ur, pr] = await Promise.all([
           fetch('/api/shares',        { headers: hdrs() }),
           fetch('/api/users',         { headers: hdrs() }),
@@ -162,8 +163,17 @@
 
   $: loadView(activeView);
 
+  function fmtBytes(b) {
+    if (!b) return '0 B';
+    if (b >= 1e12) return (b/1e12).toFixed(1) + ' TB';
+    if (b >= 1e9)  return (b/1e9).toFixed(1) + ' GB';
+    if (b >= 1e6)  return (b/1e6).toFixed(1) + ' MB';
+    return (b/1e3).toFixed(0) + ' KB';
+  }
+
   // ── Shares ──
-  let shareMenu = null;      // name del share amb menú obert
+  let shareMenu = null;
+  let selectedShare = null;  // nombre del share con detalle abierto      // name del share amb menú obert
   let quotaModal = null;     // { name, quotaGB: '' }
   let quotaSaving = false;
   let quotaMsg = ''; let quotaMsgError = false;
@@ -544,7 +554,10 @@
           {#if shares.length > 0}
             <div class="share-list">
               {#each shares as s}
-                <div class="share-row">
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="share-row" class:selected={selectedShare === s.name}
+                  on:click={(e) => { if (!e.target.closest('.share-menu-wrap')) selectedShare = selectedShare === s.name ? null : s.name; }}>
                   <div class="share-folder-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                   </div>
@@ -561,7 +574,7 @@
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div class="share-menu-wrap">
-                    <button class="btn-more" on:click={() => toggleMenu(s.name)} title="Opciones">···</button>
+                    <button class="btn-more" on:click|stopPropagation={() => toggleMenu(s.name)} title="Opciones">···</button>
                     {#if shareMenu === s.name}
                       <!-- svelte-ignore a11y_click_events_have_key_events -->
                       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -583,6 +596,91 @@
                     {/if}
                   </div>
                 </div>
+
+                <!-- Panel de detalle -->
+                {#if selectedShare === s.name}
+                  <div class="share-detail" style="animation:detailIn .18s ease">
+                    <div class="sd-inner">
+                      <!-- Donut -->
+                      <div class="sd-left">
+                        {@const total = (s.quota > 0 ? s.quota : (s.used || 0) + (s.available || 0)) || 1}
+                        {@const used = s.used || 0}
+                        {@const pct = Math.round(Math.min(used / total, 1) * 100)}
+                        {@const r = 46} {@const circ = 2 * Math.PI * r}
+                        {@const dash = (pct / 100) * circ}
+                        {@const color = pct > 85 ? 'var(--red)' : pct > 60 ? 'var(--amber)' : 'var(--accent)'}
+                        <div class="sd-donut-wrap">
+                          <svg viewBox="0 0 120 120" width="120" height="120">
+                            <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(128,128,128,0.12)" stroke-width="10"/>
+                            <circle cx="60" cy="60" r={r} fill="none" stroke={color} stroke-width="10"
+                              stroke-dasharray="{dash.toFixed(1)} {(circ - dash).toFixed(1)}"
+                              stroke-linecap="round"
+                              transform="rotate(-90 60 60)"/>
+                          </svg>
+                          <div class="sd-donut-center">
+                            <div class="sd-donut-pct">{pct}%</div>
+                            <div class="sd-donut-label">usado</div>
+                          </div>
+                        </div>
+                        <div class="sd-quota-info">
+                          <div class="sd-quota-used">{fmtBytes(used)} usados</div>
+                          <div class="sd-quota-total">
+                            {#if s.quota > 0}de {fmtBytes(s.quota)} asignados
+                            {:else}sin límite · {fmtBytes(s.available || 0)} libres{/if}
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Info + file types -->
+                      <div class="sd-right">
+                        <div class="sd-info-grid">
+                          <div class="sd-info-item">
+                            <div class="sd-info-label">Pool</div>
+                            <div class="sd-info-value">{s.pool || '—'}</div>
+                          </div>
+                          <div class="sd-info-item">
+                            <div class="sd-info-label">Tipo</div>
+                            <div class="sd-info-value">{(s.poolType || '—').toUpperCase()}</div>
+                          </div>
+                          <div class="sd-info-item" style="grid-column:1/-1">
+                            <div class="sd-info-label">Montaje</div>
+                            <div class="sd-info-value" style="font-size:10px;word-break:break-all;font-family:'DM Mono',monospace">{s.mountpoint || s.path || '—'}</div>
+                          </div>
+                          <div class="sd-info-item">
+                            <div class="sd-info-label">Disponible</div>
+                            <div class="sd-info-value">{fmtBytes(s.available || 0)}</div>
+                          </div>
+                          <div class="sd-info-item">
+                            <div class="sd-info-label">Usuarios</div>
+                            <div class="sd-info-value">{Object.keys(s.permissions || {}).length}</div>
+                          </div>
+                        </div>
+
+                        {#if s.fileStats}
+                          {@const totalStats = Object.values(s.fileStats).reduce((a, b) => a + b, 0) || 1}
+                          {@const FILE_COLORS = { video:'#378ADD', image:'#1D9E75', audio:'#BA7517', document:'#7F77DD', other:'#888780' }}
+                          {@const FILE_LABELS = { video:'Vídeo', image:'Imagen', audio:'Audio', document:'Documento', other:'Otros' }}
+                          <div>
+                            <div class="sd-files-label">Distribución por tipo</div>
+                            <div class="sd-bar-track">
+                              {#each Object.entries(s.fileStats) as [k, v]}
+                                <div class="sd-bar-seg" style="flex:{((v/totalStats)*100).toFixed(1)};background:{FILE_COLORS[k]}" title="{FILE_LABELS[k]}: {fmtBytes(v)}"></div>
+                              {/each}
+                            </div>
+                            <div class="sd-legend">
+                              {#each Object.entries(s.fileStats) as [k, v]}
+                                <div class="sd-legend-item">
+                                  <div class="sd-legend-dot" style="background:{FILE_COLORS[k]}"></div>
+                                  {FILE_LABELS[k]} · {fmtBytes(v)}
+                                </div>
+                              {/each}
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {/if}
               {/each}
             </div>
           {:else}
@@ -1149,16 +1247,16 @@
   .sub-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
 
   /* ── Share list ── */
-  .share-list { display:flex; flex-direction:column; }
+  .share-list { display:flex; flex-direction:column; gap:2px; }
   .share-row {
     display:flex; align-items:center; gap:12px;
-    padding:10px 4px; border-bottom:1px solid var(--border);
-    transition:background .12s;
+    padding:10px 12px; border-radius:8px; cursor:pointer;
+    border:1px solid transparent; transition:all .12s;
   }
-  .share-row:first-child { border-top:1px solid var(--border); }
-  .share-row:hover { background:rgba(255,255,255,0.025); }
-  .share-folder-icon { width:28px; height:28px; flex-shrink:0; border-radius:7px; background:rgba(124,111,255,0.10); display:flex; align-items:center; justify-content:center; }
-  .share-folder-icon svg { width:14px; height:14px; color:var(--accent); }
+  .share-row:hover { background:var(--ibtn-bg); }
+  .share-row.selected { background:var(--ibtn-bg); border-color:var(--border-hi); }
+  .share-folder-icon { width:32px; height:32px; flex-shrink:0; border-radius:8px; background:rgba(124,111,255,0.10); display:flex; align-items:center; justify-content:center; }
+  .share-folder-icon svg { width:16px; height:16px; color:var(--accent); }
   .share-name { font-size:12px; font-weight:600; color:var(--text-1); min-width:80px; }
   .share-pool { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; flex:1; }
   .share-protocols { display:flex; gap:3px; flex-shrink:0; }
@@ -1167,6 +1265,40 @@
   .proto.nfs.on { color:#4ade80; background:rgba(74,222,128,0.10); border-color:rgba(74,222,128,0.22); }
   .proto.ftp.on { color:#fbbf24; background:rgba(251,191,36,0.10); border-color:rgba(251,191,36,0.22); }
   .share-users { font-size:10px; color:var(--text-3); flex-shrink:0; min-width:58px; text-align:right; }
+
+  /* ── Share detail panel ── */
+  @keyframes detailIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+  .share-detail {
+    border:1px solid var(--border); border-radius:10px;
+    overflow:hidden; margin-bottom:2px;
+  }
+  .sd-inner { display:flex; }
+  .sd-left {
+    padding:18px 20px; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:10px; min-width:180px;
+    border-right:1px solid var(--border); background:var(--bg-bar);
+  }
+  .sd-donut-wrap { position:relative; width:120px; height:120px; flex-shrink:0; }
+  .sd-donut-wrap svg { display:block; }
+  .sd-donut-center {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:1px;
+  }
+  .sd-donut-pct { font-size:20px; font-weight:600; color:var(--text-1); }
+  .sd-donut-label { font-size:10px; color:var(--text-3); }
+  .sd-quota-info { text-align:center; }
+  .sd-quota-used { font-size:12px; font-weight:600; color:var(--text-1); }
+  .sd-quota-total { font-size:10px; color:var(--text-3); margin-top:2px; }
+  .sd-right { flex:1; padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
+  .sd-info-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 20px; }
+  .sd-info-label { font-size:9px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:2px; }
+  .sd-info-value { font-size:12px; font-weight:500; color:var(--text-1); }
+  .sd-files-label { font-size:9px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:7px; }
+  .sd-bar-track { height:8px; border-radius:4px; overflow:hidden; display:flex; gap:2px; background:var(--ibtn-bg); }
+  .sd-bar-seg { height:100%; border-radius:2px; }
+  .sd-legend { display:flex; flex-wrap:wrap; gap:6px 12px; margin-top:8px; }
+  .sd-legend-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--text-3); }
+  .sd-legend-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
   .btn-more { width:30px; height:30px; flex-shrink:0; border-radius:7px; border:1px solid var(--border); background:transparent; color:var(--text-3); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; padding-bottom:2px; transition:all .15s; }
   .btn-more:hover { color:var(--text-1); border-color:var(--border-hi); background:var(--active-bg); }
 

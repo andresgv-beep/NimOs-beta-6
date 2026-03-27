@@ -231,6 +231,35 @@ func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
 		dbSharesUpdate(target, updates)
 	}
 
+	// Handle quota change (ZFS only)
+	if quotaRaw, ok := body["quota"]; ok {
+		quotaBytes := int64(0)
+		if qb, ok := quotaRaw.(float64); ok {
+			quotaBytes = int64(qb)
+		}
+
+		sharPool, _ := share["pool"].(string)
+		if sharPool == "" {
+			sharPool, _ = share["volume"].(string)
+		}
+		targetPool := findTargetPool(sharPool)
+		if targetPool != nil {
+			poolType, _ := targetPool["type"].(string)
+			zpoolName, _ := targetPool["zpoolName"].(string)
+			if poolType == "zfs" && zpoolName != "" {
+				datasetName := zpoolName + "/shares/" + target
+				opts := CmdOptions{Timeout: 10 * time.Second}
+				if quotaBytes > 0 {
+					runCmd("zfs", []string{"set", fmt.Sprintf("quota=%d", quotaBytes), datasetName}, opts)
+					logMsg("Updated quota to %d bytes on dataset '%s'", quotaBytes, datasetName)
+				} else {
+					runCmd("zfs", []string{"set", "quota=none", datasetName}, opts)
+					logMsg("Removed quota on dataset '%s'", datasetName)
+				}
+			}
+		}
+	}
+
 	// Handle permission changes
 	if permsRaw, ok := body["permissions"]; ok {
 		if newPermsMap, ok := permsRaw.(map[string]interface{}); ok {
@@ -326,13 +355,39 @@ func sharesDeleteHTTP(w http.ResponseWriter, r *http.Request, target string) {
 		return
 	}
 
-	if share, _ := dbSharesGet(target); share == nil {
+	share, _ := dbSharesGet(target)
+	if share == nil {
 		jsonError(w, 404, "Shared folder not found")
 		return
 	}
 
-	// Remove group (files preserved)
+	// Remove group (files preserved on non-ZFS)
 	handleOp(Request{Op: "share.delete", ShareName: target})
+
+	// If this share lives on a ZFS pool, destroy the dataset
+	sharPool, _ := share["pool"].(string)
+	if sharPool == "" {
+		sharPool, _ = share["volume"].(string)
+	}
+	targetPool := findTargetPool(sharPool)
+	if targetPool != nil {
+		poolType, _ := targetPool["type"].(string)
+		zpoolName, _ := targetPool["zpoolName"].(string)
+		if poolType == "zfs" && zpoolName != "" {
+			datasetName := zpoolName + "/shares/" + target
+			opts := CmdOptions{Timeout: 15 * time.Second}
+			// Check if dataset exists before destroying
+			existing, _ := runCmd("zfs", []string{"list", "-H", "-o", "name", datasetName}, opts)
+			if strings.TrimSpace(existing.Stdout) != "" {
+				_, err := runCmd("zfs", []string{"destroy", "-r", datasetName}, opts)
+				if err != nil {
+					logMsg("WARNING: failed to destroy ZFS dataset '%s': %s", datasetName, err)
+				} else {
+					logMsg("Destroyed ZFS dataset '%s' for share '%s'", datasetName, target)
+				}
+			}
+		}
+	}
 
 	// Remove from DB
 	dbSharesDelete(target)

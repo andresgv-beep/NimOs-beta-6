@@ -661,7 +661,7 @@
               <div class="wg-empty">Sin torrents activos</div>
             {:else}
               <div class="wg-tor-list">
-                {#each allTorrents.slice(0, maxRows) as t}
+                {#each [...allTorrents].sort((a,b) => (b.progress < 100 ? 1 : 0) - (a.progress < 100 ? 1 : 0)).slice(0, maxRows) as t}
                   {@const done = t.progress >= 100}
                   <div class="wg-tor-row" class:done>
                     <div class="wg-tor-top">

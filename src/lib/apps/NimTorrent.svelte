@@ -459,12 +459,12 @@
   .btn-accent { padding:5px 12px; border-radius:7px; border:none; cursor:pointer; background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; font-size:11px; font-weight:600; font-family:inherit; transition:all .15s; }
   .btn-accent:hover { opacity:.88; } .btn-accent:disabled { opacity:.5; cursor:not-allowed; }
 
-  .torrent-list { flex:1; overflow-y:auto; padding:8px; }
+  .torrent-list { flex:1; overflow-y:auto; overflow-x:hidden; padding:8px; }
   .torrent-list::-webkit-scrollbar { width:3px; } .torrent-list::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
   .t-empty { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--text-3); font-size:12px; }
   .t-empty-icon { font-size:28px; opacity:.3; }
 
-  .torrent-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; margin-bottom:2px; border:1px solid transparent; transition:all .15s; cursor:pointer; animation:fadeUp .25s ease both; }
+  .torrent-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; margin-bottom:2px; border:1px solid transparent; transition:all .15s; cursor:pointer; animation:fadeUp .25s ease both; min-width:0; overflow:hidden; }
   .torrent-row:hover { background:rgba(128,128,128,0.06); border-color:var(--border); }
   .torrent-row.selected { background:var(--active-bg); border-color:var(--border-hi); }
   @keyframes fadeUp { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }

@@ -599,16 +599,17 @@
 
                 <!-- Panel de detalle -->
                 {#if selectedShare === s.name}
+                  {@const total = (s.quota > 0 ? s.quota : (s.used || 0) + (s.available || 0)) || 1}
+                  {@const used = s.used || 0}
+                  {@const pct = Math.round(Math.min(used / total, 1) * 100)}
+                  {@const r = 46}
+                  {@const circ = 2 * Math.PI * r}
+                  {@const dash = (pct / 100) * circ}
+                  {@const color = pct > 85 ? 'var(--red)' : pct > 60 ? 'var(--amber)' : 'var(--accent)'}
                   <div class="share-detail" style="animation:detailIn .18s ease">
                     <div class="sd-inner">
                       <!-- Donut -->
                       <div class="sd-left">
-                        {@const total = (s.quota > 0 ? s.quota : (s.used || 0) + (s.available || 0)) || 1}
-                        {@const used = s.used || 0}
-                        {@const pct = Math.round(Math.min(used / total, 1) * 100)}
-                        {@const r = 46} {@const circ = 2 * Math.PI * r}
-                        {@const dash = (pct / 100) * circ}
-                        {@const color = pct > 85 ? 'var(--red)' : pct > 60 ? 'var(--amber)' : 'var(--accent)'}
                         <div class="sd-donut-wrap">
                           <svg viewBox="0 0 120 120" width="120" height="120">
                             <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(128,128,128,0.12)" stroke-width="10"/>

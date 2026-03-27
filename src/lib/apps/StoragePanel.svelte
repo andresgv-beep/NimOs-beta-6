@@ -118,64 +118,16 @@
     } else { scrubMsg = data.error || 'Error'; scrubMsgError = true; }
   }
 
-  // ── ZFS: Datasets ──────────────────────────────────────────────────────────
-  let datasets = [];
-  let dsLoading = false;
-  let dsPool = '';
-  let newDs = { name: '', quota: '' };
-  let dsMsg = ''; let dsMsgError = false;
-
-  async function loadDatasets(pool) {
-    if (!pool) return;
-    dsLoading = true;
-    try {
-      const res = await fetch(`/api/storage/datasets?pool=${encodeURIComponent(pool)}`, { headers: hdrs() });
-      const data = await res.json();
-      datasets = data.datasets || [];
-    } catch { datasets = []; }
-    dsLoading = false;
-  }
-
-  async function createDs() {
-    dsMsg = '';
-    const quota = newDs.quota ? parseInt(newDs.quota) * 1024 * 1024 * 1024 : 0;
-    const res = await fetch('/api/storage/dataset', {
-      method: 'POST',
-      headers: { ...hdrs(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pool: dsPool, name: newDs.name, quota }),
-    });
-    const data = await res.json();
-    if (data.ok) { dsMsg = 'Dataset creado'; dsMsgError = false; newDs = { name: '', quota: '' }; loadDatasets(dsPool); }
-    else { dsMsg = data.error || 'Error'; dsMsgError = true; }
-  }
-
-  async function deleteDs(dataset) {
-    if (!confirm(`¿Borrar dataset ${dataset}?`)) return;
-    const res = await fetch('/api/storage/dataset', {
-      method: 'DELETE',
-      headers: { ...hdrs(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dataset }),
-    });
-    const data = await res.json();
-    if (data.ok) loadDatasets(dsPool);
-    else alert(data.error || 'Error');
-  }
-
   // ── Reactive: load ZFS data when tab changes ────────────────────────────────
   $: if (activeTab === 'snapshots' && pools.length > 0) {
     if (!snapPool) snapPool = pools[0]?.name || '';
     loadSnapshots(snapPool);
-  }
-  $: if (activeTab === 'datasets' && pools.length > 0) {
-    if (!dsPool) dsPool = pools[0]?.name || '';
-    loadDatasets(dsPool);
   }
   $: if (activeTab === 'scrub' && pools.length > 0) {
     if (!scrubPool) scrubPool = pools[0]?.name || '';
     loadScrubStatus(scrubPool);
   }
   $: if (snapPool && activeTab === 'snapshots') loadSnapshots(snapPool);
-  $: if (dsPool   && activeTab === 'datasets')  loadDatasets(dsPool);
   $: if (scrubPool && activeTab === 'scrub')     loadScrubStatus(scrubPool);
 
   function fmtDate(raw) {
@@ -727,58 +679,6 @@
         </div>
       {/if}
       {#if snapMsg}<div class="pool-msg" class:error={snapMsgError} style="margin-top:10px">{snapMsg}</div>{/if}
-
-    {:else if activeTab === 'datasets'}
-
-      <div class="zfs-toolbar">
-        <div class="section-label" style="margin:0">Datasets ZFS</div>
-        <select class="form-select zfs-pool-sel" bind:value={dsPool} on:change={() => loadDatasets(dsPool)}>
-          {#each pools.filter(p => p.type === 'zfs' || p.filesystem === 'zfs') as p}
-            <option value={p.name}>{p.name}</option>
-          {/each}
-          {#if pools.filter(p => p.type === 'zfs' || p.filesystem === 'zfs').length === 0}
-            {#each pools as p}<option value={p.name}>{p.name}</option>{/each}
-          {/if}
-        </select>
-        <div class="zfs-create-row">
-          <input class="form-input zfs-snap-input" type="text" placeholder="nombre del dataset" bind:value={newDs.name} />
-          <input class="form-input zfs-quota-input" type="number" placeholder="quota GB (0=sin)" bind:value={newDs.quota} min="0" />
-          <button class="btn-accent zfs-btn" on:click={createDs}>+ Dataset</button>
-        </div>
-      </div>
-
-      {#if dsLoading}
-        <div class="zfs-loading"><div class="spinner"></div></div>
-      {:else if datasets.length === 0}
-        <div class="zfs-empty">⊟ No hay datasets en este pool</div>
-      {:else}
-        <div class="zfs-list">
-          {#each datasets as ds}
-            <div class="zfs-row">
-              <div class="zfs-row-icon ds-icon">⊟</div>
-              <div class="zfs-row-info">
-                <div class="zfs-row-name">{ds.name.split('/').slice(1).join('/') || ds.name}</div>
-                <div class="zfs-row-meta">{ds.mountpoint} · {ds.type}</div>
-              </div>
-              <div class="zfs-row-sizes">
-                <span class="zfs-size-badge">usado {fmt(ds.used)}</span>
-                <span class="zfs-size-badge refer">libre {fmt(ds.avail)}</span>
-                {#if ds.quota > 0}<span class="zfs-size-badge quota">quota {fmt(ds.quota)}</span>{/if}
-              </div>
-              {#if ds.quota > 0}
-                {@const pct = Math.min(100, (ds.used / ds.quota) * 100)}
-                <div class="ds-quota-bar" title="{pct.toFixed(0)}%">
-                  <div class="ds-quota-fill" style="width:{pct}%;background:{pct>85?'var(--red)':pct>60?'var(--amber)':'var(--accent)'}"></div>
-                </div>
-              {/if}
-              <div class="zfs-row-actions">
-                <button class="zfs-action-btn del" on:click={() => deleteDs(ds.name)} title="Borrar">✕</button>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-      {#if dsMsg}<div class="pool-msg" class:error={dsMsgError} style="margin-top:10px">{dsMsg}</div>{/if}
 
     {:else if activeTab === 'scrub'}
 

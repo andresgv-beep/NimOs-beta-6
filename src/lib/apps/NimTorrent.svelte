@@ -14,7 +14,7 @@
   let addMode = 'file';
   let magnetLink = '';
   let selectedFile = null;
-  let savePath = '/data/torrents';
+  let savePath = '';
   let shares = [];
   let addMsg = '';
   let addMsgError = false;
@@ -70,7 +70,7 @@
   // ── Add torrent ──
   function openAddModal() {
     showAddModal = true; addMode = 'file'; magnetLink = ''; selectedFile = null;
-    savePath = '/data/torrents'; addMsg = ''; addMsgError = false;
+    savePath = ''; addMsg = ''; addMsgError = false;
   }
 
   function pickFile() {
@@ -360,10 +360,6 @@
         <label class="form-label">Carpeta de destino</label>
         <div class="dest-options">
           <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="dest-option" class:active={savePath === '/data/torrents'} on:click={() => savePath = '/data/torrents'}>
-            <div class="dest-icon">📥</div>
-            <div class="dest-info"><div class="dest-name">Descargas</div><div class="dest-path">/data/torrents</div></div>
-          </div>
           {#each shares as share}
             <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
             <div class="dest-option" class:active={savePath === (share.path || `/pool/${share.pool}/${share.name}`)}

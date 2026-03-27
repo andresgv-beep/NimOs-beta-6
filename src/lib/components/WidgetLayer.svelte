@@ -167,13 +167,22 @@
         fetch('/api/system',         { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
         fetch('/api/storage/status', { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
         fetch('/api/network',        { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
-        fetch('/api/torrent/list',   { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/torrent/torrents', { headers: hdrs() }).then(r => r.json()).then(d => {
+          const raw = Array.isArray(d) ? d : (d.torrents || []);
+          const list = raw.map(t => ({
+            name:     t.name || '—',
+            progress: (t.progress != null && t.progress <= 1) ? t.progress * 100 : (t.progress || 0),
+            dlSpeed:  t.download_rate ?? t.dlSpeed ?? t.downloadSpeed ?? 0,
+            ulSpeed:  t.upload_rate   ?? t.ulSpeed ?? t.uploadSpeed   ?? 0,
+            status:   t.status || '',
+          }));
+          const totalDl = list.reduce((a, t) => a + t.dlSpeed, 0);
+          const totalUl = list.reduce((a, t) => a + t.ulSpeed, 0);
+          torrentData = { torrents: list, dlSpeed: totalDl, ulSpeed: totalUl };
+          updateTorrentChart();
+        }).catch(() => {}),
       ]);
       sysData = sys || {}; storageData = stor || {}; netData = net || {};
-      if (tor?.torrents) {
-        torrentData = tor;
-        updateTorrentChart();
-      }
       updateNetCharts();
     } catch {}
   }

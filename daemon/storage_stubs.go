@@ -472,7 +472,11 @@ func appendFstab(uuid, mountPoint, filesystem string) {
 	if strings.Contains(string(existing), mountPoint) {
 		return
 	}
-	entry := fmt.Sprintf("UUID=%s %s %s defaults,nofail,noatime 0 2\n", uuid, mountPoint, filesystem)
+	opts := "defaults,nofail,noatime"
+	if filesystem == "btrfs" {
+		opts = "defaults,nofail,noatime,compress=zstd"
+	}
+	entry := fmt.Sprintf("UUID=%s %s %s %s 0 2\n", uuid, mountPoint, filesystem, opts)
 	f, err := os.OpenFile("/etc/fstab", os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return

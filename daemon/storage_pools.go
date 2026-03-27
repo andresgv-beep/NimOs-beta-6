@@ -563,7 +563,7 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 			os.MkdirAll(mountPoint, 0755)
 
 			// Mount
-			_, err = runCmd("mount", []string{"-t", "btrfs", "-o", "noatime,compress=lz4", "UUID=" + uuid, mountPoint}, opts)
+			_, err = runCmd("mount", []string{"-t", "btrfs", "-o", "noatime,compress=zstd", "UUID=" + uuid, mountPoint}, opts)
 			if err != nil {
 				return fmt.Errorf("mount failed: %w", err)
 			}

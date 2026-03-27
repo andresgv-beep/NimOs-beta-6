@@ -19,13 +19,6 @@
   let explorerPath = '/';
   let explorerFiles = [];
   let explorerLoading = false;
-  let modalWrapper;
-
-  // Move modal to body to escape WindowFrame overflow:hidden + border-radius stacking context
-  function portalAction(node) {
-    document.body.appendChild(node);
-    return { destroy() { if (node.parentNode) node.parentNode.removeChild(node); } };
-  }
 
   // Árbol proyecto
   let projectShare = null;
@@ -330,11 +323,10 @@
 </div>
 
 {#if showExplorer}
-  <div use:portalAction>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div style="position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px)" on:click|self={() => showExplorer = false}></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;width:500px;max-width:92%;max-height:75vh;background:var(--bg-inner,#1a1a2e);border-radius:12px;border:1px solid var(--border,#333);box-shadow:0 24px 60px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;font-family:'Inter',-apple-system,sans-serif;color:var(--text-1,#eee)">
+  <div class="modal-overlay" on:click|self={() => showExplorer = false}></div>
+  <div class="modal">
     <div class="modal-header">
       <span class="modal-title">Abrir archivo</span>
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -401,7 +393,6 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <button class="modal-btn" on:click={() => showExplorer = false}>Cancelar</button>
     </div>
-  </div>
   </div>
 {/if}
 

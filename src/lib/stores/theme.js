@@ -90,7 +90,11 @@ function applyToDOM(p) {
 
 // Load from server
 export async function loadPrefs() {
-  // First: apply from localStorage (instant)
+  // Paso 1: aplicar DEFAULTS inmediatamente (sin esperar nada)
+  // Esto evita el flash en equipos nuevos sin localStorage
+  applyToDOM({ ...DEFAULTS });
+
+  // Paso 2: aplicar localStorage si existe (instantáneo)
   try {
     const cached = localStorage.getItem('nimos-prefs');
     if (cached) {
@@ -100,7 +104,7 @@ export async function loadPrefs() {
     }
   } catch {}
 
-  // Then: sync from server
+  // Paso 3: sincronizar desde el servidor (fuente de verdad)
   const token = getToken();
   if (!token) return;
 

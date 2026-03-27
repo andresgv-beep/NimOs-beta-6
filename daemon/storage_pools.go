@@ -550,28 +550,46 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 			return nil
 		}},
 
-		// 2. Get UUID for mounting
+		// 2. Get UUID and mount filesystem
 		{Name: "get_uuid_and_mount", Policy: FailFast, Do: func() error {
+			// Scan for BTRFS multi-device members — required before mount
+			runCmd("btrfs", []string{"device", "scan"}, optsShort)
+			time.Sleep(1 * time.Second)
+
 			// Get UUID from first disk
 			res, err := runCmd("blkid", []string{"-s", "UUID", "-o", "value", disks[0]}, optsShort)
 			if err != nil || strings.TrimSpace(res.Stdout) == "" {
-				return fmt.Errorf("failed to get BTRFS UUID from %s", disks[0])
+				// Try second disk
+				if len(disks) > 1 {
+					res, err = runCmd("blkid", []string{"-s", "UUID", "-o", "value", disks[1]}, optsShort)
+				}
+				if err != nil || strings.TrimSpace(res.Stdout) == "" {
+					return fmt.Errorf("failed to get BTRFS UUID from any disk")
+				}
 			}
 			uuid := strings.TrimSpace(res.Stdout)
 
 			// Create mount point
 			os.MkdirAll(mountPoint, 0755)
 
-			// Mount
-			_, err = runCmd("mount", []string{"-t", "btrfs", "-o", "noatime,compress=zstd", "UUID=" + uuid, mountPoint}, opts)
+			// Mount with device path (more reliable than UUID for fresh BTRFS)
+			_, err = runCmd("mount", []string{"-t", "btrfs", "-o", "noatime,compress=zstd", disks[0], mountPoint}, opts)
 			if err != nil {
-				return fmt.Errorf("mount failed: %w", err)
+				// Retry with UUID
+				logMsg("BTRFS mount by device failed, trying UUID %s", uuid)
+				_, err = runCmd("mount", []string{"-t", "btrfs", "-o", "noatime,compress=zstd", "UUID=" + uuid, mountPoint}, opts)
+				if err != nil {
+					return fmt.Errorf("mount failed: %w", err)
+				}
 			}
 
-			// Add to fstab with nofail
-			appendFstab(uuid, mountPoint, "btrfs")
+			// VERIFY mount is real with findmnt
+			verifyRes, _ := runCmd("findmnt", []string{"-n", "-o", "TARGET", mountPoint}, optsShort)
+			if strings.TrimSpace(verifyRes.Stdout) == "" {
+				return fmt.Errorf("mount command succeeded but %s is not mounted", mountPoint)
+			}
 
-			// Store UUID in journal data for config save
+			// Store UUID — fstab write happens LATER to avoid systemd interference
 			op.Data["uuid"] = uuid
 			return nil
 		}, Undo: func() error {
@@ -580,16 +598,17 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 			return nil
 		}},
 
-		// 3. Verify mount is real
+		// 3. Verify mount is real (double check)
 		{Name: "verify_mount", Policy: FailFast, Do: func() error {
-			if !isPathOnMountedPool(mountPoint) {
+			verifyRes, _ := runCmd("findmnt", []string{"-n", "-o", "SOURCE", mountPoint}, optsShort)
+			if strings.TrimSpace(verifyRes.Stdout) == "" {
 				return fmt.Errorf("pool created but mount verification failed at %s", mountPoint)
 			}
-			logMsg("BTRFS pool '%s' mount verified at %s", name, mountPoint)
+			logMsg("BTRFS pool '%s' mount verified at %s (source: %s)", name, mountPoint, strings.TrimSpace(verifyRes.Stdout))
 			return nil
 		}},
 
-		// 4. Create standard directories + identity
+		// 4. Create standard directories + identity + save config
 		{Name: "create_dirs_and_config", Policy: FailFast, Do: func() error {
 			// Create standard dirs
 			createPoolDirs(mountPoint)
@@ -617,6 +636,12 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 				conf["configuredAt"] = time.Now().UTC().Format(time.RFC3339)
 			}
 			saveStorageConfigFull(conf)
+
+			// Write fstab LAST — nofail means it won't block boot if mount fails
+			// Do NOT call systemctl daemon-reload here — it restarts the daemon
+			// and loses the mount. fstab with nofail is read at next boot.
+			appendFstab(op.Data["uuid"], mountPoint, "btrfs")
+
 			logMsg("BTRFS pool '%s' saved to config (primary: %v)", name, isFirst)
 			return nil
 		}},
@@ -676,10 +701,19 @@ func destroyPoolBtrfs(poolName string) map[string]interface{} {
 		}
 	}
 
-	// 2. Unmount — no fuser -km (kills nginx)
+	// 2. Unmount — verify it actually unmounted
 	if mountPoint != "" {
-		runCmd("umount", []string{"-f", "-l", mountPoint}, opts)
+		runCmd("umount", []string{"-f", mountPoint}, opts)
 		time.Sleep(1 * time.Second)
+
+		// Verify unmount
+		verifyRes, _ := runCmd("findmnt", []string{"-n", "-o", "TARGET", mountPoint}, opts)
+		if strings.TrimSpace(verifyRes.Stdout) != "" {
+			// Still mounted — try lazy unmount as last resort
+			logMsg("WARNING: %s still mounted after umount -f, trying lazy umount", mountPoint)
+			runCmd("umount", []string{"-f", "-l", mountPoint}, opts)
+			time.Sleep(2 * time.Second)
+		}
 	}
 
 	// 3. Clean up mount point

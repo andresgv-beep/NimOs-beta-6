@@ -440,13 +440,307 @@ func cleanOrphanPoolDirs() {
 // ─── Create Pool BTRFS ───────────────────────────────────────────────────────
 
 func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
-	// TODO: implement with same Step pattern as ZFS
-	return map[string]interface{}{"error": "BTRFS pool creation pending implementation"}
+	name := bodyStr(body, "name")
+	profile := bodyStr(body, "profile")
+	if profile == "" {
+		profile = "single"
+	}
+
+	// Validate name
+	if name == "" || !regexp.MustCompile(`^[a-zA-Z0-9-]{1,32}$`).MatchString(name) {
+		return map[string]interface{}{"error": "Invalid pool name. Use alphanumeric + hyphens, max 32 chars."}
+	}
+	reserved := map[string]bool{"system": true, "config": true, "temp": true, "swap": true, "root": true, "boot": true}
+	if reserved[strings.ToLower(name)] {
+		return map[string]interface{}{"error": fmt.Sprintf(`"%s" is a reserved name.`, name)}
+	}
+
+	// Check storage.json
+	conf := getStorageConfigFull()
+	confPools, _ := conf["pools"].([]interface{})
+	for _, p := range confPools {
+		pm, _ := p.(map[string]interface{})
+		if n, _ := pm["name"].(string); n == name {
+			return map[string]interface{}{"error": fmt.Sprintf(`Pool "%s" already exists in config.`, name)}
+		}
+	}
+
+	// Parse disks
+	disksRaw, _ := body["disks"].([]interface{})
+	if len(disksRaw) < 1 {
+		return map[string]interface{}{"error": "At least 1 disk required."}
+	}
+	var disks []string
+	for _, d := range disksRaw {
+		if ds, ok := d.(string); ok {
+			if !strings.HasPrefix(ds, "/dev/") {
+				ds = "/dev/" + ds
+			}
+			disks = append(disks, ds)
+		}
+	}
+
+	// Validate profile vs disk count
+	minDisks := map[string]int{"single": 1, "raid1": 2, "raid10": 4}
+	if min, ok := minDisks[profile]; ok {
+		if len(disks) < min {
+			return map[string]interface{}{"error": fmt.Sprintf("%s requires at least %d disks.", profile, min)}
+		}
+	}
+
+	// Pre-flight check on all disks
+	for _, d := range disks {
+		if err := preFlightCheck(d); err != nil {
+			return map[string]interface{}{"error": fmt.Sprintf("Disk %s: %s", d, err.Error())}
+		}
+	}
+
+	mountPoint := nimbusPoolsDir + "/" + name
+	label := "nimos-" + name
+	opts := CmdOptions{Timeout: 120 * time.Second}
+	optsShort := CmdOptions{Timeout: 15 * time.Second}
+
+	op := JournalOp{
+		ID:   "create-btrfs-" + name,
+		Type: "create_pool",
+		Data: map[string]string{"name": name, "type": "btrfs", "profile": profile},
+	}
+
+	// Take exclusive lock
+	storageMu.Lock()
+	defer storageMu.Unlock()
+
+	steps := []Step{
+		// 0. Wipe all disks
+		{Name: "wipe_disks", Policy: FailFast, Do: func() error {
+			for _, d := range disks {
+				result := wipeDiskInternal(d)
+				if errMsg, ok := result["error"].(string); ok && errMsg != "" {
+					return fmt.Errorf("wipe %s: %s", d, errMsg)
+				}
+			}
+			return nil
+		}},
+
+		// 1. Create BTRFS filesystem
+		{Name: "mkfs_btrfs", Policy: FailFast, Do: func() error {
+			args := []string{"-f", "-L", label}
+
+			// Set data and metadata profiles
+			switch profile {
+			case "raid1":
+				args = append(args, "-d", "raid1", "-m", "raid1")
+			case "raid10":
+				args = append(args, "-d", "raid10", "-m", "raid10")
+			default: // single
+				if len(disks) > 1 {
+					args = append(args, "-d", "single", "-m", "raid1")
+				}
+			}
+
+			args = append(args, disks...)
+			logMsg("BTRFS: mkfs.btrfs %s", strings.Join(args, " "))
+			_, err := runCmd("mkfs.btrfs", args, opts)
+			return err
+		}, Undo: func() error {
+			// Wipe all disks to clean BTRFS signatures
+			for _, d := range disks {
+				runCmd("wipefs", []string{"-af", d}, optsShort)
+			}
+			return nil
+		}},
+
+		// 2. Get UUID for mounting
+		{Name: "get_uuid_and_mount", Policy: FailFast, Do: func() error {
+			// Get UUID from first disk
+			res, err := runCmd("blkid", []string{"-s", "UUID", "-o", "value", disks[0]}, optsShort)
+			if err != nil || strings.TrimSpace(res.Stdout) == "" {
+				return fmt.Errorf("failed to get BTRFS UUID from %s", disks[0])
+			}
+			uuid := strings.TrimSpace(res.Stdout)
+
+			// Create mount point
+			os.MkdirAll(mountPoint, 0755)
+
+			// Mount
+			_, err = runCmd("mount", []string{"-t", "btrfs", "-o", "noatime,compress=lz4", "UUID=" + uuid, mountPoint}, opts)
+			if err != nil {
+				return fmt.Errorf("mount failed: %w", err)
+			}
+
+			// Add to fstab with nofail
+			appendFstab(uuid, mountPoint, "btrfs")
+
+			// Store UUID in journal data for config save
+			op.Data["uuid"] = uuid
+			return nil
+		}, Undo: func() error {
+			runCmd("umount", []string{"-f", mountPoint}, optsShort)
+			os.RemoveAll(mountPoint)
+			return nil
+		}},
+
+		// 3. Verify mount is real
+		{Name: "verify_mount", Policy: FailFast, Do: func() error {
+			if !isPathOnMountedPool(mountPoint) {
+				return fmt.Errorf("pool created but mount verification failed at %s", mountPoint)
+			}
+			logMsg("BTRFS pool '%s' mount verified at %s", name, mountPoint)
+			return nil
+		}},
+
+		// 4. Create standard directories + identity
+		{Name: "create_dirs_and_config", Policy: FailFast, Do: func() error {
+			// Create standard dirs
+			createPoolDirs(mountPoint)
+
+			// Write identity file
+			writePoolIdentity(mountPoint, name, "btrfs", profile, disks)
+
+			// Save to storage.json
+			conf := getStorageConfigFull()
+			confPools, _ := conf["pools"].([]interface{})
+			isFirst := len(confPools) == 0
+
+			confPools = append(confPools, map[string]interface{}{
+				"name":       name,
+				"type":       "btrfs",
+				"profile":    profile,
+				"mountPoint": mountPoint,
+				"uuid":       op.Data["uuid"],
+				"disks":      disksRaw,
+				"createdAt":  time.Now().UTC().Format(time.RFC3339),
+			})
+			conf["pools"] = confPools
+			if isFirst {
+				conf["primaryPool"] = name
+				conf["configuredAt"] = time.Now().UTC().Format(time.RFC3339)
+			}
+			saveStorageConfigFull(conf)
+			logMsg("BTRFS pool '%s' saved to config (primary: %v)", name, isFirst)
+			return nil
+		}},
+	}
+
+	if err := runSteps(op, steps); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	logMsg("BTRFS pool '%s' created successfully (%s, %d disks)", name, profile, len(disks))
+	return map[string]interface{}{
+		"ok":          true,
+		"pool":        map[string]interface{}{"name": name, "type": "btrfs", "profile": profile, "mountPoint": mountPoint},
+		"isFirstPool": len(confPools) == 1,
+	}
 }
 
 // ─── Destroy Pool BTRFS ──────────────────────────────────────────────────────
 
 func destroyPoolBtrfs(poolName string) map[string]interface{} {
-	// TODO: implement
-	return map[string]interface{}{"error": "BTRFS pool destroy pending implementation"}
+	storageMu.Lock()
+	defer storageMu.Unlock()
+
+	conf := getStorageConfigFull()
+	confPools, _ := conf["pools"].([]interface{})
+
+	// Find pool in config
+	var poolConf map[string]interface{}
+	var poolIdx int
+	for i, p := range confPools {
+		pm, _ := p.(map[string]interface{})
+		if n, _ := pm["name"].(string); n == poolName {
+			poolConf = pm
+			poolIdx = i
+			break
+		}
+	}
+	if poolConf == nil {
+		return map[string]interface{}{"error": fmt.Sprintf(`Pool "%s" not found`, poolName)}
+	}
+
+	mountPoint, _ := poolConf["mountPoint"].(string)
+	opts := CmdOptions{Timeout: 30 * time.Second}
+
+	logMsg("Destroying BTRFS pool '%s' (mount: %s)", poolName, mountPoint)
+
+	// 1. Delete shares from DB
+	shares, _ := dbSharesList()
+	for _, s := range shares {
+		sharPool, _ := s["pool"].(string)
+		sharVolume, _ := s["volume"].(string)
+		sharPath, _ := s["path"].(string)
+		sharName, _ := s["name"].(string)
+		if sharPool == poolName || sharVolume == poolName || (mountPoint != "" && strings.HasPrefix(sharPath, mountPoint)) {
+			handleOp(Request{Op: "share.delete", ShareName: sharName})
+			dbSharesDelete(sharName)
+		}
+	}
+
+	// 2. Unmount — no fuser -km (kills nginx)
+	if mountPoint != "" {
+		runCmd("umount", []string{"-f", "-l", mountPoint}, opts)
+		time.Sleep(1 * time.Second)
+	}
+
+	// 3. Clean up mount point
+	if mountPoint != "" && strings.HasPrefix(mountPoint, nimbusPoolsDir) {
+		os.RemoveAll(mountPoint)
+	}
+
+	// 4. Remove fstab entry
+	removeFstabEntry(mountPoint)
+
+	// 5. Wipe disks to remove BTRFS signatures
+	if disksRaw, ok := poolConf["disks"].([]interface{}); ok {
+		for _, d := range disksRaw {
+			if ds, ok := d.(string); ok {
+				runCmd("wipefs", []string{"-af", ds}, opts)
+			}
+		}
+	}
+
+	// 6. Remove from storage.json
+	confPools = append(confPools[:poolIdx], confPools[poolIdx+1:]...)
+	conf["pools"] = confPools
+	if primary, _ := conf["primaryPool"].(string); primary == poolName {
+		if len(confPools) > 0 {
+			if first, ok := confPools[0].(map[string]interface{}); ok {
+				conf["primaryPool"] = first["name"]
+			}
+		} else {
+			conf["primaryPool"] = nil
+			conf["configuredAt"] = nil
+		}
+	}
+	saveStorageConfigFull(conf)
+
+	// 7. Rescan
+	runCmd("partprobe", nil, opts)
+	rescanSCSIBuses()
+
+	// 8. Clean orphans
+	cleanOrphanPoolDirs()
+
+	logMsg("BTRFS pool '%s' destroyed", poolName)
+	return map[string]interface{}{"ok": true}
+}
+
+// removeFstabEntry removes a mount point entry from /etc/fstab
+func removeFstabEntry(mountPoint string) {
+	if mountPoint == "" {
+		return
+	}
+	data, err := os.ReadFile("/etc/fstab")
+	if err != nil {
+		return
+	}
+	var kept []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, mountPoint) {
+			logMsg("Removing fstab entry: %s", strings.TrimSpace(line))
+			continue
+		}
+		kept = append(kept, line)
+	}
+	os.WriteFile("/etc/fstab", []byte(strings.Join(kept, "\n")), 0644)
 }

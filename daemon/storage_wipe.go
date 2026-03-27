@@ -347,15 +347,13 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 	steps := []Step{
 		// 0. Unmount partitions cleanly first
 		{Name: "unmount_clean", Policy: Continue, Do: func() error {
-			// List mounted partitions of this disk
 			res, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME,MOUNTPOINT", diskPath}, optsNoFail)
 			for _, line := range strings.Split(res.Stdout, "\n") {
 				fields := strings.Fields(line)
 				if len(fields) >= 2 && fields[1] != "" {
-					runCmd("umount", []string{fields[1]}, optsNoFail)
+					runCmd("umount", []string{"-f", fields[1]}, optsNoFail)
 				}
 			}
-			// Also unmount the disk itself if mounted
 			runCmd("umount", []string{"-f", diskPath}, optsNoFail)
 			return nil
 		}},
@@ -363,7 +361,6 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 		// 1. Kill processes using the disk (fallback)
 		{Name: "fuser_kill", Policy: Continue, Do: func() error {
 			runCmd("fuser", []string{"-km", diskPath}, optsNoFail)
-			// Also kill on all partitions
 			partsOut, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
 			for _, line := range strings.Split(partsOut.Stdout, "\n") {
 				p := strings.TrimSpace(line)
@@ -375,11 +372,10 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 			return nil
 		}},
 
-		// 2. Clear ZFS labels
+		// 2. Clear ZFS labels on disk AND each partition
 		{Name: "zpool_labelclear", Policy: Continue, Do: func() error {
 			if hasZfs {
 				runCmd("zpool", []string{"labelclear", "-f", diskPath}, optsNoFail)
-				// Also clear on partitions
 				partsOut, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
 				for _, line := range strings.Split(partsOut.Stdout, "\n") {
 					p := strings.TrimSpace(line)
@@ -391,7 +387,27 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 			return nil
 		}},
 
-		// 3. Zero first 32MB (MBR, GPT primary, superblocks)
+		// 3. Wipe signatures on EACH PARTITION first, then remove partitions from kernel
+		// This must happen BEFORE zeroing the disk or destroying GPT
+		{Name: "wipe_partitions", Policy: Continue, Do: func() error {
+			partsOut, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
+			for _, line := range strings.Split(partsOut.Stdout, "\n") {
+				p := strings.TrimSpace(line)
+				if p != "" && p != diskBase {
+					partDev := "/dev/" + p
+					// Wipe filesystem signatures on the partition
+					runCmd("wipefs", []string{"-af", partDev}, optsNoFail)
+					// Zero first 1MB of partition (superblock area)
+					runCmd("dd", []string{"if=/dev/zero", "of=" + partDev, "bs=1M", "count=1", "conv=fsync,notrunc"}, optsNoFail)
+				}
+			}
+			// Remove partitions from kernel cache
+			runCmd("partx", []string{"-d", diskPath}, optsNoFail)
+			time.Sleep(500 * time.Millisecond)
+			return nil
+		}},
+
+		// 4. Zero first 32MB (MBR, GPT primary, superblocks)
 		{Name: "zero_start", Policy: FailFast, Do: func() error {
 			_, err := runCmd("dd", []string{
 				"if=/dev/zero", "of=" + diskPath,
@@ -400,7 +416,7 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 			return err
 		}},
 
-		// 4. Zero last 32MB (GPT backup table, ZFS tail labels)
+		// 5. Zero last 32MB (GPT backup table, ZFS tail labels)
 		{Name: "zero_end", Policy: Continue, Do: func() error {
 			res, err := runCmd("blockdev", []string{"--getsize64", diskPath}, optsNoFail)
 			if err != nil {
@@ -420,71 +436,66 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 			return nil
 		}},
 
-		// 5. Destroy GPT/MBR structures
+		// 6. Destroy GPT/MBR structures
 		{Name: "sgdisk_zap", Policy: Continue, Do: func() error {
 			runCmd("sgdisk", []string{"-Z", diskPath}, optsNoFail)
 			return nil
 		}},
 
-		// 6. Clear filesystem signatures
-		{Name: "wipefs", Policy: Continue, Do: func() error {
-			// First on partitions
-			partsOut, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
-			for _, line := range strings.Split(partsOut.Stdout, "\n") {
-				p := strings.TrimSpace(line)
-				if p != "" && p != diskBase {
-					runCmd("wipefs", []string{"-af", "/dev/" + p}, optsNoFail)
-				}
-			}
-			// Then on disk itself
+		// 7. Final wipefs on disk itself
+		{Name: "wipefs_disk", Policy: Continue, Do: func() error {
 			runCmd("wipefs", []string{"-af", diskPath}, optsNoFail)
 			return nil
 		}},
 
-		// 7. Force kernel to re-read partition table
+		// 8. Force kernel to re-read partition table
 		{Name: "reread_partitions", Policy: Continue, Do: func() error {
 			runCmd("partx", []string{"-d", diskPath}, optsNoFail)
 			runCmd("blockdev", []string{"--rereadpt", diskPath}, optsNoFail)
 			runCmd("partprobe", []string{diskPath}, optsNoFail)
 			runCmd("udevadm", []string{"settle", "--timeout=5"}, optsNoFail)
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second)
 			return nil
 		}},
 
-		// 8. VERIFY — partitions must be gone
+		// 9. VERIFY — partitions must be gone. If not, aggressive retry.
 		{Name: "verify_clean", Policy: FailFast, Do: func() error {
-			res, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
-			lines := strings.Split(strings.TrimSpace(res.Stdout), "\n")
-			partCount := 0
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line != "" && line != diskBase {
-					partCount++
-				}
-			}
-			if partCount > 0 {
-				// One more attempt — sometimes kernel needs more time
-				time.Sleep(2 * time.Second)
-				runCmd("blockdev", []string{"--rereadpt", diskPath}, optsNoFail)
-				runCmd("partprobe", []string{diskPath}, optsNoFail)
-				time.Sleep(1 * time.Second)
-
-				// Re-verify
-				res2, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
-				lines2 := strings.Split(strings.TrimSpace(res2.Stdout), "\n")
-				partCount2 := 0
-				for _, line := range lines2 {
+			for attempt := 0; attempt < 3; attempt++ {
+				res, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
+				lines := strings.Split(strings.TrimSpace(res.Stdout), "\n")
+				partCount := 0
+				for _, line := range lines {
 					line = strings.TrimSpace(line)
 					if line != "" && line != diskBase {
-						partCount2++
+						partCount++
 					}
 				}
-				if partCount2 > 0 {
-					return fmt.Errorf("wipe verification failed: %d partitions still on %s", partCount2, diskPath)
+				if partCount == 0 {
+					logMsg("Wipe verified: %s is clean (0 partitions)", diskPath)
+					return nil
+				}
+
+				if attempt < 2 {
+					logMsg("Wipe verify attempt %d: %d partitions remain on %s — retrying aggressively", attempt+1, partCount, diskPath)
+					// Aggressive retry: wipe remaining partitions, re-zero, re-partx
+					retryParts, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
+					for _, line := range strings.Split(retryParts.Stdout, "\n") {
+						p := strings.TrimSpace(line)
+						if p != "" && p != diskBase {
+							runCmd("wipefs", []string{"-af", "/dev/" + p}, optsNoFail)
+							runCmd("dd", []string{"if=/dev/zero", "of=/dev/" + p, "bs=1M", "count=1", "conv=fsync,notrunc"}, optsNoFail)
+						}
+					}
+					runCmd("partx", []string{"-d", diskPath}, optsNoFail)
+					runCmd("sgdisk", []string{"-Z", diskPath}, optsNoFail)
+					runCmd("wipefs", []string{"-af", diskPath}, optsNoFail)
+					runCmd("blockdev", []string{"--rereadpt", diskPath}, optsNoFail)
+					runCmd("partprobe", []string{diskPath}, optsNoFail)
+					runCmd("udevadm", []string{"settle", "--timeout=5"}, optsNoFail)
+					time.Sleep(3 * time.Second)
 				}
 			}
-			logMsg("Wipe verified: %s is clean (0 partitions)", diskPath)
-			return nil
+			return fmt.Errorf("wipe verification failed: partitions still on %s after 3 attempts", diskPath)
 		}},
 	}
 

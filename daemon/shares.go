@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // ═══════════════════════════════════
@@ -101,6 +102,10 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(bodyStr(body, "name"))
 	description := bodyStr(body, "description")
 	poolName := bodyStr(body, "pool")
+	quotaBytes := int64(0)
+	if qb, ok := body["quotaBytes"].(float64); ok {
+		quotaBytes = int64(qb)
+	}
 
 	if name == "" {
 		jsonError(w, 400, "Folder name required")
@@ -131,6 +136,8 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mountPoint, _ := targetPool["mountPoint"].(string)
+	poolType, _ := targetPool["type"].(string)
+	zpoolName, _ := targetPool["zpoolName"].(string)
 
 	// Verify the pool is actually mounted — not just a leftover directory on the system disk
 	if !isPathOnMountedPool(mountPoint) {
@@ -140,6 +147,32 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 
 	folderPath := filepath.Join(mountPoint, "shares", safeName)
 	volumeName, _ := targetPool["name"].(string)
+
+	// ── ZFS: create dataset instead of mkdir ──
+	// Each shared folder becomes its own ZFS dataset under pool/shares/
+	// This gives each folder its own quota, snapshots, and compression settings.
+	if poolType == "zfs" && zpoolName != "" {
+		datasetName := zpoolName + "/shares/" + safeName
+		opts := CmdOptions{Timeout: 15 * time.Second}
+
+		// Check if dataset already exists
+		existing, _ := runCmd("zfs", []string{"list", "-H", "-o", "name", datasetName}, opts)
+		if strings.TrimSpace(existing.Stdout) == "" {
+			// Create dataset — it auto-mounts at folderPath
+			_, err := runCmd("zfs", []string{"create", datasetName}, opts)
+			if err != nil {
+				jsonError(w, 500, fmt.Sprintf("Failed to create ZFS dataset: %s", err))
+				return
+			}
+			logMsg("Created ZFS dataset '%s' for share '%s'", datasetName, safeName)
+
+			// Set quota if specified
+			if quotaBytes > 0 {
+				runCmd("zfs", []string{"set", fmt.Sprintf("quota=%d", quotaBytes), datasetName}, opts)
+				logMsg("Set quota %d bytes on dataset '%s'", quotaBytes, datasetName)
+			}
+		}
+	}
 
 	// Call daemon ops to create share with proper filesystem permissions
 	daemonResult := handleOp(Request{

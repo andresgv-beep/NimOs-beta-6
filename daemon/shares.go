@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -62,6 +63,9 @@ func sharesListHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 500, err.Error())
 		return
 	}
+
+	// Enrich shares with real quota from filesystem
+	enrichSharesWithQuota(shares)
 
 	role, _ := session["role"].(string)
 	username, _ := session["username"].(string)
@@ -174,6 +178,33 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ── BTRFS: create subvolume with qgroup quota ──
+	// Each shared folder becomes a BTRFS subvolume under pool/shares/
+	// Quotas use qgroups (must be enabled on the pool first).
+	if poolType == "btrfs" {
+		subvolPath := filepath.Join(mountPoint, "shares", safeName)
+		opts := CmdOptions{Timeout: 15 * time.Second}
+
+		// Check if subvolume already exists
+		existing, _ := runCmd("btrfs", []string{"subvolume", "show", subvolPath}, opts)
+		if existing.Stdout == "" || existing.Code != 0 {
+			// Create subvolume
+			_, err := runCmd("btrfs", []string{"subvolume", "create", subvolPath}, opts)
+			if err != nil {
+				jsonError(w, 500, fmt.Sprintf("Failed to create BTRFS subvolume: %s", err))
+				return
+			}
+			logMsg("Created BTRFS subvolume '%s' for share '%s'", subvolPath, safeName)
+
+			// Set quota if specified
+			if quotaBytes > 0 {
+				quotaStr := fmt.Sprintf("%d", quotaBytes)
+				runCmd("btrfs", []string{"qgroup", "limit", quotaStr, subvolPath}, opts)
+				logMsg("Set BTRFS quota %d bytes on subvolume '%s'", quotaBytes, subvolPath)
+			}
+		}
+	}
+
 	// Call daemon ops to create share with proper filesystem permissions
 	daemonResult := handleOp(Request{
 		Op:        "share.create",
@@ -231,7 +262,7 @@ func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
 		dbSharesUpdate(target, updates)
 	}
 
-	// Handle quota change (ZFS only)
+	// Handle quota change (ZFS and BTRFS)
 	if quotaRaw, ok := body["quota"]; ok {
 		quotaBytes := int64(0)
 		if qb, ok := quotaRaw.(float64); ok {
@@ -246,15 +277,26 @@ func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
 		if targetPool != nil {
 			poolType, _ := targetPool["type"].(string)
 			zpoolName, _ := targetPool["zpoolName"].(string)
+			mountPoint, _ := targetPool["mountPoint"].(string)
+			opts := CmdOptions{Timeout: 10 * time.Second}
+
 			if poolType == "zfs" && zpoolName != "" {
 				datasetName := zpoolName + "/shares/" + target
-				opts := CmdOptions{Timeout: 10 * time.Second}
 				if quotaBytes > 0 {
 					runCmd("zfs", []string{"set", fmt.Sprintf("quota=%d", quotaBytes), datasetName}, opts)
 					logMsg("Updated quota to %d bytes on dataset '%s'", quotaBytes, datasetName)
 				} else {
 					runCmd("zfs", []string{"set", "quota=none", datasetName}, opts)
 					logMsg("Removed quota on dataset '%s'", datasetName)
+				}
+			} else if poolType == "btrfs" && mountPoint != "" {
+				subvolPath := filepath.Join(mountPoint, "shares", target)
+				if quotaBytes > 0 {
+					runCmd("btrfs", []string{"qgroup", "limit", fmt.Sprintf("%d", quotaBytes), subvolPath}, opts)
+					logMsg("Updated BTRFS quota to %d bytes on '%s'", quotaBytes, subvolPath)
+				} else {
+					runCmd("btrfs", []string{"qgroup", "limit", "none", subvolPath}, opts)
+					logMsg("Removed BTRFS quota on '%s'", subvolPath)
 				}
 			}
 		}
@@ -393,6 +435,88 @@ func sharesDeleteHTTP(w http.ResponseWriter, r *http.Request, target string) {
 	dbSharesDelete(target)
 
 	jsonOk(w, map[string]interface{}{"ok": true})
+}
+
+// enrichSharesWithQuota reads the real quota from ZFS datasets or BTRFS subvolumes
+// and adds it to each share object so the UI can display it.
+func enrichSharesWithQuota(shares []map[string]interface{}) {
+	opts := CmdOptions{Timeout: 5 * time.Second}
+	for i, s := range shares {
+		sharPool, _ := s["pool"].(string)
+		if sharPool == "" {
+			sharPool, _ = s["volume"].(string)
+		}
+		sharName, _ := s["name"].(string)
+		if sharPool == "" || sharName == "" {
+			continue
+		}
+
+		targetPool := findTargetPool(sharPool)
+		if targetPool == nil {
+			continue
+		}
+
+		poolType, _ := targetPool["type"].(string)
+		zpoolName, _ := targetPool["zpoolName"].(string)
+		mountPoint, _ := targetPool["mountPoint"].(string)
+
+		if poolType == "zfs" && zpoolName != "" {
+			datasetName := zpoolName + "/shares/" + sharName
+			res, err := runCmd("zfs", []string{"get", "-Hp", "-o", "value", "quota", datasetName}, opts)
+			if err == nil {
+				val := strings.TrimSpace(res.Stdout)
+				if val != "" && val != "0" && val != "none" {
+					var q int64
+					fmt.Sscanf(val, "%d", &q)
+					shares[i]["quota"] = q
+				} else {
+					shares[i]["quota"] = 0
+				}
+			}
+		} else if poolType == "btrfs" && mountPoint != "" {
+			subvolPath := filepath.Join(mountPoint, "shares", sharName)
+			res, err := runCmd("btrfs", []string{"subvolume", "show", subvolPath}, opts)
+			if err == nil {
+				for _, line := range strings.Split(res.Stdout, "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "Limit referenced:") {
+						valStr := strings.TrimPrefix(line, "Limit referenced:")
+						valStr = strings.TrimSpace(valStr)
+						if valStr != "-" && valStr != "none" {
+							shares[i]["quota"] = parseHumanBytes(valStr)
+						} else {
+							shares[i]["quota"] = 0
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+}
+
+// parseHumanBytes converts "55.88GiB" or "10.00MiB" to bytes
+func parseHumanBytes(s string) int64 {
+	s = strings.TrimSpace(s)
+	multiplier := int64(1)
+	if strings.HasSuffix(s, "GiB") {
+		multiplier = 1024 * 1024 * 1024
+		s = strings.TrimSuffix(s, "GiB")
+	} else if strings.HasSuffix(s, "MiB") {
+		multiplier = 1024 * 1024
+		s = strings.TrimSuffix(s, "MiB")
+	} else if strings.HasSuffix(s, "KiB") {
+		multiplier = 1024
+		s = strings.TrimSuffix(s, "KiB")
+	} else if strings.HasSuffix(s, "TiB") {
+		multiplier = 1024 * 1024 * 1024 * 1024
+		s = strings.TrimSuffix(s, "TiB")
+	}
+	val, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0
+	}
+	return int64(val * float64(multiplier))
 }
 
 // ═══════════════════════════════════

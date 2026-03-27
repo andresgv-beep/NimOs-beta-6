@@ -314,7 +314,7 @@
   }
 
   .tb-launcher {
-    width: 34px; height: 34px; border-radius: 8px;
+    width: 40px; height: 40px; border-radius: 8px;
     border: none; background: transparent;
     color: var(--text-2);
     display: flex; align-items: center; justify-content: center;
@@ -337,7 +337,7 @@
   .taskbar.classic[data-position="left"] .app-row { flex-direction: column; }
 
   .tb-btn {
-    width: 38px; height: 38px; border-radius: 9px;
+    width: 44px; height: 44px; border-radius: 10px;
     border: none; background: transparent;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; transition: all .15s;
@@ -349,8 +349,8 @@
   .tb-btn.open  { background: var(--ibtn-bg); }
   .tb-btn.minimized { opacity: 0.45; }
 
-  .tb-emoji { font-size: 19px; line-height: 1; }
-  .tb-icon-img { width: 22px; height: 22px; object-fit: contain; border-radius: 6px; }
+  .tb-emoji { font-size: 23px; line-height: 1; }
+  .tb-icon-img { width: 28px; height: 28px; object-fit: contain; border-radius: 7px; }
   .dock-icon-img { width: 28px; height: 28px; object-fit: contain; border-radius: 8px; }
   .ctx-icon-img { width: 16px; height: 16px; object-fit: contain; border-radius: 4px; }
 
@@ -445,11 +445,11 @@
 
   /* Size variants */
   .taskbar[data-size="small"]  .tb-btn,
-  .taskbar[data-size="small"]  .tb-launcher { width: 32px; height: 32px; }
-  .taskbar[data-size="small"]  .tb-emoji { font-size: 16px; }
+  .taskbar[data-size="small"]  .tb-launcher { width: 34px; height: 34px; }
+  .taskbar[data-size="small"]  .tb-emoji { font-size: 17px; }
   .taskbar[data-size="large"]  .tb-btn,
-  .taskbar[data-size="large"]  .tb-launcher { width: 44px; height: 44px; }
-  .taskbar[data-size="large"]  .tb-emoji { font-size: 22px; }
+  .taskbar[data-size="large"]  .tb-launcher { width: 50px; height: 50px; }
+  .taskbar[data-size="large"]  .tb-emoji { font-size: 26px; }
 
   .taskbar[data-size="small"]  .dock-btn { width: 36px; height: 36px; }
   .taskbar[data-size="small"]  .dock-emoji { font-size: 18px; }

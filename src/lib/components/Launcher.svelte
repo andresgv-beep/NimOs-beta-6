@@ -124,12 +124,12 @@
     bottom: calc(var(--taskbar-height, 48px) + 12px);
     left: 50%;
     transform: translateX(-50%);
-    width: 520px; max-height: 70vh; overflow-y: auto;
+    width: 680px; max-height: 75vh; overflow-y: auto;
     background: var(--bg-frame, #111028);
     border: 1px solid var(--window-border, rgba(255,255,255,0.12));
     border-radius: 16px;
     box-shadow: var(--window-shadow, 0 32px 90px rgba(0,0,0,0.60));
-    padding: 20px;
+    padding: 28px;
     animation: launchIn 0.25s cubic-bezier(0.16,1,0.3,1) both;
   }
   .launcher::-webkit-scrollbar { width: 3px; }
@@ -144,11 +144,11 @@
     font-family: 'DM Sans', sans-serif;
   }
   .app-grid {
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
   }
   .app-item {
-    display: flex; flex-direction: column; align-items: center; gap: 6px;
-    padding: 12px 6px 10px; border-radius: 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 16px 8px 14px; border-radius: 12px;
     cursor: pointer; border: 1px solid transparent;
     transition: all 0.15s; position: relative;
     animation: fadeUp 0.3s ease both;
@@ -159,18 +159,18 @@
     to { opacity: 1; transform: translateY(0); }
   }
   .app-icon {
-    width: 44px; height: 44px;
+    width: 58px; height: 58px;
     display: flex; align-items: center; justify-content: center;
     filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
     transition: transform 0.15s;
   }
   .app-item:hover .app-icon { transform: scale(1.1) translateY(-2px); }
-  .icon-emoji { font-size: 32px; line-height: 1; }
-  .icon-img { width: 48px; height: 48px; border-radius: 12px; object-fit: contain; mix-blend-mode: screen; }
+  .icon-emoji { font-size: 42px; line-height: 1; }
+  .icon-img { width: 62px; height: 62px; border-radius: 14px; object-fit: contain; mix-blend-mode: screen; }
   .app-name {
-    font-size: 10px; color: var(--text-2);
+    font-size: 11px; color: var(--text-2);
     text-align: center; font-family: 'DM Sans', sans-serif;
-    max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .web-dot {
     position: absolute; top: 8px; right: 8px;

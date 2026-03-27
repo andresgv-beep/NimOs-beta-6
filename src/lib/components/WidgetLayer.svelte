@@ -1159,13 +1159,13 @@
   .wg-tor-row { display: flex; flex-direction: column; gap: 3px; }
   .wg-tor-top { display: flex; align-items: center; gap: 6px; }
   .wg-tor-name {
-    flex: 1; min-width: 0; font-size: 10px; font-weight: 500;
+    flex: 1; min-width: 0; font-size: 11px; font-weight: 500;
     color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .wg-tor-row.done .wg-tor-name { color: var(--text-3); }
-  .wg-tor-spd { font-size: 9px; font-family: 'DM Mono', monospace; color: #5ba8ff; flex-shrink: 0; }
-  .wg-tor-done { font-size: 9px; font-family: 'DM Mono', monospace; color: var(--text-3); flex-shrink: 0; }
-  .wg-tor-track { height: 2px; background: var(--ibtn-bg); border-radius: 2px; overflow: hidden; }
+  .wg-tor-spd { font-size: 10px; font-family: 'DM Mono', monospace; color: #5ba8ff; flex-shrink: 0; }
+  .wg-tor-done { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--text-3); flex-shrink: 0; }
+  .wg-tor-track { height: 4px; background: var(--ibtn-bg); border-radius: 2px; overflow: hidden; }
   .wg-tor-fill { height: 100%; border-radius: 2px; transition: width .8s ease; }
   .wg-tor-footer {
     display: flex; align-items: center; justify-content: space-between;

@@ -1002,11 +1002,14 @@
       try {
         const s = e.detail;
         if (s._isNew) {
-          const res  = await fetch('/api/shares', { method: 'POST', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: s.name.trim(), description: s.description, pool: s.pool, quotaBytes: s.quotaBytes || 0 }) });
+          const createBody = { name: s.name.trim(), description: s.description, pool: s.pool };
+          if (s.quotaBytes > 0) createBody.quotaBytes = s.quotaBytes;
+          const res  = await fetch('/api/shares', { method: 'POST', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify(createBody) });
           const data = await res.json();
           if (!data.ok) { shareMsg = data.error || 'Error al crear'; shareMsgError = true; savingShare = false; return; }
           await fetch(`/api/shares/${data.name}`, { method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ permissions: s._perms }) });
         } else {
+          // Editar permisos: NUNCA enviar quota para no sobreescribir
           const res  = await fetch(`/api/shares/${s.name}`, { method: 'PUT', headers: { ...hdrs(), 'Content-Type': 'application/json' }, body: JSON.stringify({ description: s.description, permissions: s._perms }) });
           const data = await res.json();
           if (!data.ok) { shareMsg = data.error || 'Error al guardar'; shareMsgError = true; savingShare = false; return; }

@@ -267,6 +267,7 @@ func createPoolZfs(body map[string]interface{}) map[string]interface{} {
 	}
 
 	logMsg("ZFS pool '%s' created successfully (%s, %d disks)", name, vdevType, len(disks))
+	updateTorrentConfig()
 	return map[string]interface{}{
 		"ok":          true,
 		"pool":        map[string]interface{}{"name": name, "type": "zfs", "zpoolName": zpoolName, "mountPoint": mountPoint, "vdevType": vdevType},
@@ -390,6 +391,7 @@ func destroyPoolZfs(poolName string) map[string]interface{} {
 	cleanOrphanPoolDirs()
 
 	logMsg("ZFS pool '%s' destroyed", poolName)
+	updateTorrentConfig()
 	return map[string]interface{}{"ok": true}
 }
 
@@ -720,6 +722,7 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 	}
 
 	logMsg("BTRFS pool '%s' created successfully (%s, %d disks)", name, profile, len(disks))
+	updateTorrentConfig()
 	return map[string]interface{}{
 		"ok":          true,
 		"pool":        map[string]interface{}{"name": name, "type": "btrfs", "profile": profile, "mountPoint": mountPoint},
@@ -825,6 +828,7 @@ func destroyPoolBtrfs(poolName string) map[string]interface{} {
 	cleanOrphanPoolDirs()
 
 	logMsg("BTRFS pool '%s' destroyed", poolName)
+	updateTorrentConfig()
 	return map[string]interface{}{"ok": true}
 }
 
@@ -846,4 +850,66 @@ func removeFstabEntry(mountPoint string) {
 		kept = append(kept, line)
 	}
 	os.WriteFile("/etc/fstab", []byte(strings.Join(kept, "\n")), 0644)
+}
+
+// updateTorrentConfig updates NimTorrent's download_dir to point to the primary
+// pool's shares directory. Called after create/destroy pool.
+// Without this, NimTorrent writes to the system disk.
+const torrentConfPath = "/etc/nimos/torrent.conf"
+
+func updateTorrentConfig() {
+	conf := getStorageConfigFull()
+	primaryPool, _ := conf["primaryPool"].(string)
+
+	newDir := ""
+	if primaryPool != "" {
+		confPools, _ := conf["pools"].([]interface{})
+		for _, p := range confPools {
+			pm, _ := p.(map[string]interface{})
+			if n, _ := pm["name"].(string); n == primaryPool {
+				mp, _ := pm["mountPoint"].(string)
+				if mp != "" {
+					newDir = filepath.Join(mp, "shares")
+				}
+				break
+			}
+		}
+	}
+
+	// Read current config
+	data, err := os.ReadFile(torrentConfPath)
+	if err != nil {
+		// No torrent config — nothing to update
+		return
+	}
+
+	// Replace download_dir line
+	var lines []string
+	found := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "download_dir=") {
+			if newDir != "" {
+				lines = append(lines, "download_dir="+newDir)
+			} else {
+				lines = append(lines, "download_dir=")
+			}
+			found = true
+		} else {
+			lines = append(lines, line)
+		}
+	}
+	if !found && newDir != "" {
+		lines = append(lines, "download_dir="+newDir)
+	}
+
+	os.WriteFile(torrentConfPath, []byte(strings.Join(lines, "\n")), 0644)
+
+	// Restart torrentd to pick up new config
+	runCmd("systemctl", []string{"restart", "nimos-torrentd"}, CmdOptions{Timeout: 10 * time.Second})
+
+	if newDir != "" {
+		logMsg("Updated NimTorrent download_dir to %s", newDir)
+	} else {
+		logMsg("Cleared NimTorrent download_dir (no pools)")
+	}
 }

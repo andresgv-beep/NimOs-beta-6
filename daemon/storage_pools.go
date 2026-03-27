@@ -524,6 +524,12 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 
 		// 1. Create BTRFS filesystem
 		{Name: "mkfs_btrfs", Policy: FailFast, Do: func() error {
+			// CRITICAL: forget any BTRFS multi-device associations from previous pools
+			// The wipe cleans signatures but partprobe/udevadm re-scans and BTRFS
+			// kernel module re-detects the devices. This must happen RIGHT BEFORE mkfs.
+			runCmd("btrfs", []string{"device", "scan", "--forget"}, optsShort)
+			time.Sleep(500 * time.Millisecond)
+
 			args := []string{"-f", "-L", label}
 
 			// Set data and metadata profiles

@@ -993,3 +993,26 @@ Cada fase se prueba en equipo real. No se pasa a la siguiente hasta que funcione
 - DeepWiki: `https://deepwiki.com/truenas/middleware/3.2-disk-management`
 - OMV ZFS: `https://github.com/OpenMediaVault-Plugin-Developers/openmediavault-zfs`
 - Análisis de riesgos: sesión GPT (6 puntos integrados en la tabla de riesgos)
+
+
+
+Ver el orden de implementación del plan v2Del plan v2, lo implementado vs pendiente:
+HECHO:
+
+✅ Fase 1: Infraestructura (cmd, journal, ops, errors)
+✅ Fase 2: Detección de discos
+✅ Fase 3: Wipe (con retry agresivo)
+✅ Fase 4: Pool create ZFS + BTRFS
+✅ Fase 5: Pool destroy ZFS + BTRFS
+✅ Fase 6: Snapshots, Scrub, Datasets (ZFS)
+✅ Shared folders como datasets/subvolumes con quota (ZFS + BTRFS)
+✅ Bug de mount namespace (ReadWritePaths)
+
+PENDIENTE del plan:
+
+❌ Snapshot scheduler automático (hourly/daily/weekly con retención)
+❌ Expand pool (añadir disco a pool existente)
+❌ Import pool ZFS externo
+❌ Reconciliación hardware vs config al boot (estados FOREIGN/MISSING/OK)
+❌ SMART monitoring
+❌ NimTorrent auto-update download_dir al crear/destruir pool

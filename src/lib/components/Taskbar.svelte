@@ -422,7 +422,7 @@
     cursor: pointer; transition: all .18s cubic-bezier(0.34,1.56,0.64,1);
     position: relative; gap: 2px; flex-shrink: 0;
   }
-  .dock-btn:hover { transform: translateY(-4px) scale(1.12); background: var(--ibtn-bg); }
+  .dock-btn:hover { transform: translateY(-2px) scale(1.06); background: var(--ibtn-bg); }
   .dock-btn.open  { background: var(--ibtn-bg); }
   .dock-btn.minimized { opacity: 0.4; }
   .dock-btn.active { background: var(--active-bg); }

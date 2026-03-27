@@ -121,7 +121,7 @@
   }
   .launcher {
     position: fixed;
-    bottom: calc(var(--taskbar-height, 48px) + 12px);
+    bottom: calc(var(--taskbar-height, 48px) + 20px);
     left: 50%;
     transform: translateX(-50%);
     width: 680px; max-height: 75vh; overflow-y: auto;

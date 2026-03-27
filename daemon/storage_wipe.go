@@ -372,8 +372,8 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 			return nil
 		}},
 
-		// 2. Clear ZFS labels on disk AND each partition
-		{Name: "zpool_labelclear", Policy: Continue, Do: func() error {
+		// 2. Clear ZFS labels and BTRFS multi-device locks
+		{Name: "clear_fs_labels", Policy: Continue, Do: func() error {
 			if hasZfs {
 				runCmd("zpool", []string{"labelclear", "-f", diskPath}, optsNoFail)
 				partsOut, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
@@ -383,6 +383,11 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 						runCmd("zpool", []string{"labelclear", "-f", "/dev/" + p}, optsNoFail)
 					}
 				}
+			}
+			// Release BTRFS multi-device lock — without this, mkfs.btrfs
+			// fails with "Device or resource busy" on multi-device pools
+			if hasBtrfs {
+				runCmd("btrfs", []string{"device", "scan", "--forget"}, optsNoFail)
 			}
 			return nil
 		}},

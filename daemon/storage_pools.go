@@ -605,6 +605,10 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 				return fmt.Errorf("pool created but mount verification failed at %s", mountPoint)
 			}
 			logMsg("BTRFS pool '%s' mount verified at %s (source: %s)", name, mountPoint, strings.TrimSpace(verifyRes.Stdout))
+
+			// Enable BTRFS quotas — required for per-folder quota limits
+			runCmd("btrfs", []string{"quota", "enable", mountPoint}, optsShort)
+			logMsg("BTRFS quotas enabled on %s", mountPoint)
 			return nil
 		}},
 
@@ -724,7 +728,8 @@ func destroyPoolBtrfs(poolName string) map[string]interface{} {
 	// 4. Remove fstab entry
 	removeFstabEntry(mountPoint)
 
-	// 5. Wipe disks to remove BTRFS signatures
+	// 5. Release BTRFS multi-device lock and wipe disks
+	runCmd("btrfs", []string{"device", "scan", "--forget"}, opts)
 	if disksRaw, ok := poolConf["disks"].([]interface{}); ok {
 		for _, d := range disksRaw {
 			if ds, ok := d.(string); ok {

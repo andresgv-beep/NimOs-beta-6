@@ -522,14 +522,8 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 			return nil
 		}},
 
-		// 1. Create BTRFS filesystem
+		// 1. Create BTRFS filesystem (with retry — kernel may hold device references)
 		{Name: "mkfs_btrfs", Policy: FailFast, Do: func() error {
-			// CRITICAL: forget any BTRFS multi-device associations from previous pools
-			// The wipe cleans signatures but partprobe/udevadm re-scans and BTRFS
-			// kernel module re-detects the devices. This must happen RIGHT BEFORE mkfs.
-			runCmd("btrfs", []string{"device", "scan", "--forget"}, optsShort)
-			time.Sleep(500 * time.Millisecond)
-
 			args := []string{"-f", "-L", label}
 
 			// Set data and metadata profiles
@@ -545,11 +539,34 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 			}
 
 			args = append(args, disks...)
-			logMsg("BTRFS: mkfs.btrfs %s", strings.Join(args, " "))
-			_, err := runCmd("mkfs.btrfs", args, opts)
-			return err
+
+			// Retry loop — BTRFS kernel module may hold device references
+			// from previous multi-device pools even after wipe + forget
+			for attempt := 0; attempt < 5; attempt++ {
+				// Force kernel to release BTRFS device associations
+				runCmd("btrfs", []string{"device", "scan", "--forget"}, optsShort)
+				runCmd("udevadm", []string{"settle", "--timeout=3"}, optsShort)
+				runCmd("partprobe", nil, optsShort)
+				time.Sleep(time.Duration(500+attempt*500) * time.Millisecond)
+
+				logMsg("BTRFS: mkfs attempt %d/5 — mkfs.btrfs %s", attempt+1, strings.Join(args, " "))
+				_, err := runCmd("mkfs.btrfs", args, opts)
+				if err == nil {
+					return nil
+				}
+
+				if strings.Contains(err.Error(), "Device or resource busy") {
+					logMsg("BTRFS: device busy, retrying in %dms...", 1000+attempt*1000)
+					time.Sleep(time.Duration(1000+attempt*1000) * time.Millisecond)
+					continue
+				}
+
+				// Non-busy error — fail immediately
+				return err
+			}
+			return fmt.Errorf("mkfs.btrfs failed after 5 attempts: devices still busy")
 		}, Undo: func() error {
-			// Wipe all disks to clean BTRFS signatures
+			runCmd("btrfs", []string{"device", "scan", "--forget"}, optsShort)
 			for _, d := range disks {
 				runCmd("wipefs", []string{"-af", d}, optsShort)
 			}

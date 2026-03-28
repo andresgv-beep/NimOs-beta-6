@@ -2187,6 +2187,9 @@ func getPublicShares(r *http.Request) map[string]interface{} {
 		return map[string]interface{}{"error": err.Error()}
 	}
 
+	// Enrich shares with real quota data (ZFS/Btrfs)
+	enrichSharesWithQuota(shares)
+
 	// Return simplified share info with disk usage
 	var result []map[string]interface{}
 	for _, s := range shares {
@@ -2198,11 +2201,17 @@ func getPublicShares(r *http.Request) map[string]interface{} {
 			"path":        path,
 			"pool":        s["pool"],
 		}
-		// Get disk usage for this share path
-		if path != "" {
-			used, total := getPathDiskUsage(path)
-			entry["used"] = used
-			entry["total"] = total
+		// Quota = total capacity for this share, used = actual usage
+		if q, ok := s["quota"].(int64); ok && q > 0 {
+			entry["total"] = q
+		} else if a, ok := s["available"].(int64); ok {
+			// No quota set — use used + available as total
+			if u, ok2 := s["used"].(int64); ok2 {
+				entry["total"] = u + a
+			}
+		}
+		if u, ok := s["used"].(int64); ok {
+			entry["used"] = u
 		}
 		result = append(result, entry)
 	}

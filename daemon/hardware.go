@@ -144,6 +144,22 @@ func getCpuUsage() map[string]interface{} {
 				}
 			}
 		}
+		// ARM: no "model name" — try /proc/device-tree/model or Hardware line
+		if cpuModel == "Unknown" {
+			if dtModel := readFileStr("/proc/device-tree/model"); dtModel != "" {
+				cpuModel = strings.TrimRight(dtModel, "\x00\n")
+			} else {
+				for _, line := range strings.Split(cpuInfo, "\n") {
+					if strings.HasPrefix(line, "Hardware") {
+						parts := strings.SplitN(line, ":", 2)
+						if len(parts) == 2 {
+							cpuModel = strings.TrimSpace(parts[1])
+						}
+						break
+					}
+				}
+			}
+		}
 	}
 	if cpuCount == 0 {
 		cpuCount = 1

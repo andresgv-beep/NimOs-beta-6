@@ -12,8 +12,8 @@
   let history = [];
   let snapshots = [];
   let activeDevice = null;    // dispositivo seleccionado
-  let devTab = 'proposito';   // mantenido por compatibilidad
-  let slideView = null;       // null | 'share' | 'backup-dest' | 'backup-src' | 'sync'
+  let devTab = 'proposito';
+  let slideView = null;
   let loading = false;
 
   // ── Wizard modals ──
@@ -225,7 +225,7 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="sb-device" class:active={activeDevice?.id === dev.id}
-        on:click={() => { activeDevice = dev; view = 'device'; devTab = 'proposito'; }}>
+        on:click={() => { activeDevice = dev; view = 'device'; devTab = 'proposito'; slideView = null; }}>
         <div class="sb-dev-icon">
           {@html DEVICE_ICONS[dev.type] || DEVICE_ICONS.nas}
         </div>
@@ -377,7 +377,8 @@
 
       <!-- ── DISPOSITIVO ── -->
       {:else if view === 'device' && activeDevice}
-        <!-- Titlebar -->
+      <!-- ── DISPOSITIVO ── -->
+      {:else if view === 'device' && activeDevice}
         <div class="inner-titlebar">
           <div class="dev-header-icon">
             {@html DEVICE_ICONS[activeDevice.type] || DEVICE_ICONS.nas}
@@ -399,14 +400,13 @@
           </div>
         </div>
 
-        <!-- Slide container -->
-        <div class="dev-slider" class:slide={slideView !== null}>
+        <!-- Slider: pane principal + pane config -->
+        <div class="dev-slider" class:dev-slide={slideView !== null}>
 
-          <!-- PANE 1: vista principal del dispositivo -->
+          <!-- PANE 1: resumen del dispositivo -->
           <div class="dev-pane">
             <div class="content">
 
-              <!-- Stats remotas -->
               <div>
                 <div class="section-label">Conexión</div>
                 <div class="stats-row">
@@ -433,49 +433,38 @@
                 </div>
               </div>
 
-              <!-- Carpetas compartidas (donut de la primera montada) -->
               {#if remoteShares.length > 0}
-                {@const mountedShare = remoteShares.find(s => s.mounted) || remoteShares[0]}
+                {@const ms = remoteShares.find(s => s.mounted) || remoteShares[0]}
                 <div>
                   <div class="section-label">Carpetas compartidas</div>
-                  <div class="share-donut-card">
-                    <div class="donut-wrap">
-                      <svg viewBox="0 0 72 72" class="donut-svg">
-                        <circle cx="36" cy="36" r="28" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="9"/>
-                        <circle cx="36" cy="36" r="28" fill="none"
-                          stroke={mountedShare.usagePercent < 70 ? '#4ade80' : mountedShare.usagePercent < 85 ? '#fbbf24' : '#f87171'}
-                          stroke-width="9" stroke-linecap="round"
-                          stroke-dasharray="{(mountedShare.usagePercent||0)*1.759} 175.9"
-                          transform="rotate(-90 36 36)"/>
+                  <div class="donut-row-card">
+                    <div class="donut-mini-wrap">
+                      <svg viewBox="0 0 60 60" width="60" height="60">
+                        <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="7"/>
+                        <circle cx="30" cy="30" r="24" fill="none"
+                          stroke={ms.usagePercent < 70 ? '#4ade80' : ms.usagePercent < 85 ? '#fbbf24' : '#f87171'}
+                          stroke-width="7" stroke-linecap="round"
+                          stroke-dasharray="{((ms.usagePercent||0)*150.796/100).toFixed(1)} 150.796"
+                          transform="rotate(-90 30 30)"/>
+                        <text x="30" y="33" text-anchor="middle" font-size="10" font-weight="700" fill="var(--text-1)" font-family="DM Sans,sans-serif">{ms.usagePercent||0}%</text>
                       </svg>
-                      <div class="donut-center">
-                        <span class="donut-pct">{mountedShare.usagePercent||0}%</span>
-                        <span class="donut-lbl">usado</span>
-                      </div>
                     </div>
-                    <div class="donut-info">
-                      <div class="donut-name">{mountedShare.displayName || mountedShare.name}</div>
-                      <div class="donut-path">{mountedShare.path}</div>
-                      <div class="donut-sizes">{mountedShare.usedFormatted||'—'} · {mountedShare.availableFormatted||'—'} libre</div>
-                      {#if mountedShare.mounted}
-                        <div class="donut-badge">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:9px;height:9px"><polyline points="20 6 9 17 4 12"/></svg>
-                          Montada en Files
-                        </div>
-                      {/if}
+                    <div class="donut-detail">
+                      <div class="row-name">{ms.displayName || ms.name}</div>
+                      <div class="row-meta">{ms.path}</div>
+                      <div class="row-meta">{ms.usedFormatted||'—'} · {ms.availableFormatted||'—'} libre</div>
+                      {#if ms.mounted}<div class="row-meta" style="color:var(--green)">✓ Montada en Files</div>{/if}
                     </div>
                   </div>
                 </div>
               {/if}
 
-              <!-- Servicios activos -->
               <div>
                 <div class="section-label">Servicios activos</div>
                 <div class="svc-list">
 
-                  <!-- Share remota -->
                   <div class="svc-row">
-                    <div class="svc-ico green">
+                    <div class="svc-ico svc-green">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                     </div>
                     <div class="svc-info">
@@ -485,23 +474,15 @@
                     <div class="svc-actions">
                       <!-- svelte-ignore a11y_click_events_have_key_events -->
                       <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <div class="cfg-btn" on:click={() => { slideView = 'share'; loadRemoteShares(activeDevice.id); }}>
+                      <div class="svc-cfg-btn" on:click={() => { slideView = 'share'; loadRemoteShares(activeDevice.id); }}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
                       </div>
-                      <button class="toggle" class:on={activeDevice.purposes?.includes('share')}
-                        on:click|stopPropagation={() => {
-                          const purposes = activeDevice.purposes || [];
-                          activeDevice.purposes = purposes.includes('share') ? purposes.filter(x => x !== 'share') : [...purposes, 'share'];
-                          activeDevice = {...activeDevice};
-                          savePurposes(activeDevice.id, activeDevice.purposes);
-                        }}>
-                      </button>
+                      <button class="toggle" class:on={activeDevice.purposes?.includes('share')} on:click|stopPropagation={() => { const p = activeDevice.purposes||[]; activeDevice.purposes = p.includes('share') ? p.filter(x=>x!=='share') : [...p,'share']; activeDevice={...activeDevice}; savePurposes(activeDevice.id,activeDevice.purposes); }}></button>
                     </div>
                   </div>
 
-                  <!-- Backup destino -->
                   <div class="svc-row">
-                    <div class="svc-ico blue">
+                    <div class="svc-ico svc-blue">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </div>
                     <div class="svc-info">
@@ -511,23 +492,15 @@
                     <div class="svc-actions">
                       <!-- svelte-ignore a11y_click_events_have_key_events -->
                       <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <div class="cfg-btn" on:click={() => slideView = 'backup-dest'}>
+                      <div class="svc-cfg-btn" on:click={() => slideView = 'backup-dest'}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
                       </div>
-                      <button class="toggle" class:on={activeDevice.purposes?.includes('backup_dest')}
-                        on:click|stopPropagation={() => {
-                          const purposes = activeDevice.purposes || [];
-                          activeDevice.purposes = purposes.includes('backup_dest') ? purposes.filter(x => x !== 'backup_dest') : [...purposes, 'backup_dest'];
-                          activeDevice = {...activeDevice};
-                          savePurposes(activeDevice.id, activeDevice.purposes);
-                        }}>
-                      </button>
+                      <button class="toggle" class:on={activeDevice.purposes?.includes('backup_dest')} on:click|stopPropagation={() => { const p = activeDevice.purposes||[]; activeDevice.purposes = p.includes('backup_dest') ? p.filter(x=>x!=='backup_dest') : [...p,'backup_dest']; activeDevice={...activeDevice}; savePurposes(activeDevice.id,activeDevice.purposes); }}></button>
                     </div>
                   </div>
 
-                  <!-- Backup origen -->
                   <div class="svc-row">
-                    <div class="svc-ico amber">
+                    <div class="svc-ico svc-amber">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 10 12 15 7 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </div>
                     <div class="svc-info">
@@ -537,23 +510,15 @@
                     <div class="svc-actions">
                       <!-- svelte-ignore a11y_click_events_have_key_events -->
                       <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <div class="cfg-btn" on:click={() => slideView = 'backup-src'}>
+                      <div class="svc-cfg-btn" on:click={() => slideView = 'backup-src'}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
                       </div>
-                      <button class="toggle" class:on={activeDevice.purposes?.includes('backup_src')}
-                        on:click|stopPropagation={() => {
-                          const purposes = activeDevice.purposes || [];
-                          activeDevice.purposes = purposes.includes('backup_src') ? purposes.filter(x => x !== 'backup_src') : [...purposes, 'backup_src'];
-                          activeDevice = {...activeDevice};
-                          savePurposes(activeDevice.id, activeDevice.purposes);
-                        }}>
-                      </button>
+                      <button class="toggle" class:on={activeDevice.purposes?.includes('backup_src')} on:click|stopPropagation={() => { const p = activeDevice.purposes||[]; activeDevice.purposes = p.includes('backup_src') ? p.filter(x=>x!=='backup_src') : [...p,'backup_src']; activeDevice={...activeDevice}; savePurposes(activeDevice.id,activeDevice.purposes); }}></button>
                     </div>
                   </div>
 
-                  <!-- Sincronización -->
                   <div class="svc-row">
-                    <div class="svc-ico purple">
+                    <div class="svc-ico svc-purple">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                     </div>
                     <div class="svc-info">
@@ -563,52 +528,41 @@
                     <div class="svc-actions">
                       <!-- svelte-ignore a11y_click_events_have_key_events -->
                       <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <div class="cfg-btn" on:click={() => slideView = 'sync'}>
+                      <div class="svc-cfg-btn" on:click={() => slideView = 'sync'}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
                       </div>
-                      <button class="toggle" class:on={activeDevice.purposes?.includes('sync')}
-                        on:click|stopPropagation={() => {
-                          const purposes = activeDevice.purposes || [];
-                          activeDevice.purposes = purposes.includes('sync') ? purposes.filter(x => x !== 'sync') : [...purposes, 'sync'];
-                          activeDevice = {...activeDevice};
-                          savePurposes(activeDevice.id, activeDevice.purposes);
-                        }}>
-                      </button>
+                      <button class="toggle" class:on={activeDevice.purposes?.includes('sync')} on:click|stopPropagation={() => { const p = activeDevice.purposes||[]; activeDevice.purposes = p.includes('sync') ? p.filter(x=>x!=='sync') : [...p,'sync']; activeDevice={...activeDevice}; savePurposes(activeDevice.id,activeDevice.purposes); }}></button>
                     </div>
                   </div>
 
                 </div>
               </div>
-
             </div>
           </div>
 
-          <!-- PANE 2: vista config del servicio -->
+          <!-- PANE 2: config del servicio seleccionado -->
           <div class="dev-pane">
-            <!-- Header con volver -->
-            <div class="cfg-header">
+            <div class="svc-cfg-header">
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="cfg-back" on:click={() => slideView = null}>
+              <div class="svc-back-btn" on:click={() => slideView = null}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
               </div>
               <div>
-                <div class="cfg-title">
-                  {slideView === 'share' ? 'Share remota' : slideView === 'backup-dest' ? 'Backup destino' : slideView === 'backup-src' ? 'Backup origen' : 'Sincronización'}
-                </div>
-                <div class="cfg-subtitle">{activeDevice.name}</div>
+                <span class="tb-title">{slideView === 'share' ? 'Share remota' : slideView === 'backup-dest' ? 'Backup destino' : slideView === 'backup-src' ? 'Backup origen' : 'Sincronización'}</span>
+                <span class="tb-sub"> — {activeDevice.name}</span>
               </div>
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="cfg-add-btn" on:click={() => { wizardMode = slideView === 'sync' ? 'sync' : 'job'; showWizard = true; }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                {slideView === 'share' ? 'Añadir carpeta' : slideView === 'sync' ? 'Añadir par' : 'Nuevo trabajo'}
+              <div class="tb-right">
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="add-row" style="margin:0;padding:4px 10px;border-style:solid" on:click={() => { wizardMode = slideView === 'sync' ? 'sync' : 'job'; showWizard = true; }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  {slideView === 'share' ? 'Añadir carpeta' : slideView === 'sync' ? 'Añadir par' : 'Nuevo trabajo'}
+                </div>
               </div>
             </div>
 
             <div class="content">
-
-              <!-- Share remota: lista de shares -->
               {#if slideView === 'share'}
                 {#if sharesLoading}
                   <div class="empty-hint">Cargando carpetas del dispositivo...</div>
@@ -627,7 +581,7 @@
                       </div>
                       <div class="row-info">
                         <div class="row-name">{share.displayName || share.name}</div>
-                        <div class="row-meta">{share.path}</div>
+                        <div class="row-meta">{share.path}{share.description ? ` · ${share.description}` : ''}</div>
                         {#if share.mounted && share.mountPoint}
                           <div class="row-meta" style="color:var(--green)">→ {share.mountPoint}</div>
                         {/if}
@@ -636,17 +590,13 @@
                         {#if share.mounted}
                           <!-- svelte-ignore a11y_click_events_have_key_events -->
                           <!-- svelte-ignore a11y_no_static_element_interactions -->
-                          <button class="btn-secondary" style="padding:3px 10px;font-size:10px"
-                            disabled={share._mounting}
-                            on:click={() => unmountShare(activeDevice.id, share)}>
+                          <button class="btn-secondary" style="padding:3px 10px;font-size:10px" disabled={share._mounting} on:click={() => unmountShare(activeDevice.id, share)}>
                             {share._mounting ? '...' : 'Desmontar'}
                           </button>
                         {:else}
                           <!-- svelte-ignore a11y_click_events_have_key_events -->
                           <!-- svelte-ignore a11y_no_static_element_interactions -->
-                          <button class="btn-secondary" style="padding:3px 10px;font-size:10px;color:var(--green);border-color:rgba(74,222,128,0.3)"
-                            disabled={share._mounting}
-                            on:click={() => mountShare(activeDevice.id, share)}>
+                          <button class="btn-secondary" style="padding:3px 10px;font-size:10px;color:var(--green);border-color:rgba(74,222,128,0.3)" disabled={share._mounting} on:click={() => mountShare(activeDevice.id, share)}>
                             {share._mounting ? '...' : 'Montar'}
                           </button>
                         {/if}
@@ -655,7 +605,6 @@
                   {/each}
                 {/if}
 
-              <!-- Backup destino/origen: lista de trabajos -->
               {:else if slideView === 'backup-dest' || slideView === 'backup-src'}
                 {#each jobs.filter(j => j.deviceId === activeDevice.id) as job}
                   <div class="row">
@@ -678,34 +627,22 @@
                   </div>
                 {/each}
                 {#if jobs.filter(j => j.deviceId === activeDevice.id).length === 0}
-                  <div class="empty-hint">Sin trabajos configurados.<br>Pulsa "Nuevo trabajo" para crear uno.</div>
+                  <div class="empty-hint">Sin trabajos configurados.</div>
                 {/if}
 
-              <!-- Sincronización: pares -->
               {:else if slideView === 'sync'}
                 {#each (activeDevice.syncPairs || []) as pair}
                   <div class="sync-pair">
-                    <div class="sync-folder">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                      {pair.local}
-                    </div>
-                    <div class="sync-arrow">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                    </div>
-                    <div class="sync-folder">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                      {pair.remote}
-                    </div>
-                    <span style="margin-left:auto;font-size:10px;color:{pair.status === 'synced' ? 'var(--green)' : 'var(--amber)'}">
-                      {pair.status === 'synced' ? '● Sync' : '↑ Cambios'}
-                    </span>
+                    <div class="sync-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{pair.local}</div>
+                    <div class="sync-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
+                    <div class="sync-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{pair.remote}</div>
+                    <span style="margin-left:auto;font-size:10px;color:{pair.status === 'synced' ? 'var(--green)' : 'var(--amber)'};flex-shrink:0">{pair.status === 'synced' ? '● Sync' : '↑ Cambios'}</span>
                   </div>
                 {/each}
                 {#if (activeDevice.syncPairs || []).length === 0}
                   <div class="empty-hint">Sin pares configurados.</div>
                 {/if}
               {/if}
-
             </div>
           </div>
 
@@ -883,47 +820,34 @@
   .st-sep { color:rgba(255,255,255,0.1); }
   .st-right { margin-left:auto; color:var(--accent); }
 
-  /* ── Slide device view ── */
-  .dev-slider { display:flex; width:200%; flex:1; overflow:hidden; transition:transform .3s ease-in-out; }
-  .dev-slider.slide { transform:translateX(-50%); }
-  .dev-pane { width:50%; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* ── dev slider ── */
+  .dev-slider { display:flex; width:200%; flex:1; overflow:hidden; transition:transform .3s ease-in-out; min-height:0; }
+  .dev-slider.dev-slide { transform:translateX(-50%); }
+  .dev-pane { width:50%; min-width:0; display:flex; flex-direction:column; overflow:hidden; }
   .dev-pane .content { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
-
-  .cfg-header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); flex-shrink:0; background:var(--bg-bar); }
-  .cfg-back { width:27px; height:27px; border-radius:6px; background:var(--ibtn-bg); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all .15s; }
-  .cfg-back:hover { background:rgba(124,111,255,0.15); }
-  .cfg-back svg { width:14px; height:14px; }
-  .cfg-title { font-size:12px; font-weight:600; color:var(--text-1); }
-  .cfg-subtitle { font-size:10px; color:var(--text-3); margin-top:1px; }
-  .cfg-add-btn { margin-left:auto; display:inline-flex; align-items:center; gap:5px; padding:4px 10px; background:rgba(233,84,32,0.1); border:1px solid rgba(233,84,32,0.25); border-radius:6px; color:var(--accent); font-size:11px; font-weight:500; cursor:pointer; transition:all .15s; flex-shrink:0; }
-  .cfg-add-btn:hover { background:rgba(233,84,32,0.18); }
-  .cfg-add-btn svg { width:11px; height:11px; }
-
+  .svc-cfg-header { display:flex; align-items:center; gap:8px; padding:10px 14px 9px; background:var(--bg-bar); flex-shrink:0; border-bottom:1px solid var(--border); }
+  .svc-back-btn { width:27px; height:27px; background:var(--ibtn-bg); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all .15s; }
+  .svc-back-btn:hover { background:rgba(124,111,255,0.15); }
+  .svc-back-btn svg { width:14px; height:14px; }
+  /* svc list */
   .svc-list { display:flex; flex-direction:column; gap:4px; }
   .svc-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px; background:rgba(255,255,255,0.025); border:1px solid var(--border); }
   .svc-ico { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  .svc-ico :global(svg) { width:14px; height:14px; }
-  .svc-ico.green  { background:rgba(74,222,128,0.12);  color:var(--green); }
-  .svc-ico.blue   { background:rgba(96,165,250,0.12);  color:var(--blue); }
-  .svc-ico.amber  { background:rgba(251,191,36,0.12);  color:var(--amber); }
-  .svc-ico.purple { background:rgba(192,132,252,0.12); color:#c084fc; }
+  .svc-ico svg { width:14px; height:14px; }
+  .svc-green  { background:rgba(74,222,128,0.12);  color:var(--green); }
+  .svc-blue   { background:rgba(96,165,250,0.12);  color:var(--blue); }
+  .svc-amber  { background:rgba(251,191,36,0.12);  color:var(--amber); }
+  .svc-purple { background:rgba(192,132,252,0.12); color:#c084fc; }
   .svc-info { flex:1; min-width:0; }
   .svc-name { font-size:12px; font-weight:600; color:var(--text-1); }
   .svc-desc { font-size:10px; color:var(--text-3); margin-top:1px; }
   .svc-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
-  .cfg-btn { width:27px; height:27px; border-radius:6px; background:var(--ibtn-bg); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-2); transition:all .15s; }
-  .cfg-btn:hover { background:rgba(124,111,255,0.15); color:var(--text-1); border-color:var(--border-hi); }
-  .cfg-btn svg { width:13px; height:13px; }
-
-  .share-donut-card { display:flex; align-items:center; gap:16px; padding:14px; background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:10px; }
-  .donut-wrap { position:relative; width:72px; height:72px; flex-shrink:0; }
-  .donut-svg { width:72px; height:72px; display:block; }
-  .donut-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  .donut-pct { font-size:14px; font-weight:700; color:var(--text-1); line-height:1; }
-  .donut-lbl { font-size:9px; color:var(--text-3); }
-  .donut-info { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
-  .donut-name { font-size:13px; font-weight:600; color:var(--text-1); }
-  .donut-path { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .donut-sizes { font-size:10px; color:var(--text-2); }
-  .donut-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; color:var(--green); background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); border-radius:5px; padding:2px 7px; margin-top:2px; }
+  .svc-cfg-btn { width:27px; height:27px; border-radius:6px; background:var(--ibtn-bg); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-2); transition:all .15s; }
+  .svc-cfg-btn:hover { background:rgba(124,111,255,0.15); color:var(--text-1); border-color:var(--border-hi); }
+  .svc-cfg-btn svg { width:13px; height:13px; }
+  /* donut card */
+  .donut-row-card { display:flex; align-items:center; gap:14px; padding:12px 14px; background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:10px; }
+  .donut-mini-wrap { flex-shrink:0; }
+  .donut-detail { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
 </style>

@@ -1721,6 +1721,25 @@ func pairWithRemote(addr, username, password, totpCode string) map[string]interf
 		return map[string]interface{}{"error": "Failed to save device: " + err.Error()}
 	}
 
+	// Step 3b: Register ourselves on the remote NAS (mutual pairing)
+	localName := getLocalHostname()
+	localAddr := getLocalLANAddr(addr)
+	remoteDevPayload, _ := json.Marshal(map[string]interface{}{
+		"name": localName,
+		"addr": localAddr,
+		"type": "nas",
+	})
+	regReq, _ := http.NewRequest("POST", baseURL+"/api/backup/devices", strings.NewReader(string(remoteDevPayload)))
+	regReq.Header.Set("Authorization", "Bearer "+token)
+	regReq.Header.Set("Content-Type", "application/json")
+	regResp, regErr := client.Do(regReq)
+	if regErr != nil {
+		logMsg("backup: mutual pairing failed: %v (one-way pairing still valid)", regErr)
+	} else {
+		regResp.Body.Close()
+		logMsg("backup: mutual pairing OK — registered '%s' on remote %s", localName, addr)
+	}
+
 	result := map[string]interface{}{
 		"ok":      true,
 		"id":      id,
@@ -1749,6 +1768,53 @@ func isLocalAddr(addr string) bool {
 		strings.HasPrefix(addr, "172.") ||
 		addr == "localhost" ||
 		addr == "127.0.0.1"
+}
+
+// getLocalHostname returns this machine's hostname.
+func getLocalHostname() string {
+	if out, ok := run("hostname"); ok && out != "" {
+		return strings.TrimSpace(out)
+	}
+	return "NimOS"
+}
+
+// getLocalLANAddr returns our IP address that's on the same subnet as the remote addr.
+// E.g., if remote is 192.168.1.131, returns our 192.168.1.x address.
+func getLocalLANAddr(remoteAddr string) string {
+	// Extract remote subnet prefix (first 3 octets)
+	parts := strings.Split(remoteAddr, ".")
+	if len(parts) < 3 {
+		return detectOwnIP()
+	}
+	remotePrefix := parts[0] + "." + parts[1] + "." + parts[2] + "."
+
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return detectOwnIP()
+	}
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+			ip := ipnet.IP.String()
+			if strings.HasPrefix(ip, remotePrefix) {
+				return ip
+			}
+		}
+	}
+	return detectOwnIP()
+}
+
+// detectOwnIP returns the first non-loopback IPv4 address.
+func detectOwnIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
+		}
+	}
+	return "127.0.0.1"
 }
 
 // ─── Backup Snapshots ───────────────────────────────────────────────────────

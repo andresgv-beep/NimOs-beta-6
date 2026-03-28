@@ -180,14 +180,22 @@
               {#if mountedShares.length>0}
                 <div class="section-label">Carpetas compartidas</div>
                 {#each mountedShares as share}
+                  {@const pct = share.total > 0 ? Math.round((share.used / share.total) * 100) : 0}
+                  {@const circ = 2 * Math.PI * 28}
+                  {@const dashLen = (pct / 100) * circ}
+                  {@const dashGap = circ - dashLen}
                   <div class="donut-card">
                     <div class="donut-wrap">
-                      <svg viewBox="0 0 72 72"><circle cx="36" cy="36" r="28" fill="none" stroke="var(--border)" stroke-width="9"/><circle cx="36" cy="36" r="28" fill="none" stroke="var(--green)" stroke-width="9" stroke-dasharray="28 148" stroke-linecap="round" transform="rotate(-90 36 36)"/></svg>
-                      <div class="donut-center"><span style="font-size:14px;font-weight:700;color:var(--green)">—</span></div>
+                      <svg viewBox="0 0 72 72">
+                        <circle cx="36" cy="36" r="28" fill="none" stroke="var(--border)" stroke-width="9"/>
+                        <circle cx="36" cy="36" r="28" fill="none" stroke={pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--amber)' : 'var(--green)'} stroke-width="9" stroke-dasharray="{dashLen} {dashGap}" stroke-linecap="round" transform="rotate(-90 36 36)"/>
+                      </svg>
+                      <div class="donut-center"><span style="font-size:14px;font-weight:700;color:{pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--amber)' : 'var(--green)'}">{share.total > 0 ? pct + '%' : '—'}</span></div>
                     </div>
                     <div class="donut-info">
                       <div style="font-size:13px;font-weight:600;color:var(--text-1)">{share.displayName||share.name}</div>
                       <div style="font-size:10px;color:var(--text-3);font-family:'DM Mono',monospace">{share.path}</div>
+                      <div style="font-size:10px;color:var(--text-3)">{share.used ? fmtSize(share.used) + ' usado' : ''}{share.total ? ' · ' + fmtSize(share.total) + ' total' : ''}</div>
                       {#if share.mountPoint}<div class="mount-badge">
                         <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" style="width:10px;height:10px"><polyline points="20 6 9 17 4 12"/></svg>
                         Montada en Files

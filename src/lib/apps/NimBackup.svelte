@@ -134,7 +134,7 @@
         {#if dev.online}<div class="sb-dot"></div>{/if}
       </div>
     {/each}
-    {#if devices.length === 0}<div style="font-size:11px;color:rgba(255,255,255,0.25);padding:8px">Sin dispositivos</div>{/if}
+    {#if devices.length === 0}<div style="font-size:11px;color:var(--text-3);padding:8px">Sin dispositivos</div>{/if}
     <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="sb-add" on:click={() => { wizardMode = 'pair'; showWizard = true; }}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -159,8 +159,8 @@
       </div>
       <div class="content">
         <div class="row">
-          <div class="stat-card"><div class="stat-lbl">Dispositivos</div><div class="stat-val" style="color:#4ade80">{onlineCount}/{devices.length}</div><div class="stat-sub">online</div></div>
-          <div class="stat-card"><div class="stat-lbl">Trabajos OK</div><div class="stat-val" style="color:#a89fff">{jobsOk}/{jobs.length}</div><div class="stat-sub">activos</div></div>
+          <div class="stat-card"><div class="stat-lbl">Dispositivos</div><div class="stat-val" style="color:var(--green)">{onlineCount}/{devices.length}</div><div class="stat-sub">online</div></div>
+          <div class="stat-card"><div class="stat-lbl">Trabajos OK</div><div class="stat-val" style="color:var(--accent)">{jobsOk}/{jobs.length}</div><div class="stat-sub">activos</div></div>
           <div class="stat-card"><div class="stat-lbl">Último backup</div><div class="stat-val" style="font-size:13px">{history.length > 0 ? fmtTime(history[0]?.time) : '—'}</div><div class="stat-sub">{history[0]?.jobName || '—'}</div></div>
         </div>
         {#if jobs.length > 0}
@@ -193,8 +193,8 @@
               {#if h.ok}<svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" style="width:12px;height:12px"><polyline points="20 6 9 17 4 12"/></svg>
               {:else}<svg viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round" style="width:12px;height:12px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>{/if}
             </div>
-            <div class="svc-info"><div class="svc-name" style="color:{h.ok ? '#e2e0f0' : '#f87171'}">{h.jobName}</div><div class="svc-desc">{h.dest} · {fmtSize(h.bytes)}</div></div>
-            <span style="font-size:10px;color:rgba(255,255,255,0.3);font-family:'DM Mono',monospace">{fmtTime(h.time)}</span>
+            <div class="svc-info"><div class="svc-name" style="color:{h.ok ? 'var(--text-1)' : 'var(--red)'}">{h.jobName}</div><div class="svc-desc">{h.dest} · {fmtSize(h.bytes)}</div></div>
+            <span style="font-size:10px;color:var(--text-3);font-family:'DM Mono',monospace">{fmtTime(h.time)}</span>
           </div>
         {/each}
         {#if history.length === 0}<div class="empty-hint">Sin historial todavía.</div>{/if}
@@ -211,7 +211,7 @@
           <div class="dev-badge offline"><div class="dev-badge-dot"></div> Offline</div>
         {/if}
         <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
-        <button class="cfg-btn" style="margin-left:8px;color:#f87171" on:click={() => removeDevice(activeDevice.id)}>
+        <button class="cfg-btn" style="margin-left:8px;color:var(--red)" on:click={() => removeDevice(activeDevice.id)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -221,7 +221,7 @@
         <div class="pane">
           <div class="content">
             <div class="row">
-              <div class="stat-card"><div class="stat-lbl">Latencia</div><div class="stat-val" style="color:#4ade80">{activeDevice.ping || '—'}</div><div class="stat-sub">{isLocal(activeDevice.addr) ? 'LAN directa' : 'WireGuard'}</div></div>
+              <div class="stat-card"><div class="stat-lbl">Latencia</div><div class="stat-val" style="color:var(--green)">{activeDevice.ping || '—'}</div><div class="stat-sub">{isLocal(activeDevice.addr) ? 'LAN directa' : 'WireGuard'}</div></div>
               <div class="stat-card"><div class="stat-lbl">Espacio libre</div><div class="stat-val" style="color:#3b82f6">{activeDevice.freeSpace || '—'}</div><div class="stat-sub">disponible</div></div>
               <div class="stat-card"><div class="stat-lbl">Versión</div><div class="stat-val" style="font-size:12px;margin-top:3px">{activeDevice.version || '—'}</div><div class="stat-sub">NimOS</div></div>
             </div>
@@ -231,7 +231,7 @@
                   <div class="donut-card">
                     <div class="donut-wrap">
                       <svg viewBox="0 0 72 72"><circle cx="36" cy="36" r="28" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="9"/><circle cx="36" cy="36" r="28" fill="none" stroke="#4ade80" stroke-width="9" stroke-dasharray="28 148" stroke-linecap="round" transform="rotate(-90 36 36)"/></svg>
-                      <div class="donut-center"><div class="donut-pct">●</div></div>
+                      <div class="donut-center"><div class="donut-pct">—</div></div>
                     </div>
                     <div class="donut-info">
                       <div class="donut-share">{share.displayName || share.name}</div>
@@ -339,74 +339,74 @@
 </div>
 
 <style>
-  .backup-root { width:100%; height:100%; display:flex; overflow:hidden; background:#0f0e1a; font-family:'DM Sans',system-ui,sans-serif; color:#e2e0f0; }
-  .sidebar { width:200px; flex-shrink:0; background:#0c0b18; border-right:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; padding:16px 10px; gap:4px; overflow-y:auto; }
+  .backup-root { width:100%; height:100%; display:flex; overflow:hidden; background:var(--bg-frame); font-family:'DM Sans',system-ui,sans-serif; color:var(--text-1); }
+  .sidebar { width:200px; flex-shrink:0; background:var(--bg-sidebar); border-right:1px solid var(--border); display:flex; flex-direction:column; padding:16px 10px; gap:4px; overflow-y:auto; }
   .sidebar::-webkit-scrollbar { width:3px; } .sidebar::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.2); border-radius:2px; }
-  .sb-title { display:flex; align-items:center; gap:8px; padding:8px 8px 16px; font-size:14px; font-weight:700; color:#fff; }
+  .sb-title { display:flex; align-items:center; gap:8px; padding:8px 8px 16px; font-size:14px; font-weight:700; color:var(--text-1); }
   .sb-title svg { width:18px; height:18px; flex-shrink:0; }
-  .sb-section { font-size:9px; font-weight:600; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:.08em; padding:8px 8px 4px; }
-  .sb-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; font-size:12px; color:rgba(255,255,255,0.5); cursor:pointer; border:1px solid transparent; transition:all .15s; }
-  .sb-item svg { width:14px; height:14px; flex-shrink:0; } .sb-item:hover { background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.8); }
-  .sb-item.active { background:rgba(124,111,255,0.12); color:#c4bfff; border-color:rgba(124,111,255,0.2); }
-  .sb-dot { width:7px; height:7px; border-radius:50%; background:#4ade80; margin-left:auto; flex-shrink:0; }
-  .sb-add { display:flex; align-items:center; gap:7px; padding:7px 8px; border-radius:8px; font-size:11px; color:rgba(255,255,255,0.3); cursor:pointer; margin-top:4px; border:1px dashed rgba(255,255,255,0.1); transition:all .15s; }
+  .sb-section { font-size:9px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.08em; padding:8px 8px 4px; }
+  .sb-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; font-size:12px; color:var(--text-2); cursor:pointer; border:1px solid transparent; transition:all .15s; }
+  .sb-item svg { width:14px; height:14px; flex-shrink:0; } .sb-item:hover { background:var(--ibtn-bg); color:rgba(255,255,255,0.8); }
+  .sb-item.active { background:var(--active-bg); color:var(--text-1); border-color:var(--border-hi); }
+  .sb-dot { width:7px; height:7px; border-radius:50%; background:var(--green); margin-left:auto; flex-shrink:0; }
+  .sb-add { display:flex; align-items:center; gap:7px; padding:7px 8px; border-radius:8px; font-size:11px; color:var(--text-3); cursor:pointer; margin-top:4px; border:1px dashed var(--border); transition:all .15s; }
   .sb-add:hover { color:rgba(255,255,255,0.6); border-color:rgba(255,255,255,0.2); } .sb-add svg { width:13px; height:13px; }
-  .sb-next { margin-top:auto; padding:9px 10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:9px; }
-  .sn-label { font-size:9px; font-weight:600; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
-  .sn-name { font-size:10px; color:rgba(255,255,255,0.5); } .sn-time { font-size:13px; font-weight:600; color:#e95420; margin-top:2px; }
+  .sb-next { margin-top:auto; padding:9px 10px; background:var(--ibtn-bg); border:1px solid var(--border); border-radius:9px; }
+  .sn-label { font-size:9px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
+  .sn-name { font-size:10px; color:var(--text-2); } .sn-time { font-size:13px; font-weight:600; color:var(--accent); margin-top:2px; }
   .main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
-  .dev-header { display:flex; align-items:center; gap:12px; padding:16px 20px 14px; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0; }
-  .dev-ico { width:36px; height:36px; border-radius:9px; background:rgba(124,111,255,0.12); border:1px solid rgba(124,111,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  .dev-ico svg { width:18px; height:18px; } .dev-name { font-size:15px; font-weight:700; color:#fff; }
-  .dev-addr { font-size:11px; color:rgba(255,255,255,0.35); font-family:'DM Mono',monospace; margin-top:1px; }
-  .dev-badge { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:11px; color:#4ade80; background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); padding:3px 9px; border-radius:20px; flex-shrink:0; }
-  .dev-badge.offline { color:rgba(255,255,255,0.35); background:rgba(255,255,255,0.05); border-color:rgba(255,255,255,0.1); }
+  .dev-header { display:flex; align-items:center; gap:12px; padding:16px 20px 14px; border-bottom:1px solid var(--border); flex-shrink:0; }
+  .dev-ico { width:36px; height:36px; border-radius:9px; background:var(--active-bg); border:1px solid rgba(124,111,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .dev-ico svg { width:18px; height:18px; } .dev-name { font-size:15px; font-weight:700; color:var(--text-1); }
+  .dev-addr { font-size:11px; color:var(--text-3); font-family:'DM Mono',monospace; margin-top:1px; }
+  .dev-badge { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:11px; color:var(--green); background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); padding:3px 9px; border-radius:20px; flex-shrink:0; }
+  .dev-badge.offline { color:var(--text-3); background:var(--ibtn-bg); border-color:rgba(255,255,255,0.1); }
   .dev-badge-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
   .content { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:18px; }
   .content::-webkit-scrollbar { width:3px; } .content::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
-  .row { display:flex; gap:12px; } .section-lbl { font-size:10px; font-weight:600; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; }
-  .stat-card { flex:1; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px; }
-  .stat-lbl { font-size:9px; font-weight:600; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; }
-  .stat-val { font-size:18px; font-weight:700; color:#fff; } .stat-sub { font-size:10px; color:rgba(255,255,255,0.3); margin-top:3px; }
-  .donut-card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:14px 16px; display:flex; align-items:center; gap:16px; margin-bottom:6px; }
+  .row { display:flex; gap:12px; } .section-lbl { font-size:10px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; }
+  .stat-card { flex:1; background:var(--ibtn-bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .stat-lbl { font-size:9px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; }
+  .stat-val { font-size:18px; font-weight:700; color:var(--text-1); } .stat-sub { font-size:10px; color:var(--text-3); margin-top:3px; }
+  .donut-card { background:var(--ibtn-bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px; display:flex; align-items:center; gap:16px; margin-bottom:6px; }
   .donut-wrap { position:relative; width:72px; height:72px; flex-shrink:0; } .donut-wrap svg { width:72px; height:72px; }
   .donut-center { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
-  .donut-pct { font-size:14px; font-weight:700; color:#4ade80; }
-  .donut-info { flex:1; display:flex; flex-direction:column; gap:3px; } .donut-share { font-size:13px; font-weight:600; color:#fff; }
-  .donut-path { font-size:10px; color:rgba(255,255,255,0.35); font-family:'DM Mono',monospace; }
-  .mount-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; background:rgba(74,222,128,0.1); color:#4ade80; border:1px solid rgba(74,222,128,0.2); border-radius:5px; padding:2px 7px; margin-top:4px; }
+  .donut-pct { font-size:14px; font-weight:700; color:var(--green); }
+  .donut-info { flex:1; display:flex; flex-direction:column; gap:3px; } .donut-share { font-size:13px; font-weight:600; color:var(--text-1); }
+  .donut-path { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; }
+  .mount-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; background:rgba(74,222,128,0.1); color:var(--green); border:1px solid rgba(74,222,128,0.2); border-radius:5px; padding:2px 7px; margin-top:4px; }
   .services-list { display:flex; flex-direction:column; gap:4px; }
-  .svc-row { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:9px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); }
+  .svc-row { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:9px; background:var(--ibtn-bg); border:1px solid var(--border); }
   .svc-ico { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  .svc-ico svg { width:14px; height:14px; } .svc-info { flex:1; min-width:0; } .svc-name { font-size:12px; font-weight:600; color:#e2e0f0; }
-  .svc-desc { font-size:10px; color:rgba(255,255,255,0.35); margin-top:1px; }
-  .toggle { width:36px; height:20px; border-radius:10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.1); position:relative; cursor:pointer; transition:background .2s; flex-shrink:0; }
-  .toggle.on { background:#e95420; border-color:#e95420; }
+  .svc-ico svg { width:14px; height:14px; } .svc-info { flex:1; min-width:0; } .svc-name { font-size:12px; font-weight:600; color:var(--text-1); }
+  .svc-desc { font-size:10px; color:var(--text-3); margin-top:1px; }
+  .toggle { width:36px; height:20px; border-radius:10px; background:var(--ibtn-bg); border:1px solid var(--border); position:relative; cursor:pointer; transition:background .2s; flex-shrink:0; }
+  .toggle.on { background:var(--accent); border-color:var(--accent); }
   .toggle-dot { position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:rgba(255,255,255,0.4); transition:transform .2s, background .2s; }
   .toggle.on .toggle-dot { transform:translateX(16px); background:#fff; }
-  .cfg-btn { width:28px; height:28px; border-radius:7px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .15s; flex-shrink:0; color:rgba(255,255,255,0.5); font-size:11px; font-family:inherit; }
-  .cfg-btn:hover { background:rgba(255,255,255,0.12); color:#fff; } .cfg-btn svg { width:13px; height:13px; }
+  .cfg-btn { width:28px; height:28px; border-radius:7px; background:var(--ibtn-bg); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .15s; flex-shrink:0; color:var(--text-2); font-size:11px; font-family:inherit; }
+  .cfg-btn:hover { background:rgba(255,255,255,0.12); color:var(--text-1); } .cfg-btn svg { width:13px; height:13px; }
   .slider { display:flex; width:200%; height:100%; transition:transform .3s cubic-bezier(0.4,0,0.2,1); flex:1; overflow:hidden; }
   .slider.show-config { transform:translateX(-50%); }
   .pane { width:50%; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
-  .cfg-header { display:flex; align-items:center; gap:10px; padding:14px 20px; border-bottom:1px solid rgba(255,255,255,0.07); flex-shrink:0; }
-  .cfg-back { width:28px; height:28px; border-radius:7px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+  .cfg-header { display:flex; align-items:center; gap:10px; padding:14px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
+  .cfg-back { width:28px; height:28px; border-radius:7px; background:var(--ibtn-bg); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
   .cfg-back:hover { background:rgba(255,255,255,0.12); } .cfg-back svg { width:14px; height:14px; stroke:rgba(255,255,255,0.6); }
-  .cfg-title { font-size:13px; font-weight:600; color:#fff; } .cfg-subtitle { font-size:10px; color:rgba(255,255,255,0.35); margin-top:1px; }
-  .cfg-add { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:11px; color:#e95420; background:rgba(233,84,32,0.1); border:1px solid rgba(233,84,32,0.2); border-radius:6px; padding:4px 10px; cursor:pointer; flex-shrink:0; }
+  .cfg-title { font-size:13px; font-weight:600; color:var(--text-1); } .cfg-subtitle { font-size:10px; color:var(--text-3); margin-top:1px; }
+  .cfg-add { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:11px; color:var(--accent); background:rgba(233,84,32,0.1); border:1px solid rgba(233,84,32,0.2); border-radius:6px; padding:4px 10px; cursor:pointer; flex-shrink:0; }
   .cfg-add:hover { background:rgba(233,84,32,0.18); } .cfg-add svg { width:11px; height:11px; }
   .cfg-content { flex:1; overflow-y:auto; padding:12px 20px; display:flex; flex-direction:column; gap:4px; }
   .cfg-content::-webkit-scrollbar { width:3px; } .cfg-content::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
-  .share-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); }
-  .share-ico { width:28px; height:28px; border-radius:7px; background:rgba(124,111,255,0.12); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  .share-ico svg { width:13px; height:13px; } .share-name { font-size:12px; font-weight:500; color:#e2e0f0; }
-  .share-path { font-size:10px; color:rgba(255,255,255,0.3); font-family:'DM Mono',monospace; margin-top:1px; }
-  .pill-on { font-size:10px; color:#4ade80; background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); border-radius:5px; padding:2px 8px; margin-left:auto; flex-shrink:0; cursor:pointer; }
-  .pill-off { font-size:10px; color:rgba(255,255,255,0.35); background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:5px; padding:2px 8px; margin-left:auto; cursor:pointer; flex-shrink:0; transition:all .15s; }
-  .pill-off:hover { color:#e95420; border-color:rgba(233,84,32,0.3); background:rgba(233,84,32,0.08); }
+  .share-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px; background:var(--ibtn-bg); border:1px solid var(--border); }
+  .share-ico { width:28px; height:28px; border-radius:7px; background:var(--active-bg); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .share-ico svg { width:13px; height:13px; } .share-name { font-size:12px; font-weight:500; color:var(--text-1); }
+  .share-path { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; margin-top:1px; }
+  .pill-on { font-size:10px; color:var(--green); background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); border-radius:5px; padding:2px 8px; margin-left:auto; flex-shrink:0; cursor:pointer; }
+  .pill-off { font-size:10px; color:var(--text-3); background:var(--ibtn-bg); border:1px solid var(--border); border-radius:5px; padding:2px 8px; margin-left:auto; cursor:pointer; flex-shrink:0; transition:all .15s; }
+  .pill-off:hover { color:var(--accent); border-color:rgba(233,84,32,0.3); background:rgba(233,84,32,0.08); }
   .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:rgba(255,255,255,0.15); }
-  .dot-on { background:#4ade80; box-shadow:0 0 5px rgba(74,222,128,.4); } .dot-err { background:#f87171; }
-  .statusbar { display:flex; align-items:center; gap:12px; padding:8px 20px; border-top:1px solid rgba(255,255,255,0.06); font-size:10px; color:rgba(255,255,255,0.3); font-family:'DM Mono',monospace; flex-shrink:0; }
-  .sb-online { width:6px; height:6px; border-radius:50%; background:#4ade80; flex-shrink:0; } .sb-online.offline { background:rgba(255,255,255,0.15); }
-  .empty-hint { text-align:center; padding:24px; border:1px dashed rgba(255,255,255,0.08); border-radius:9px; color:rgba(255,255,255,0.25); font-size:11px; line-height:1.6; }
+  .dot-on { background:var(--green); box-shadow:0 0 5px rgba(74,222,128,.4); } .dot-err { background:#f87171; }
+  .statusbar { display:flex; align-items:center; gap:12px; padding:8px 20px; border-top:1px solid var(--border); font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; flex-shrink:0; }
+  .sb-online { width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0; } .sb-online.offline { background:rgba(255,255,255,0.15); }
+  .empty-hint { text-align:center; padding:24px; border:1px dashed var(--border); border-radius:9px; color:var(--text-3); font-size:11px; line-height:1.6; }
 </style>

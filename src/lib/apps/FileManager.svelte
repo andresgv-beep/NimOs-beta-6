@@ -269,7 +269,7 @@
     </div>
 
     <div class="sb-section">Carpetas</div>
-    {#each shares as share}
+    {#each shares.filter(s => !s.remote) as share}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="sb-item" class:active={currentShare === share.name} on:click={() => navigate(share.name, '/')}>
@@ -277,6 +277,18 @@
         {share.displayName || share.name}
       </div>
     {/each}
+
+    {#if shares.some(s => s.remote)}
+      <div class="sb-section" style="margin-top:6px">Remotas</div>
+      {#each shares.filter(s => s.remote) as share}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="sb-item" class:active={currentShare === share.name} on:click={() => navigate(share.name, '/')}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          {share.displayName || share.name}
+        </div>
+      {/each}
+    {/if}
 
     {#if storageInfo}
       <div class="sb-storage">
@@ -324,11 +336,19 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="file-grid" bind:this={gridEl}>
         {#if !currentShare}
-          {#each shares as share}
+          {#each shares.filter(s => !s.remote) as share}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div class="f-item" on:dblclick={() => navigate(share.name, '/')}>
               <div class="f-icon">📁</div>
+              <div class="f-name">{share.displayName || share.name}</div>
+            </div>
+          {/each}
+          {#each shares.filter(s => s.remote) as share}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="f-item" on:dblclick={() => navigate(share.name, '/')}>
+              <div class="f-icon">🌐</div>
               <div class="f-name">{share.displayName || share.name}</div>
             </div>
           {/each}

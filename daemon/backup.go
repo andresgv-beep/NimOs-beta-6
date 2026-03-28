@@ -2183,17 +2183,24 @@ func getPublicShares(r *http.Request) map[string]interface{} {
 		return map[string]interface{}{"error": err.Error()}
 	}
 
-	// Return simplified share info (no permissions, no app access)
+	// Return simplified share info with disk usage
 	var result []map[string]interface{}
 	for _, s := range shares {
 		path, _ := s["path"].(string)
-		result = append(result, map[string]interface{}{
+		entry := map[string]interface{}{
 			"name":        s["name"],
 			"displayName": s["displayName"],
 			"description": s["description"],
 			"path":        path,
 			"pool":        s["pool"],
-		})
+		}
+		// Get disk usage for this share path
+		if path != "" {
+			used, total := getPathDiskUsage(path)
+			entry["used"] = used
+			entry["total"] = total
+		}
+		result = append(result, entry)
 	}
 	if result == nil {
 		result = []map[string]interface{}{}
@@ -2552,4 +2559,31 @@ func handleNFSExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOk(w, map[string]interface{}{"ok": true, "exported": path, "client": clientIP})
+}
+
+// ─── Disk Usage Helpers ─────────────────────────────────────────────────────
+
+// getPathDiskUsage returns used and total bytes for the filesystem containing the given path.
+// For ZFS datasets it uses zfs get, for others it uses df.
+func getPathDiskUsage(path string) (int64, int64) {
+	// Try ZFS first — check if path is on a ZFS dataset
+	if out, ok := run(fmt.Sprintf("df -B1 --output=used,size %s 2>/dev/null | tail -1", path)); ok && out != "" {
+		fields := strings.Fields(out)
+		if len(fields) >= 2 {
+			used := parseByteSize(fields[0])
+			total := parseByteSize(fields[1])
+			if total > 0 {
+				return used, total
+			}
+		}
+	}
+	// Fallback: try du for used + df for total
+	var used, total int64
+	if out, ok := run(fmt.Sprintf("du -sb %s 2>/dev/null | awk '{print $1}'", path)); ok {
+		used = parseByteSize(strings.TrimSpace(out))
+	}
+	if out, ok := run(fmt.Sprintf("df -B1 --output=size %s 2>/dev/null | tail -1", path)); ok {
+		total = parseByteSize(strings.TrimSpace(out))
+	}
+	return used, total
 }

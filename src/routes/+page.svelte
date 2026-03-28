@@ -5,9 +5,12 @@
   import Login from '$lib/components/Login.svelte';
   import SetupWizard from '$lib/components/SetupWizard.svelte';
   import Desktop from '$lib/components/Desktop.svelte';
+  import MobileApp from '$lib/components/MobileApp.svelte';
+
+  let isMobile = false;
 
   onMount(async () => {
-    // Cargar prefs e init en paralelo — no bloquear uno al otro
+    isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768;
     await Promise.all([init(), loadPrefs()]);
   });
 </script>
@@ -21,7 +24,11 @@
 {:else if $appState === 'login'}
   <Login />
 {:else if $appState === 'desktop'}
-  <Desktop />
+  {#if isMobile}
+    <MobileApp />
+  {:else}
+    <Desktop />
+  {/if}
 {/if}
 
 <style>

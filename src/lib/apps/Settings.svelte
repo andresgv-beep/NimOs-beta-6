@@ -89,7 +89,7 @@
   // Wallpapers built-in
   const BUILTIN_WALLPAPERS = [
     '/wallpapers/nim_walpaper_01.jpeg',
-    '/wallpapers/nim_walpaper_02.png',
+    '/wallpapers/nim_walpaper_02.jpeg',
   ];
 
   // Wallpapers añadidos por el usuario (guardados en prefs)

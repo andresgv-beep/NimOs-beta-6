@@ -1,7 +1,7 @@
 {
 	"name": "nimos-beta-6-svelte",
 	"private": true,
-	"version": "0.2.36",
+	"version": "0.2.37",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",

@@ -2,48 +2,50 @@
   import { getToken } from '$lib/stores/auth.js';
   import TreeNode from '$lib/components/TreeNode.svelte';
 
-  export let share;      // share name string
-  export let path;       // current node path e.g. '/docs'
-  export let name;       // display name
-  export let depth = 0;  // indentation level
-  export let activePath; // currently active path in FileManager
-  export let activeShare;// currently active share in FileManager
-  export let onNavigate; // callback(share, path)
+  export let share;
+  export let path;
+  export let name;
+  export let depth = 0;
+  export let activePath;
+  export let activeShare;
+  export let onNavigate;
 
   const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}` });
 
   let expanded = false;
-  let children = null; // null = not loaded, [] = loaded empty, [...] = loaded with items
+  let children = null;
+
+  $: shouldBeOpen = activeShare === share && isAncestor(path, activePath);
+  $: if (shouldBeOpen && !expanded) { expanded = true; if (children === null) loadChildren(); }
+
+  function isAncestor(nodePath, targetPath) {
+    if (!targetPath || !nodePath) return false;
+    if (nodePath === '/') return targetPath !== '/';
+    return targetPath.startsWith(nodePath + '/');
+  }
+
+  async function loadChildren() {
+    try {
+      const r = await fetch('/api/files?share=' + share + '&path=' + encodeURIComponent(path), { headers: hdrs() });
+      const d = await r.json();
+      children = (d.files || []).filter(f => f.isDirectory);
+    } catch { children = []; }
+  }
 
   async function toggle(e) {
     e.stopPropagation();
     expanded = !expanded;
-    if (expanded && children === null) {
-      try {
-        const r = await fetch(`/api/files?share=${share}&path=${encodeURIComponent(path)}`, { headers: hdrs() });
-        const d = await r.json();
-        children = (d.files || []).filter(f => f.isDirectory);
-      } catch { children = []; }
-    }
+    if (expanded && children === null) await loadChildren();
   }
 
-  function handleClick() {
-    onNavigate(share, path);
-  }
+  function handleClick() { onNavigate(share, path); }
 
   $: isActive = activeShare === share && activePath === path;
   $: indent = depth * 12;
 </script>
 
-<div
-  class="tree-item"
-  class:active={isActive}
-  style="padding-left:{14 + indent}px"
-  on:click={handleClick}
-  on:keydown
-  role="button"
-  tabindex="0"
->
+<div class="tree-item" class:active={isActive} style="padding-left:{14 + indent}px"
+  on:click={handleClick} on:keydown role="button" tabindex="0">
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="tree-chevron" class:open={expanded} class:invisible={children !== null && children.length === 0} on:click={toggle}>
@@ -70,27 +72,14 @@
 {/if}
 
 <style>
-  .tree-item {
-    display: flex; align-items: center; gap: 5px;
-    padding-right: 8px; height: 28px;
-    border-radius: 6px; cursor: pointer;
-    border: 1px solid transparent;
-    transition: all .12s;
-    color: var(--text-2); font-size: 12px;
-    user-select: none;
-  }
-  .tree-item:hover { background: rgba(128,128,128,0.08); color: var(--text-1); }
-  .tree-item.active { background: var(--active-bg); color: var(--text-1); border-color: var(--border-hi); }
-  .tree-chevron {
-    width: 14px; height: 14px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text-3); border-radius: 3px;
-    transition: transform .15s, color .12s;
-  }
-  .tree-chevron:hover { color: var(--text-1); }
-  .tree-chevron.open { transform: rotate(90deg); }
-  .tree-chevron.invisible { visibility: hidden; pointer-events: none; }
-  .tree-chevron svg { pointer-events: none; }
-  .tree-folder-ico { flex-shrink: 0; opacity: .7; }
-  .tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-item { display:flex; align-items:center; gap:5px; padding-right:8px; height:28px; border-radius:6px; cursor:pointer; border:1px solid transparent; transition:all .12s; color:var(--text-2); font-size:12px; user-select:none; }
+  .tree-item:hover { background:rgba(128,128,128,0.08); color:var(--text-1); }
+  .tree-item.active { background:var(--active-bg); color:var(--text-1); border-color:var(--border-hi); }
+  .tree-chevron { width:14px; height:14px; flex-shrink:0; display:flex; align-items:center; justify-content:center; color:var(--text-3); border-radius:3px; transition:transform .15s, color .12s; }
+  .tree-chevron:hover { color:var(--text-1); }
+  .tree-chevron.open { transform:rotate(90deg); }
+  .tree-chevron.invisible { visibility:hidden; pointer-events:none; }
+  .tree-chevron svg { pointer-events:none; }
+  .tree-folder-ico { flex-shrink:0; opacity:.7; }
+  .tree-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 </style>

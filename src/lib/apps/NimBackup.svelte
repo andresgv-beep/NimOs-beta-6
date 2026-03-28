@@ -6,170 +6,84 @@
   const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
 
   // ── Estado ──
-  let view = 'resumen';       // 'resumen' | 'historial' | 'device'
+  let view = 'resumen';
   let devices = [];
   let jobs = [];
   let history = [];
-  let snapshots = [];
-  let activeDevice = null;    // dispositivo seleccionado
-  let devTab = 'proposito';
-  let slideView = null;
+  let activeDevice = null;
   let loading = false;
 
   // ── Wizard modals ──
   let showWizard = false;
-  let wizardMode = 'pair';  // 'pair' | 'job' | 'sync'
+  let wizardMode = 'pair';
 
-  // ── Iconos SVG por tipo de dispositivo ──
-  // Fácil de reemplazar — solo cambia el SVG aquí
-  const DEVICE_ICONS = {
-    nas: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="2" y="3" width="20" height="8" rx="2"/>
-      <rect x="2" y="13" width="20" height="8" rx="2"/>
-      <circle cx="18" cy="7" r="1" fill="currentColor" stroke="none"/>
-      <circle cx="18" cy="17" r="1" fill="currentColor" stroke="none"/>
-    </svg>`,
-    usb: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="4" y="2" width="16" height="20" rx="2"/>
-      <line x1="8" y1="7" x2="16" y2="7"/>
-      <line x1="8" y1="11" x2="16" y2="11"/>
-      <circle cx="12" cy="17" r="1.5"/>
-    </svg>`,
-    server: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="2" y="2" width="20" height="5" rx="1"/>
-      <rect x="2" y="9" width="20" height="5" rx="1"/>
-      <rect x="2" y="16" width="20" height="5" rx="1"/>
-      <circle cx="19" cy="4.5" r=".8" fill="currentColor" stroke="none"/>
-      <circle cx="19" cy="11.5" r=".8" fill="currentColor" stroke="none"/>
-      <circle cx="19" cy="18.5" r=".8" fill="currentColor" stroke="none"/>
-    </svg>`,
-  };
-
-  // ── Detectar si es local (mismo segmento) o remoto ──
-  function isLocal(addr) {
-    return addr.startsWith('192.168.') || addr.startsWith('10.') || addr.startsWith('172.') || addr === 'localhost';
-  }
-
-  function devicePort(addr) {
-    return isLocal(addr) ? 5000 : 5009;
-  }
-
-  function deviceProto(addr) {
-    return isLocal(addr) ? 'http' : 'https';
-  }
-
-  // ── API calls ──
-  async function loadDevices() {
-    try {
-      const r = await fetch('/api/backup/devices', { headers: hdrs() });
-      const d = await r.json();
-      devices = d.devices || [];
-    } catch { devices = []; }
-  }
-
-  async function loadJobs() {
-    try {
-      const r = await fetch('/api/backup/jobs', { headers: hdrs() });
-      const d = await r.json();
-      jobs = d.jobs || [];
-    } catch { jobs = []; }
-  }
-
-  async function loadHistory() {
-    try {
-      const r = await fetch('/api/backup/history', { headers: hdrs() });
-      const d = await r.json();
-      history = d.history || [];
-    } catch { history = []; }
-  }
-
-  async function runJob(jobId) {
-    try {
-      await fetch(`/api/backup/run/${jobId}`, { method: 'POST', headers: hdrs() });
-      await loadJobs();
-    } catch {}
-  }
-
-  async function removeDevice(id) {
-    if (!confirm('¿Desemparejar este dispositivo?')) return;
-    try {
-      await fetch(`/api/backup/devices/${id}`, { method: 'DELETE', headers: hdrs() });
-      devices = devices.filter(d => d.id !== id);
-      activeDevice = null;
-      view = 'resumen';
-    } catch {}
-  }
-
-  async function savePurposes(deviceId, purposes) {
-    try {
-      await fetch(`/api/backup/devices/${deviceId}/purposes`, {
-        method: 'POST', headers: hdrs(),
-        body: JSON.stringify({ purposes })
-      });
-    } catch {}
-  }
+  // ── Slide config panel ──
+  let configPane = null;
 
   // ── Remote Shares ──
   let remoteShares = [];
   let sharesLoading = false;
 
+  function isLocal(addr) {
+    return addr.startsWith('192.168.') || addr.startsWith('10.') || addr.startsWith('172.') || addr === 'localhost';
+  }
+
+  // ── API calls ──
+  async function loadDevices() {
+    try { const r = await fetch('/api/backup/devices', { headers: hdrs() }); const d = await r.json(); devices = d.devices || []; } catch { devices = []; }
+  }
+  async function loadJobs() {
+    try { const r = await fetch('/api/backup/jobs', { headers: hdrs() }); const d = await r.json(); jobs = d.jobs || []; } catch { jobs = []; }
+  }
+  async function loadHistory() {
+    try { const r = await fetch('/api/backup/history', { headers: hdrs() }); const d = await r.json(); history = d.history || []; } catch { history = []; }
+  }
+  async function runJob(jobId) {
+    try { await fetch(`/api/backup/run/${jobId}`, { method: 'POST', headers: hdrs() }); await loadJobs(); } catch {}
+  }
+  async function removeDevice(id) {
+    if (!confirm('¿Desemparejar este dispositivo?')) return;
+    try { await fetch(`/api/backup/devices/${id}`, { method: 'DELETE', headers: hdrs() }); devices = devices.filter(d => d.id !== id); activeDevice = null; view = 'resumen'; } catch {}
+  }
+  async function savePurposes(deviceId, purposes) {
+    try { await fetch(`/api/backup/devices/${deviceId}/purposes`, { method: 'POST', headers: hdrs(), body: JSON.stringify({ purposes }) }); } catch {}
+  }
   async function loadRemoteShares(deviceId) {
     sharesLoading = true;
-    try {
-      const r = await fetch(`/api/backup/devices/${deviceId}/remote-shares`, { headers: hdrs() });
-      const d = await r.json();
-      remoteShares = d.shares || [];
-    } catch { remoteShares = []; }
+    try { const r = await fetch(`/api/backup/devices/${deviceId}/remote-shares`, { headers: hdrs() }); const d = await r.json(); remoteShares = d.shares || []; } catch { remoteShares = []; }
     sharesLoading = false;
   }
-
   async function mountShare(deviceId, share) {
-    share._mounting = true;
-    remoteShares = [...remoteShares];
-    try {
-      const r = await fetch(`/api/backup/devices/${deviceId}/mount`, {
-        method: 'POST', headers: hdrs(),
-        body: JSON.stringify({ shareName: share.name, remotePath: share.path })
-      });
-      const d = await r.json();
-      if (d.ok) {
-        share.mounted = true;
-        share.mountPoint = d.mountPoint;
-      }
-    } catch {}
-    share._mounting = false;
-    remoteShares = [...remoteShares];
+    share._mounting = true; remoteShares = [...remoteShares];
+    try { const r = await fetch(`/api/backup/devices/${deviceId}/mount`, { method: 'POST', headers: hdrs(), body: JSON.stringify({ shareName: share.name, remotePath: share.path }) }); const d = await r.json(); if (d.ok) { share.mounted = true; share.mountPoint = d.mountPoint; } } catch {}
+    share._mounting = false; remoteShares = [...remoteShares];
   }
-
   async function unmountShare(deviceId, share) {
-    share._mounting = true;
-    remoteShares = [...remoteShares];
-    try {
-      const r = await fetch(`/api/backup/devices/${deviceId}/unmount`, {
-        method: 'POST', headers: hdrs(),
-        body: JSON.stringify({ shareName: share.name })
-      });
-      const d = await r.json();
-      if (d.ok) {
-        share.mounted = false;
-        share.mountPoint = '';
-      }
-    } catch {}
-    share._mounting = false;
-    remoteShares = [...remoteShares];
+    share._mounting = true; remoteShares = [...remoteShares];
+    try { const r = await fetch(`/api/backup/devices/${deviceId}/unmount`, { method: 'POST', headers: hdrs(), body: JSON.stringify({ shareName: share.name }) }); const d = await r.json(); if (d.ok) { share.mounted = false; share.mountPoint = ''; } } catch {}
+    share._mounting = false; remoteShares = [...remoteShares];
   }
 
-  // ── Helpers ──
+  function togglePurpose(key) {
+    if (!activeDevice) return;
+    const purposes = activeDevice.purposes || [];
+    activeDevice.purposes = purposes.includes(key) ? purposes.filter(x => x !== key) : [...purposes, key];
+    activeDevice = {...activeDevice};
+    savePurposes(activeDevice.id, activeDevice.purposes);
+  }
+
+  function openConfig(type) {
+    configPane = type;
+    if (type === 'share' && activeDevice) loadRemoteShares(activeDevice.id);
+  }
+
   function fmtTime(iso) {
     if (!iso) return '—';
-    const d = new Date(iso);
-    const now = new Date();
-    const diff = Math.floor((now - d) / 1000);
+    const d = new Date(iso); const now = new Date(); const diff = Math.floor((now - d) / 1000);
     if (diff < 3600) return `hace ${Math.floor(diff/60)}m`;
     if (diff < 86400) return `hace ${Math.floor(diff/3600)}h`;
     return `hace ${Math.floor(diff/86400)}d`;
   }
-
   function fmtSize(bytes) {
     if (!bytes) return '—';
     if (bytes >= 1e9) return (bytes/1e9).toFixed(1) + ' GB';
@@ -180,74 +94,52 @@
   $: onlineCount = devices.filter(d => d.online).length;
   $: jobsOk = jobs.filter(j => j.status === 'ok').length;
   $: nextJob = jobs.filter(j => j.nextRun).sort((a,b) => new Date(a.nextRun) - new Date(b.nextRun))[0];
+  $: deviceJobs = activeDevice ? jobs.filter(j => j.deviceId === activeDevice.id) : [];
+  $: mountedShares = remoteShares.filter(s => s.mounted);
 
-  onMount(() => {
-    loadDevices();
-    loadJobs();
-    loadHistory();
-  });
+  const SERVICES = [
+    { key: 'share',       name: 'Share remota',    desc: 'Carpetas de este NAS visibles en Files', color: '#4ade80', bg: 'rgba(74,222,128,0.12)', icon: 'folder' },
+    { key: 'backup_dest', name: 'Backup destino',  desc: 'Este NAS recibe tus backups',            color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', icon: 'down' },
+    { key: 'backup_src',  name: 'Backup origen',   desc: 'Este NAS hace backup al tuyo',           color: '#e95420', bg: 'rgba(233,84,32,0.12)',  icon: 'up' },
+    { key: 'sync',        name: 'Sincronización',  desc: 'Carpetas espejo entre los dos NAS',      color: '#a855f7', bg: 'rgba(168,85,247,0.12)', icon: 'sync' },
+  ];
+
+  onMount(() => { loadDevices(); loadJobs(); loadHistory(); });
 </script>
 
 <div class="backup-root">
-
   <!-- ══ SIDEBAR ══ -->
   <div class="sidebar">
-    <div class="sb-header">
-      <div class="sb-logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-      </div>
-      <span class="title">NimBackup</span>
+    <div class="sb-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#e95420" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      NimBackup
     </div>
-
     <div class="sb-section">General</div>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="sb-item" class:active={view === 'resumen' || view === 'historial' ? view === 'resumen' : false}
-      on:click={() => { view = 'resumen'; activeDevice = null; }}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-      <span>Resumen</span>
+    <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="sb-item" class:active={view === 'resumen' && !activeDevice} on:click={() => { view = 'resumen'; activeDevice = null; configPane = null; }}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Resumen
     </div>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="sb-item" class:active={view === 'historial'}
-      on:click={() => { view = 'historial'; activeDevice = null; loadHistory(); }}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      <span>Historial</span>
+    <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="sb-item" class:active={view === 'historial'} on:click={() => { view = 'historial'; activeDevice = null; configPane = null; loadHistory(); }}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Historial
     </div>
-
     <div class="sb-section" style="margin-top:6px">Dispositivos</div>
-
     {#each devices as dev}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="sb-device" class:active={activeDevice?.id === dev.id}
-        on:click={() => { activeDevice = dev; view = 'device'; devTab = 'proposito'; slideView = null; }}>
-        <div class="sb-dev-icon">
-          {@html DEVICE_ICONS[dev.type] || DEVICE_ICONS.nas}
-        </div>
-        <div class="sb-dev-info">
-          <div class="sb-dev-name">{dev.name}</div>
-          <div class="sb-dev-meta">{dev.addr}</div>
-        </div>
-        <div class="dot" class:dot-on={dev.online} class:dot-off={!dev.online}></div>
+      <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="sb-item" class:active={activeDevice?.id === dev.id} on:click={() => { activeDevice = dev; view = 'device'; configPane = null; loadRemoteShares(dev.id); }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        {dev.name}
+        {#if dev.online}<div class="sb-dot"></div>{/if}
       </div>
     {/each}
-
-    {#if devices.length === 0}
-      <div style="font-size:11px;color:var(--text-3);padding:8px 10px">Sin dispositivos</div>
-    {/if}
-
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    {#if devices.length === 0}<div style="font-size:11px;color:rgba(255,255,255,0.25);padding:8px">Sin dispositivos</div>{/if}
+    <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="sb-add" on:click={() => { wizardMode = 'pair'; showWizard = true; }}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       Emparejar dispositivo
     </div>
-
     {#if nextJob}
       <div class="sb-next">
         <div class="sn-label">Próximo backup</div>
@@ -257,597 +149,264 @@
     {/if}
   </div>
 
-  <!-- ══ INNER ══ -->
-  <div class="inner-wrap">
-    <div class="inner">
-
-      <!-- ── RESUMEN ── -->
-      {#if view === 'resumen'}
-        <div class="inner-titlebar">
-          <span class="tb-title">Resumen</span>
-          <span class="tb-sub">— {onlineCount} de {devices.length} dispositivos online</span>
-          <div class="tb-right">
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <button class="btn-secondary" on:click={() => jobs.forEach(j => runJob(j.id))}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-5.4"/></svg>
-              Ejecutar todo
-            </button>
-          </div>
+  <!-- ══ MAIN ══ -->
+  <div class="main">
+    <!-- RESUMEN -->
+    {#if view === 'resumen' && !activeDevice}
+      <div class="dev-header">
+        <div class="dev-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#a89fff" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></div>
+        <div><div class="dev-name">Resumen</div><div class="dev-addr">{onlineCount} de {devices.length} dispositivos online</div></div>
+      </div>
+      <div class="content">
+        <div class="row">
+          <div class="stat-card"><div class="stat-lbl">Dispositivos</div><div class="stat-val" style="color:#4ade80">{onlineCount}/{devices.length}</div><div class="stat-sub">online</div></div>
+          <div class="stat-card"><div class="stat-lbl">Trabajos OK</div><div class="stat-val" style="color:#a89fff">{jobsOk}/{jobs.length}</div><div class="stat-sub">activos</div></div>
+          <div class="stat-card"><div class="stat-lbl">Último backup</div><div class="stat-val" style="font-size:13px">{history.length > 0 ? fmtTime(history[0]?.time) : '—'}</div><div class="stat-sub">{history[0]?.jobName || '—'}</div></div>
         </div>
-        <div class="content">
-          <div>
-            <div class="section-label">Estado general</div>
-            <div class="stats-row">
-              <div class="stat-card">
-                <div class="stat-label">Dispositivos</div>
-                <div class="stat-val" style="color:var(--green)">{onlineCount}/{devices.length}</div>
-                <div class="stat-sub">online</div>
+        {#if jobs.length > 0}
+          <div><div class="section-lbl">Trabajos activos</div>
+            {#each jobs as job}
+              <div class="svc-row">
+                <div class="svc-ico" style="background:{job.fsType === 'btrfs' ? 'rgba(74,222,128,0.12)' : 'rgba(59,130,246,0.12)'}">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="{job.fsType === 'btrfs' ? '#4ade80' : '#3b82f6'}" stroke-width="1.8" stroke-linecap="round" style="width:14px;height:14px"><rect x="2" y="3" width="20" height="8" rx="2"/><circle cx="18" cy="7" r="1" fill="currentColor" stroke="none"/></svg>
+                </div>
+                <div class="svc-info"><div class="svc-name">{job.name}</div><div class="svc-desc">{job.fsType} · {job.schedule} · {fmtTime(job.lastRun)}</div></div>
+                <div class="dot" class:dot-on={job.status === 'ok'} class:dot-err={job.status === 'error'}></div>
+                <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+                <button class="cfg-btn" on:click={() => runJob(job.id)}>▶</button>
               </div>
-              <div class="stat-card">
-                <div class="stat-label">Trabajos OK</div>
-                <div class="stat-val" style="color:var(--accent)">{jobsOk}/{jobs.length}</div>
-                <div class="stat-sub">activos</div>
+            {/each}
+          </div>
+        {:else}<div class="empty-hint">Sin trabajos configurados. Empareja un dispositivo para empezar.</div>{/if}
+      </div>
+
+    <!-- HISTORIAL -->
+    {:else if view === 'historial'}
+      <div class="dev-header">
+        <div class="dev-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#a89fff" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+        <div><div class="dev-name">Historial</div><div class="dev-addr">{history.length} ejecuciones</div></div>
+      </div>
+      <div class="content">
+        {#each history as h}
+          <div class="svc-row" style="padding:8px 12px">
+            <div class="svc-ico" style="background:{h.ok ? 'rgba(74,222,128,0.1)' : 'rgba(248,113,113,0.1)'}">
+              {#if h.ok}<svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" style="width:12px;height:12px"><polyline points="20 6 9 17 4 12"/></svg>
+              {:else}<svg viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round" style="width:12px;height:12px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>{/if}
+            </div>
+            <div class="svc-info"><div class="svc-name" style="color:{h.ok ? '#e2e0f0' : '#f87171'}">{h.jobName}</div><div class="svc-desc">{h.dest} · {fmtSize(h.bytes)}</div></div>
+            <span style="font-size:10px;color:rgba(255,255,255,0.3);font-family:'DM Mono',monospace">{fmtTime(h.time)}</span>
+          </div>
+        {/each}
+        {#if history.length === 0}<div class="empty-hint">Sin historial todavía.</div>{/if}
+      </div>
+
+    <!-- DEVICE -->
+    {:else if view === 'device' && activeDevice}
+      <div class="dev-header">
+        <div class="dev-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#a89fff" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
+        <div><div class="dev-name">{activeDevice.name}</div><div class="dev-addr">{activeDevice.addr} · {isLocal(activeDevice.addr) ? 'LAN' : 'WAN'} · {activeDevice.ping || '—'}</div></div>
+        {#if activeDevice.online}
+          <div class="dev-badge"><div class="dev-badge-dot"></div> Online</div>
+        {:else}
+          <div class="dev-badge offline"><div class="dev-badge-dot"></div> Offline</div>
+        {/if}
+        <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+        <button class="cfg-btn" style="margin-left:8px;color:#f87171" on:click={() => removeDevice(activeDevice.id)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="slider" class:show-config={configPane !== null}>
+        <!-- PANE 1: overview -->
+        <div class="pane">
+          <div class="content">
+            <div class="row">
+              <div class="stat-card"><div class="stat-lbl">Latencia</div><div class="stat-val" style="color:#4ade80">{activeDevice.ping || '—'}</div><div class="stat-sub">{isLocal(activeDevice.addr) ? 'LAN directa' : 'WireGuard'}</div></div>
+              <div class="stat-card"><div class="stat-lbl">Espacio libre</div><div class="stat-val" style="color:#3b82f6">{activeDevice.freeSpace || '—'}</div><div class="stat-sub">disponible</div></div>
+              <div class="stat-card"><div class="stat-lbl">Versión</div><div class="stat-val" style="font-size:12px;margin-top:3px">{activeDevice.version || '—'}</div><div class="stat-sub">NimOS</div></div>
+            </div>
+            {#if mountedShares.length > 0}
+              <div><div class="section-lbl">Carpetas compartidas</div>
+                {#each mountedShares as share}
+                  <div class="donut-card">
+                    <div class="donut-wrap">
+                      <svg viewBox="0 0 72 72"><circle cx="36" cy="36" r="28" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="9"/><circle cx="36" cy="36" r="28" fill="none" stroke="#4ade80" stroke-width="9" stroke-dasharray="28 148" stroke-linecap="round" transform="rotate(-90 36 36)"/></svg>
+                      <div class="donut-center"><div class="donut-pct">●</div></div>
+                    </div>
+                    <div class="donut-info">
+                      <div class="donut-share">{share.displayName || share.name}</div>
+                      <div class="donut-path">{share.path}</div>
+                      {#if share.mountPoint}<div class="mount-badge"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:#4ade80;fill:none;stroke-width:2"><polyline points="20 6 9 17 4 12"/></svg> Montada en Files</div>{/if}
+                    </div>
+                  </div>
+                {/each}
               </div>
-              <div class="stat-card">
-                <div class="stat-label">Snapshots</div>
-                <div class="stat-val" style="color:var(--accent)">{snapshots.length}</div>
-                <div class="stat-sub">activos</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Último backup</div>
-                <div class="stat-val" style="font-size:12px">{history.length > 0 ? fmtTime(history[0]?.time) : '—'}</div>
-                <div class="stat-sub">{history[0]?.jobName || '—'}</div>
+            {/if}
+            <div><div class="section-lbl">Servicios</div>
+              <div class="services-list">
+                {#each SERVICES as svc}
+                  <div class="svc-row">
+                    <div class="svc-ico" style="background:{svc.bg}">
+                      {#if svc.icon === 'folder'}<svg viewBox="0 0 24 24" fill="none" stroke={svc.color} stroke-width="1.8" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                      {:else if svc.icon === 'down'}<svg viewBox="0 0 24 24" fill="none" stroke={svc.color} stroke-width="1.8" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      {:else if svc.icon === 'up'}<svg viewBox="0 0 24 24" fill="none" stroke={svc.color} stroke-width="1.8" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      {:else}<svg viewBox="0 0 24 24" fill="none" stroke={svc.color} stroke-width="1.8" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                      {/if}
+                    </div>
+                    <div class="svc-info"><div class="svc-name">{svc.name}</div><div class="svc-desc">{svc.desc}</div></div>
+                    <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <div class="cfg-btn" on:click={() => openConfig(svc.key)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg></div>
+                    <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <div class="toggle" class:on={activeDevice.purposes?.includes(svc.key)} on:click={() => togglePurpose(svc.key)}><div class="toggle-dot"></div></div>
+                  </div>
+                {/each}
               </div>
             </div>
           </div>
-          <div>
-            <div class="section-label">Trabajos activos</div>
-            {#each jobs as job}
-              <div class="row">
-                <div class="row-icon" style="background:{job.fsType === 'btrfs' ? 'rgba(74,222,128,0.1)' : 'rgba(96,165,250,0.1)'}">
-                  {#if job.fsType === 'btrfs'}
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:14px;height:14px;color:var(--green)"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-                  {:else}
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:14px;height:14px;color:var(--blue)"><rect x="2" y="3" width="20" height="8" rx="2"/><circle cx="18" cy="7" r="1" fill="currentColor" stroke="none"/></svg>
-                  {/if}
+        </div>
+
+        <!-- PANE 2: config -->
+        <div class="pane">
+          <div class="cfg-header">
+            <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="cfg-back" on:click={() => configPane = null}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></div>
+            <div><div class="cfg-title">{SERVICES.find(s => s.key === configPane)?.name || ''}</div><div class="cfg-subtitle">{activeDevice.name}</div></div>
+            <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="cfg-add" on:click={() => { if (configPane === 'share') loadRemoteShares(activeDevice.id); else if (configPane === 'sync') { wizardMode = 'sync'; showWizard = true; } else { wizardMode = 'job'; showWizard = true; } }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              {#if configPane === 'share'}Refrescar{:else if configPane === 'sync'}Añadir par{:else}Nuevo trabajo{/if}
+            </div>
+          </div>
+          <div class="cfg-content">
+            {#if configPane === 'share'}
+              {#if sharesLoading}<div class="empty-hint">Cargando shares...</div>
+              {:else if remoteShares.length === 0}<div class="empty-hint">No se encontraron carpetas compartidas.</div>
+              {:else}
+                {#each remoteShares as share}
+                  <div class="share-row">
+                    <div class="share-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#a89fff" stroke-width="1.8" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+                    <div style="flex:1;min-width:0"><div class="share-name">{share.displayName || share.name}</div><div class="share-path">{share.path}</div></div>
+                    {#if share.mounted}
+                      <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <div class="pill-on" on:click={() => unmountShare(activeDevice.id, share)}>{share._mounting ? '...' : 'Montada'}</div>
+                    {:else}
+                      <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <div class="pill-off" on:click={() => mountShare(activeDevice.id, share)}>{share._mounting ? '...' : 'Montar'}</div>
+                    {/if}
+                  </div>
+                {/each}
+              {/if}
+            {:else if configPane === 'backup_dest' || configPane === 'backup_src'}
+              {#each deviceJobs as job}
+                <div class="share-row">
+                  <div class="share-ico" style="background:{job.fsType === 'btrfs' ? 'rgba(74,222,128,0.12)' : 'rgba(59,130,246,0.12)'}"><svg viewBox="0 0 24 24" fill="none" stroke="{job.fsType === 'btrfs' ? '#4ade80' : '#3b82f6'}" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="8" rx="2"/><circle cx="18" cy="7" r="1" fill="currentColor" stroke="none"/></svg></div>
+                  <div style="flex:1;min-width:0"><div class="share-name">{job.name}</div><div class="share-path">{job.source} → {job.dest} · {job.schedule}</div></div>
+                  <div class="dot" class:dot-on={job.status === 'ok'} class:dot-err={job.status === 'error'}></div>
+                  <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <button class="cfg-btn" on:click={() => runJob(job.id)}>▶</button>
                 </div>
-                <div class="row-info">
-                  <div class="row-name">{job.name}</div>
-                  <div class="row-meta">{job.fsType} incremental · {job.schedule} · retención {job.retention}</div>
+              {/each}
+              {#if deviceJobs.length === 0}<div class="empty-hint">Sin trabajos configurados.</div>{/if}
+            {:else if configPane === 'sync'}
+              {#each (activeDevice.syncPairs || []) as pair}
+                <div class="share-row">
+                  <div class="share-ico" style="background:rgba(168,85,247,0.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="1.8" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
+                  <div style="flex:1;min-width:0"><div class="share-name">{pair.local}</div><div class="share-path">↔ {pair.remote}</div></div>
+                  <div class="pill-on" style="color:{pair.status === 'synced' ? '#4ade80' : '#fbbf24'}">{pair.status === 'synced' ? 'Sync' : 'Pendiente'}</div>
                 </div>
-                <div class="row-status">
-                  <div class="dot" class:dot-on={job.status === 'ok'} class:dot-warn={job.status === 'warn'} class:dot-err={job.status === 'error'}></div>
-                  <span style="color:{job.status === 'ok' ? 'var(--green)' : job.status === 'warn' ? 'var(--amber)' : 'var(--red)'}">
-                    {job.status === 'ok' ? 'OK' : job.status === 'warn' ? 'Advertencia' : 'Error'} · {fmtTime(job.lastRun)}
-                  </span>
-                </div>
-                <div class="row-actions">
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <button class="btn-secondary" style="padding:3px 8px;font-size:10px" on:click={() => runJob(job.id)}>▶</button>
-                </div>
-              </div>
-            {/each}
-            {#if jobs.length === 0}
-              <div class="empty-hint">Sin trabajos configurados.<br>Empareja un dispositivo y configura un trabajo de backup.</div>
+              {/each}
+              {#if (activeDevice.syncPairs || []).length === 0}<div class="empty-hint">Sin pares de sincronización.</div>{/if}
             {/if}
           </div>
         </div>
-        <div class="statusbar">
-          <div class="status-dot"></div>
-          <span>{onlineCount} dispositivos online</span>
-          <span class="st-sep">·</span>
-          <span>{jobs.length} trabajos</span>
-          {#if nextJob}
-            <div class="st-right">Próximo: {fmtTime(nextJob.nextRun)}</div>
-          {/if}
-        </div>
+      </div>
 
-      <!-- ── HISTORIAL ── -->
-      {:else if view === 'historial'}
-        <div class="inner-titlebar">
-          <span class="tb-title">Historial</span>
-          <span class="tb-sub">— Últimas ejecuciones</span>
-        </div>
-        <div class="content">
-          {#each history as h}
-            <div class="act-row">
-              <div class="act-ico" class:ok={h.ok} class:err={!h.ok}>
-                {#if h.ok}
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-                {:else}
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                {/if}
-              </div>
-              <span class="act-desc" style="color:{h.ok ? 'var(--text-2)' : 'var(--red)'}">{h.jobName}</span>
-              <span class="act-dest">{h.dest}</span>
-              <span class="act-size">{fmtSize(h.bytes)}</span>
-              <span class="act-time">{fmtTime(h.time)}</span>
-            </div>
-          {/each}
-          {#if history.length === 0}
-            <div class="empty-hint">Sin historial todavía.</div>
-          {/if}
-        </div>
-        <div class="statusbar">
-          <div class="status-dot"></div>
-          <span>{history.length} ejecuciones registradas</span>
-        </div>
-
-      <!-- ── DISPOSITIVO ── -->
-      {:else if view === 'device' && activeDevice}
-      <!-- ── DISPOSITIVO ── -->
-      {:else if view === 'device' && activeDevice}
-        <div class="inner-titlebar">
-          <div class="dev-header-icon">
-            {@html DEVICE_ICONS[activeDevice.type] || DEVICE_ICONS.nas}
-          </div>
-          <div>
-            <span class="tb-title">{activeDevice.name}</span>
-            <span class="tb-sub"> — {activeDevice.addr}:{devicePort(activeDevice.addr)}</span>
-          </div>
-          <div class="dev-online" class:online={activeDevice.online}>
-            <div class="dot" class:dot-on={activeDevice.online} class:dot-off={!activeDevice.online}></div>
-            {activeDevice.online ? `Online · ${activeDevice.ping || '—'}` : 'Offline'}
-          </div>
-          <div class="tb-right">
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <button class="icon-btn" style="color:var(--red)" on:click={() => removeDevice(activeDevice.id)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="2" y1="2" x2="22" y2="22" style="opacity:.5"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <!-- Slider: pane principal + pane config -->
-        <div class="dev-slider" class:dev-slide={slideView !== null}>
-
-          <!-- PANE 1: resumen del dispositivo -->
-          <div class="dev-pane">
-            <div class="content">
-
-              <div>
-                <div class="section-label">Conexión</div>
-                <div class="stats-row">
-                  <div class="stat-card">
-                    <div class="stat-label">Latencia</div>
-                    <div class="stat-val" style="color:var(--green)">{activeDevice.ping || '—'}</div>
-                    <div class="stat-sub">{isLocal(activeDevice.addr) ? 'LAN directa' : 'WireGuard'}</div>
-                  </div>
-                  <div class="stat-card">
-                    <div class="stat-label">Espacio libre</div>
-                    <div class="stat-val" style="color:var(--accent)">{activeDevice.freeSpace || '—'}</div>
-                    <div class="stat-sub">disponible</div>
-                  </div>
-                  <div class="stat-card">
-                    <div class="stat-label">Protocolo</div>
-                    <div class="stat-val" style="font-size:11px;margin-top:2px">{deviceProto(activeDevice.addr).toUpperCase()}</div>
-                    <div class="stat-sub">Puerto {devicePort(activeDevice.addr)}</div>
-                  </div>
-                  <div class="stat-card">
-                    <div class="stat-label">NimOS</div>
-                    <div class="stat-val" style="font-size:11px;margin-top:2px">{activeDevice.version || '—'}</div>
-                    <div class="stat-sub">versión</div>
-                  </div>
-                </div>
-              </div>
-
-              {#if remoteShares.length > 0}
-                {@const ms = remoteShares.find(s => s.mounted) || remoteShares[0]}
-                <div>
-                  <div class="section-label">Carpetas compartidas</div>
-                  <div class="donut-row-card">
-                    <div class="donut-mini-wrap">
-                      <svg viewBox="0 0 60 60" width="60" height="60">
-                        <circle cx="30" cy="30" r="24" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="7"/>
-                        <circle cx="30" cy="30" r="24" fill="none"
-                          stroke={ms.usagePercent < 70 ? '#4ade80' : ms.usagePercent < 85 ? '#fbbf24' : '#f87171'}
-                          stroke-width="7" stroke-linecap="round"
-                          stroke-dasharray="{((ms.usagePercent||0)*150.796/100).toFixed(1)} 150.796"
-                          transform="rotate(-90 30 30)"/>
-                        <text x="30" y="33" text-anchor="middle" font-size="10" font-weight="700" fill="var(--text-1)" font-family="DM Sans,sans-serif">{ms.usagePercent||0}%</text>
-                      </svg>
-                    </div>
-                    <div class="donut-detail">
-                      <div class="row-name">{ms.displayName || ms.name}</div>
-                      <div class="row-meta">{ms.path}</div>
-                      <div class="row-meta">{ms.usedFormatted||'—'} · {ms.availableFormatted||'—'} libre</div>
-                      {#if ms.mounted}<div class="row-meta" style="color:var(--green)">✓ Montada en Files</div>{/if}
-                    </div>
-                  </div>
-                </div>
-              {/if}
-
-              <div>
-                <div class="section-label">Servicios activos</div>
-                <div class="svc-list">
-
-                  <div class="svc-row">
-                    <div class="svc-ico svc-green">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                    </div>
-                    <div class="svc-info">
-                      <div class="svc-name">Share remota</div>
-                      <div class="svc-desc">Carpetas de este NAS visibles en Files</div>
-                    </div>
-                    <div class="svc-actions">
-                      <!-- svelte-ignore a11y_click_events_have_key_events -->
-                      <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <div class="svc-cfg-btn" on:click={() => { slideView = 'share'; loadRemoteShares(activeDevice.id); }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-                      </div>
-                      <button class="toggle" class:on={activeDevice.purposes?.includes('share')} on:click|stopPropagation={() => { const p = activeDevice.purposes||[]; activeDevice.purposes = p.includes('share') ? p.filter(x=>x!=='share') : [...p,'share']; activeDevice={...activeDevice}; savePurposes(activeDevice.id,activeDevice.purposes); }}></button>
-                    </div>
-                  </div>
-
-                  <div class="svc-row">
-                    <div class="svc-ico svc-blue">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    </div>
-                    <div class="svc-info">
-                      <div class="svc-name">Backup destino</div>
-                      <div class="svc-desc">Este NAS recibe tus backups</div>
-                    </div>
-                    <div class="svc-actions">
-                      <!-- svelte-ignore a11y_click_events_have_key_events -->
-                      <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <div class="svc-cfg-btn" on:click={() => slideView = 'backup-dest'}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-                      </div>
-                      <button class="toggle" class:on={activeDevice.purposes?.includes('backup_dest')} on:click|stopPropagation={() => { const p = activeDevice.purposes||[]; activeDevice.purposes = p.includes('backup_dest') ? p.filter(x=>x!=='backup_dest') : [...p,'backup_dest']; activeDevice={...activeDevice}; savePurposes(activeDevice.id,activeDevice.purposes); }}></button>
-                    </div>
-                  </div>
-
-                  <div class="svc-row">
-                    <div class="svc-ico svc-amber">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 10 12 15 7 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    </div>
-                    <div class="svc-info">
-                      <div class="svc-name">Backup origen</div>
-                      <div class="svc-desc">Este NAS hace backup al tuyo</div>
-                    </div>
-                    <div class="svc-actions">
-                      <!-- svelte-ignore a11y_click_events_have_key_events -->
-                      <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <div class="svc-cfg-btn" on:click={() => slideView = 'backup-src'}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-                      </div>
-                      <button class="toggle" class:on={activeDevice.purposes?.includes('backup_src')} on:click|stopPropagation={() => { const p = activeDevice.purposes||[]; activeDevice.purposes = p.includes('backup_src') ? p.filter(x=>x!=='backup_src') : [...p,'backup_src']; activeDevice={...activeDevice}; savePurposes(activeDevice.id,activeDevice.purposes); }}></button>
-                    </div>
-                  </div>
-
-                  <div class="svc-row">
-                    <div class="svc-ico svc-purple">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                    </div>
-                    <div class="svc-info">
-                      <div class="svc-name">Sincronización</div>
-                      <div class="svc-desc">Carpetas espejo entre los dos NAS</div>
-                    </div>
-                    <div class="svc-actions">
-                      <!-- svelte-ignore a11y_click_events_have_key_events -->
-                      <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <div class="svc-cfg-btn" on:click={() => slideView = 'sync'}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-                      </div>
-                      <button class="toggle" class:on={activeDevice.purposes?.includes('sync')} on:click|stopPropagation={() => { const p = activeDevice.purposes||[]; activeDevice.purposes = p.includes('sync') ? p.filter(x=>x!=='sync') : [...p,'sync']; activeDevice={...activeDevice}; savePurposes(activeDevice.id,activeDevice.purposes); }}></button>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- PANE 2: config del servicio seleccionado -->
-          <div class="dev-pane">
-            <div class="svc-cfg-header">
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="svc-back-btn" on:click={() => slideView = null}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
-              </div>
-              <div>
-                <span class="tb-title">{slideView === 'share' ? 'Share remota' : slideView === 'backup-dest' ? 'Backup destino' : slideView === 'backup-src' ? 'Backup origen' : 'Sincronización'}</span>
-                <span class="tb-sub"> — {activeDevice.name}</span>
-              </div>
-              <div class="tb-right">
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div class="add-row" style="margin:0;padding:4px 10px;border-style:solid" on:click={() => { wizardMode = slideView === 'sync' ? 'sync' : 'job'; showWizard = true; }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  {slideView === 'share' ? 'Añadir carpeta' : slideView === 'sync' ? 'Añadir par' : 'Nuevo trabajo'}
-                </div>
-              </div>
-            </div>
-
-            <div class="content">
-              {#if slideView === 'share'}
-                {#if sharesLoading}
-                  <div class="empty-hint">Cargando carpetas del dispositivo...</div>
-                {:else if remoteShares.length === 0}
-                  <div class="empty-hint">
-                    No se encontraron carpetas compartidas.<br>
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <span style="color:var(--accent);cursor:pointer" on:click={() => loadRemoteShares(activeDevice.id)}>Reintentar</span>
-                  </div>
-                {:else}
-                  {#each remoteShares as share}
-                    <div class="row">
-                      <div class="row-icon" style="background:rgba(74,222,128,0.1)">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:14px;height:14px;color:var(--green)"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                      </div>
-                      <div class="row-info">
-                        <div class="row-name">{share.displayName || share.name}</div>
-                        <div class="row-meta">{share.path}{share.description ? ` · ${share.description}` : ''}</div>
-                        {#if share.mounted && share.mountPoint}
-                          <div class="row-meta" style="color:var(--green)">→ {share.mountPoint}</div>
-                        {/if}
-                      </div>
-                      <div class="row-actions">
-                        {#if share.mounted}
-                          <!-- svelte-ignore a11y_click_events_have_key_events -->
-                          <!-- svelte-ignore a11y_no_static_element_interactions -->
-                          <button class="btn-secondary" style="padding:3px 10px;font-size:10px" disabled={share._mounting} on:click={() => unmountShare(activeDevice.id, share)}>
-                            {share._mounting ? '...' : 'Desmontar'}
-                          </button>
-                        {:else}
-                          <!-- svelte-ignore a11y_click_events_have_key_events -->
-                          <!-- svelte-ignore a11y_no_static_element_interactions -->
-                          <button class="btn-secondary" style="padding:3px 10px;font-size:10px;color:var(--green);border-color:rgba(74,222,128,0.3)" disabled={share._mounting} on:click={() => mountShare(activeDevice.id, share)}>
-                            {share._mounting ? '...' : 'Montar'}
-                          </button>
-                        {/if}
-                      </div>
-                    </div>
-                  {/each}
-                {/if}
-
-              {:else if slideView === 'backup-dest' || slideView === 'backup-src'}
-                {#each jobs.filter(j => j.deviceId === activeDevice.id) as job}
-                  <div class="row">
-                    <div class="row-icon" style="background:{job.fsType === 'btrfs' ? 'rgba(74,222,128,0.1)' : 'rgba(96,165,250,0.1)'}">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:13px;height:13px;color:{job.fsType === 'btrfs' ? 'var(--green)' : 'var(--blue)'}"><rect x="2" y="3" width="20" height="8" rx="2"/><circle cx="18" cy="7" r="1" fill="currentColor" stroke="none"/></svg>
-                    </div>
-                    <div class="row-info">
-                      <div class="row-name">{job.name}</div>
-                      <div class="row-meta">{job.fsType} · {job.schedule} · retención {job.retention}</div>
-                    </div>
-                    <div class="row-status">
-                      <div class="dot" class:dot-on={job.status === 'ok'} class:dot-warn={job.status === 'warn'} class:dot-err={job.status === 'error'}></div>
-                      <span style="font-size:10px;color:{job.status === 'ok' ? 'var(--green)' : 'var(--amber)'}">{fmtTime(job.lastRun)}</span>
-                    </div>
-                    <div class="row-actions">
-                      <!-- svelte-ignore a11y_click_events_have_key_events -->
-                      <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <button class="btn-secondary" style="padding:3px 8px;font-size:10px" on:click={() => runJob(job.id)}>▶</button>
-                    </div>
-                  </div>
-                {/each}
-                {#if jobs.filter(j => j.deviceId === activeDevice.id).length === 0}
-                  <div class="empty-hint">Sin trabajos configurados.</div>
-                {/if}
-
-              {:else if slideView === 'sync'}
-                {#each (activeDevice.syncPairs || []) as pair}
-                  <div class="sync-pair">
-                    <div class="sync-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{pair.local}</div>
-                    <div class="sync-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
-                    <div class="sync-folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{pair.remote}</div>
-                    <span style="margin-left:auto;font-size:10px;color:{pair.status === 'synced' ? 'var(--green)' : 'var(--amber)'};flex-shrink:0">{pair.status === 'synced' ? '● Sync' : '↑ Cambios'}</span>
-                  </div>
-                {/each}
-                {#if (activeDevice.syncPairs || []).length === 0}
-                  <div class="empty-hint">Sin pares configurados.</div>
-                {/if}
-              {/if}
-            </div>
-          </div>
-
-        </div>
-
-        <div class="statusbar">
-          <div class="dot" class:dot-on={activeDevice.online} class:dot-off={!activeDevice.online}></div>
-          <span>{isLocal(activeDevice.addr) ? 'LAN · Puerto 5000' : 'WireGuard · Puerto 5009'}</span>
-          <span class="st-sep">·</span>
-          <span>{jobs.filter(j => j.deviceId === activeDevice.id).length} trabajos</span>
-          <span class="st-sep">·</span>
-          <span>{(activeDevice.syncPairs || []).length} pares sync</span>
-        </div>
-      {/if}
-
-
-    </div>
+      <div class="statusbar">
+        <div class="sb-online" class:offline={!activeDevice.online}></div>
+        <span>{isLocal(activeDevice.addr) ? 'LAN · Puerto 5000' : 'WAN · Puerto 5009'}</span>
+        <span>·</span><span>{deviceJobs.length} trabajos</span>
+        <span>·</span><span>{mountedShares.length} shares montadas</span>
+      </div>
+    {/if}
   </div>
 
   {#if showWizard}
-    <NimLink
-      mode={wizardMode}
-      device={activeDevice}
+    <NimLink mode={wizardMode} device={activeDevice}
       on:close={() => { showWizard = false; }}
       on:paired={() => { showWizard = false; loadDevices(); }}
-      on:created={() => { showWizard = false; loadJobs(); loadDevices(); }}
-    />
+      on:created={() => { showWizard = false; loadJobs(); loadDevices(); }} />
   {/if}
 </div>
 
 <style>
-  .backup-root { width:100%; height:100%; display:flex; overflow:hidden; background:var(--bg-frame); font-family:'Inter',-apple-system,sans-serif; color:var(--text-1); }
-
-  /* Sidebar */
-  .sidebar { width:210px; flex-shrink:0; display:flex; flex-direction:column; gap:2px; padding:12px 8px; overflow-y:auto; background:var(--bg-sidebar); }
-  .sidebar::-webkit-scrollbar { width:3px; }
-  .sidebar::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.2); border-radius:2px; }
-  .sb-header { display:flex; align-items:center; gap:8px; padding:32px 8px 12px; }
-  .sb-logo { width:22px; height:22px; color:var(--accent); flex-shrink:0; }
-  .sb-logo svg { width:100%; height:100%; }
-  .title { font-size:15px; font-weight:600; color:var(--text-1); }
-  .sb-section { font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); padding:10px 8px 3px; }
-  .sb-item { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:8px; cursor:pointer; font-size:12px; color:var(--text-2); border:1px solid transparent; transition:all .15s; }
-  .sb-item svg { width:13px; height:13px; flex-shrink:0; opacity:.6; }
-  .sb-item:hover { background:rgba(128,128,128,0.10); color:var(--text-1); }
-  .sb-item.active { background:var(--active-bg); color:var(--text-1); border-color:var(--border-hi); }
-  .sb-item.active svg { opacity:1; }
-
-  .sb-device { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; cursor:pointer; font-size:12px; color:var(--text-2); border:1px solid transparent; transition:all .15s; }
-  .sb-device:hover { background:rgba(128,128,128,0.08); color:var(--text-1); }
-  .sb-device.active { background:var(--active-bg); color:var(--text-1); border-color:var(--border-hi); }
-  .sb-dev-icon { width:28px; height:28px; border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,rgba(124,111,255,0.15),rgba(192,84,240,0.15)); border:1px solid rgba(124,111,255,0.2); color:var(--text-2); }
-  .sb-dev-icon :global(svg) { width:14px; height:14px; }
-  .sb-device.active .sb-dev-icon { color:var(--text-1); }
-  .sb-dev-info { flex:1; min-width:0; }
-  .sb-dev-name { font-size:11px; font-weight:600; color:var(--text-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .sb-dev-meta { font-size:9px; color:var(--text-3); font-family:'DM Mono',monospace; }
-
-  .sb-add { display:flex; align-items:center; gap:7px; padding:7px 10px; border-radius:8px; font-size:11px; color:var(--text-3); cursor:pointer; border:1px dashed rgba(255,255,255,0.1); transition:all .15s; margin-top:4px; }
-  .sb-add:hover { color:var(--accent); border-color:rgba(124,111,255,.3); }
-  .sb-add svg { width:11px; height:11px; }
-
-  .sb-next { margin-top:auto; padding:9px 10px; background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:9px; }
-  .sn-label { font-size:9px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
-  .sn-name { font-size:10px; color:var(--text-2); }
-  .sn-time { font-size:13px; font-weight:600; color:var(--accent); margin-top:2px; }
-
-  /* Dots */
-  .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-  .dot-on   { background:var(--green); box-shadow:0 0 5px rgba(74,222,128,.4); }
-  .dot-off  { background:rgba(255,255,255,.15); }
-  .dot-warn { background:var(--amber); }
-  .dot-err  { background:var(--red); }
-
-  /* Inner */
-  .inner-wrap { flex:1; padding:8px; display:flex; }
-  .inner { flex:1; border-radius:10px; border:1px solid var(--border); background:var(--bg-inner); display:flex; flex-direction:column; overflow:hidden; }
-
-  /* Titlebar */
-  .inner-titlebar { display:flex; align-items:center; gap:8px; padding:10px 14px 9px; background:var(--bg-bar); flex-shrink:0; border-bottom:1px solid var(--border); }
-  .tb-title { font-size:12px; font-weight:600; color:var(--text-1); }
-  .tb-sub { font-size:11px; color:var(--text-3); }
-  .tb-right { margin-left:auto; display:flex; align-items:center; gap:6px; }
-  .dev-header-icon { width:22px; height:22px; color:var(--text-2); flex-shrink:0; }
-  .dev-header-icon :global(svg) { width:100%; height:100%; }
-  .dev-online { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--text-3); margin-left:8px; }
-  .dev-online.online { color:var(--green); }
-  .icon-btn { width:27px; height:27px; background:var(--ibtn-bg); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-2); transition:all .15s; }
-  .icon-btn svg { width:13px; height:13px; }
-  .icon-btn:hover { background:rgba(124,111,255,0.15); color:var(--text-1); }
-
-  /* Tabs */
-  .tab-nav { display:flex; padding:0 2px; border-bottom:1px solid var(--border); flex-shrink:0; }
-  .tab { position:relative; cursor:pointer; padding:8px 14px 10px; }
-  .tab span { font-size:12px; font-weight:600; color:var(--text-3); transition:color .2s; }
-  .tab:hover span { color:var(--text-2); }
-  .tab.active span { color:var(--text-1); }
-  .tab-line { position:absolute; bottom:0; left:-2px; right:-2px; height:2.5px; border-radius:2px; background:linear-gradient(90deg,var(--accent),var(--accent2)); }
-
-  /* Btns */
-  .btn-secondary { display:inline-flex; align-items:center; gap:5px; padding:5px 10px; background:var(--ibtn-bg); border:1px solid var(--border); border-radius:6px; color:var(--text-2); font-family:inherit; font-size:11px; font-weight:500; cursor:pointer; transition:all .15s; }
-  .btn-secondary svg { width:11px; height:11px; }
-  .btn-secondary:hover { color:var(--text-1); border-color:var(--border-hi); }
-
-  /* Content */
-  .content { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
-  .content::-webkit-scrollbar { width:3px; }
-  .content::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
-  .section-label { font-size:9px; font-weight:700; color:var(--text-3); text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px; }
-
-  /* Stats */
-  .stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
-  .stat-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:9px; padding:11px 13px; }
-  .stat-label { font-size:9px; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
-  .stat-val { font-size:15px; font-weight:600; color:var(--text-1); }
-  .stat-sub { font-size:9px; color:var(--text-3); margin-top:2px; font-family:'DM Mono',monospace; }
-
-  /* Rows */
-  .row { display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid var(--border); transition:background .12s; }
-  .row:first-of-type { border-top:1px solid var(--border); }
-  .row:hover { background:rgba(255,255,255,0.02); }
-  .row-icon { width:28px; height:28px; border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-  .row-info { flex:1; min-width:0; }
-  .row-name { font-size:12px; font-weight:600; color:var(--text-1); }
-  .row-meta { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .row-status { display:flex; align-items:center; gap:5px; font-size:10px; flex-shrink:0; }
-  .row-actions { display:flex; gap:4px; flex-shrink:0; }
-
-  /* Propósitos */
-  .purpose-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-  .purpose-card { display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border-radius:9px; border:1px solid var(--border); background:rgba(255,255,255,0.02); cursor:pointer; transition:all .15s; }
-  .purpose-card:hover { border-color:rgba(255,255,255,0.12); }
-  .purpose-card.on { border-color:var(--border-hi); background:var(--active-bg); }
-  .pur-ico { width:32px; height:32px; border-radius:8px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-  .pur-ico svg { width:15px; height:15px; }
-  .pur-ico.blue   { background:rgba(96,165,250,0.12); color:var(--blue); }
-  .pur-ico.green  { background:rgba(74,222,128,0.12); color:var(--green); }
-  .pur-ico.purple { background:rgba(192,132,252,0.12); color:#c084fc; }
-  .pur-ico.amber  { background:rgba(251,191,36,0.12); color:var(--amber); }
-  .pur-info { flex:1; }
-  .pur-name { font-size:12px; font-weight:600; color:var(--text-1); margin-bottom:2px; }
-  .pur-desc { font-size:10px; color:var(--text-3); line-height:1.4; }
-  .toggle { width:30px; height:17px; border-radius:9px; background:rgba(255,255,255,0.1); border:none; cursor:pointer; position:relative; transition:background .2s; flex-shrink:0; margin-top:2px; }
-  .toggle.on { background:var(--accent); }
-  .toggle::after { content:''; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:#fff; transition:transform .2s; }
-  .toggle.on::after { transform:translateX(13px); }
-
-  /* Sync */
-  .sync-pair { display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:8px; background:rgba(255,255,255,0.02); border:1px solid var(--border); font-size:11px; }
-  .sync-folder { flex:1; background:rgba(255,255,255,0.04); border-radius:5px; padding:5px 8px; font-family:'DM Mono',monospace; font-size:10px; color:var(--text-2); display:flex; align-items:center; gap:5px; }
-  .sync-arrow { color:var(--accent); flex-shrink:0; }
-  .sync-arrow svg { width:14px; height:14px; }
-
-  /* Actividad */
-  .act-row { display:flex; align-items:center; gap:10px; padding:7px 4px; border-bottom:1px solid var(--border); font-size:11px; }
-  .act-ico { width:20px; height:20px; border-radius:5px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  .act-ico.ok  { background:rgba(74,222,128,0.10); }
-  .act-ico.ok :global(svg) { color:var(--green); width:10px; height:10px; }
-  .act-ico.err { background:rgba(248,113,113,0.10); }
-  .act-ico.err :global(svg) { color:var(--red); width:10px; height:10px; }
-  .act-desc { flex:1; }
-  .act-dest { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-3); }
-  .act-size { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-3); width:58px; text-align:right; }
-  .act-time { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-3); width:70px; text-align:right; }
-
-  .add-row { display:flex; align-items:center; justify-content:center; gap:6px; padding:9px; border-radius:7px; border:1px dashed rgba(255,255,255,0.08); color:var(--text-3); font-size:11px; cursor:pointer; transition:all .15s; margin-top:4px; }
-  .add-row:hover { color:var(--accent); border-color:rgba(124,111,255,.3); }
-  .add-row svg { width:11px; height:11px; }
-
-  .empty-hint { text-align:center; padding:28px; border:1px dashed rgba(255,255,255,0.08); border-radius:9px; color:var(--text-3); font-size:11px; line-height:1.6; }
-
-  /* Statusbar */
-  .statusbar { display:flex; align-items:center; gap:8px; padding:9px 14px; border-top:1px solid var(--border); background:var(--bg-bar); flex-shrink:0; font-size:10px; color:var(--text-3); border-radius:0 0 10px 10px; font-family:'DM Mono',monospace; }
-  .status-dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 4px rgba(74,222,128,.5); }
-  .st-sep { color:rgba(255,255,255,0.1); }
-  .st-right { margin-left:auto; color:var(--accent); }
-
-
-  /* ── dev slider ── */
-  .dev-slider { display:flex; width:200%; flex:1; overflow:hidden; transition:transform .3s ease-in-out; min-height:0; }
-  .dev-slider.dev-slide { transform:translateX(-50%); }
-  .dev-pane { width:50%; min-width:0; display:flex; flex-direction:column; overflow:hidden; }
-  .dev-pane .content { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
-  .svc-cfg-header { display:flex; align-items:center; gap:8px; padding:10px 14px 9px; background:var(--bg-bar); flex-shrink:0; border-bottom:1px solid var(--border); }
-  .svc-back-btn { width:27px; height:27px; background:var(--ibtn-bg); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all .15s; }
-  .svc-back-btn:hover { background:rgba(124,111,255,0.15); }
-  .svc-back-btn svg { width:14px; height:14px; }
-  /* svc list */
-  .svc-list { display:flex; flex-direction:column; gap:4px; }
-  .svc-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px; background:rgba(255,255,255,0.025); border:1px solid var(--border); }
+  .backup-root { width:100%; height:100%; display:flex; overflow:hidden; background:#0f0e1a; font-family:'DM Sans',system-ui,sans-serif; color:#e2e0f0; }
+  .sidebar { width:200px; flex-shrink:0; background:#0c0b18; border-right:1px solid rgba(255,255,255,0.06); display:flex; flex-direction:column; padding:16px 10px; gap:4px; overflow-y:auto; }
+  .sidebar::-webkit-scrollbar { width:3px; } .sidebar::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.2); border-radius:2px; }
+  .sb-title { display:flex; align-items:center; gap:8px; padding:8px 8px 16px; font-size:14px; font-weight:700; color:#fff; }
+  .sb-title svg { width:18px; height:18px; flex-shrink:0; }
+  .sb-section { font-size:9px; font-weight:600; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:.08em; padding:8px 8px 4px; }
+  .sb-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; font-size:12px; color:rgba(255,255,255,0.5); cursor:pointer; border:1px solid transparent; transition:all .15s; }
+  .sb-item svg { width:14px; height:14px; flex-shrink:0; } .sb-item:hover { background:rgba(255,255,255,0.05); color:rgba(255,255,255,0.8); }
+  .sb-item.active { background:rgba(124,111,255,0.12); color:#c4bfff; border-color:rgba(124,111,255,0.2); }
+  .sb-dot { width:7px; height:7px; border-radius:50%; background:#4ade80; margin-left:auto; flex-shrink:0; }
+  .sb-add { display:flex; align-items:center; gap:7px; padding:7px 8px; border-radius:8px; font-size:11px; color:rgba(255,255,255,0.3); cursor:pointer; margin-top:4px; border:1px dashed rgba(255,255,255,0.1); transition:all .15s; }
+  .sb-add:hover { color:rgba(255,255,255,0.6); border-color:rgba(255,255,255,0.2); } .sb-add svg { width:13px; height:13px; }
+  .sb-next { margin-top:auto; padding:9px 10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:9px; }
+  .sn-label { font-size:9px; font-weight:600; color:rgba(255,255,255,0.3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
+  .sn-name { font-size:10px; color:rgba(255,255,255,0.5); } .sn-time { font-size:13px; font-weight:600; color:#e95420; margin-top:2px; }
+  .main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .dev-header { display:flex; align-items:center; gap:12px; padding:16px 20px 14px; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0; }
+  .dev-ico { width:36px; height:36px; border-radius:9px; background:rgba(124,111,255,0.12); border:1px solid rgba(124,111,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .dev-ico svg { width:18px; height:18px; } .dev-name { font-size:15px; font-weight:700; color:#fff; }
+  .dev-addr { font-size:11px; color:rgba(255,255,255,0.35); font-family:'DM Mono',monospace; margin-top:1px; }
+  .dev-badge { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:11px; color:#4ade80; background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); padding:3px 9px; border-radius:20px; flex-shrink:0; }
+  .dev-badge.offline { color:rgba(255,255,255,0.35); background:rgba(255,255,255,0.05); border-color:rgba(255,255,255,0.1); }
+  .dev-badge-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .content { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:18px; }
+  .content::-webkit-scrollbar { width:3px; } .content::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
+  .row { display:flex; gap:12px; } .section-lbl { font-size:10px; font-weight:600; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; }
+  .stat-card { flex:1; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 14px; }
+  .stat-lbl { font-size:9px; font-weight:600; color:rgba(255,255,255,0.35); text-transform:uppercase; letter-spacing:.07em; margin-bottom:5px; }
+  .stat-val { font-size:18px; font-weight:700; color:#fff; } .stat-sub { font-size:10px; color:rgba(255,255,255,0.3); margin-top:3px; }
+  .donut-card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:14px 16px; display:flex; align-items:center; gap:16px; margin-bottom:6px; }
+  .donut-wrap { position:relative; width:72px; height:72px; flex-shrink:0; } .donut-wrap svg { width:72px; height:72px; }
+  .donut-center { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+  .donut-pct { font-size:14px; font-weight:700; color:#4ade80; }
+  .donut-info { flex:1; display:flex; flex-direction:column; gap:3px; } .donut-share { font-size:13px; font-weight:600; color:#fff; }
+  .donut-path { font-size:10px; color:rgba(255,255,255,0.35); font-family:'DM Mono',monospace; }
+  .mount-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; background:rgba(74,222,128,0.1); color:#4ade80; border:1px solid rgba(74,222,128,0.2); border-radius:5px; padding:2px 7px; margin-top:4px; }
+  .services-list { display:flex; flex-direction:column; gap:4px; }
+  .svc-row { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:9px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); }
   .svc-ico { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  .svc-ico svg { width:14px; height:14px; }
-  .svc-green  { background:rgba(74,222,128,0.12);  color:var(--green); }
-  .svc-blue   { background:rgba(96,165,250,0.12);  color:var(--blue); }
-  .svc-amber  { background:rgba(251,191,36,0.12);  color:var(--amber); }
-  .svc-purple { background:rgba(192,132,252,0.12); color:#c084fc; }
-  .svc-info { flex:1; min-width:0; }
-  .svc-name { font-size:12px; font-weight:600; color:var(--text-1); }
-  .svc-desc { font-size:10px; color:var(--text-3); margin-top:1px; }
-  .svc-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
-  .svc-cfg-btn { width:27px; height:27px; border-radius:6px; background:var(--ibtn-bg); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-2); transition:all .15s; }
-  .svc-cfg-btn:hover { background:rgba(124,111,255,0.15); color:var(--text-1); border-color:var(--border-hi); }
-  .svc-cfg-btn svg { width:13px; height:13px; }
-  /* donut card */
-  .donut-row-card { display:flex; align-items:center; gap:14px; padding:12px 14px; background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:10px; }
-  .donut-mini-wrap { flex-shrink:0; }
-  .donut-detail { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .svc-ico svg { width:14px; height:14px; } .svc-info { flex:1; min-width:0; } .svc-name { font-size:12px; font-weight:600; color:#e2e0f0; }
+  .svc-desc { font-size:10px; color:rgba(255,255,255,0.35); margin-top:1px; }
+  .toggle { width:36px; height:20px; border-radius:10px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.1); position:relative; cursor:pointer; transition:background .2s; flex-shrink:0; }
+  .toggle.on { background:#e95420; border-color:#e95420; }
+  .toggle-dot { position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:rgba(255,255,255,0.4); transition:transform .2s, background .2s; }
+  .toggle.on .toggle-dot { transform:translateX(16px); background:#fff; }
+  .cfg-btn { width:28px; height:28px; border-radius:7px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .15s; flex-shrink:0; color:rgba(255,255,255,0.5); font-size:11px; font-family:inherit; }
+  .cfg-btn:hover { background:rgba(255,255,255,0.12); color:#fff; } .cfg-btn svg { width:13px; height:13px; }
+  .slider { display:flex; width:200%; height:100%; transition:transform .3s cubic-bezier(0.4,0,0.2,1); flex:1; overflow:hidden; }
+  .slider.show-config { transform:translateX(-50%); }
+  .pane { width:50%; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden; }
+  .cfg-header { display:flex; align-items:center; gap:10px; padding:14px 20px; border-bottom:1px solid rgba(255,255,255,0.07); flex-shrink:0; }
+  .cfg-back { width:28px; height:28px; border-radius:7px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+  .cfg-back:hover { background:rgba(255,255,255,0.12); } .cfg-back svg { width:14px; height:14px; stroke:rgba(255,255,255,0.6); }
+  .cfg-title { font-size:13px; font-weight:600; color:#fff; } .cfg-subtitle { font-size:10px; color:rgba(255,255,255,0.35); margin-top:1px; }
+  .cfg-add { margin-left:auto; display:flex; align-items:center; gap:5px; font-size:11px; color:#e95420; background:rgba(233,84,32,0.1); border:1px solid rgba(233,84,32,0.2); border-radius:6px; padding:4px 10px; cursor:pointer; flex-shrink:0; }
+  .cfg-add:hover { background:rgba(233,84,32,0.18); } .cfg-add svg { width:11px; height:11px; }
+  .cfg-content { flex:1; overflow-y:auto; padding:12px 20px; display:flex; flex-direction:column; gap:4px; }
+  .cfg-content::-webkit-scrollbar { width:3px; } .cfg-content::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
+  .share-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); }
+  .share-ico { width:28px; height:28px; border-radius:7px; background:rgba(124,111,255,0.12); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .share-ico svg { width:13px; height:13px; } .share-name { font-size:12px; font-weight:500; color:#e2e0f0; }
+  .share-path { font-size:10px; color:rgba(255,255,255,0.3); font-family:'DM Mono',monospace; margin-top:1px; }
+  .pill-on { font-size:10px; color:#4ade80; background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); border-radius:5px; padding:2px 8px; margin-left:auto; flex-shrink:0; cursor:pointer; }
+  .pill-off { font-size:10px; color:rgba(255,255,255,0.35); background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:5px; padding:2px 8px; margin-left:auto; cursor:pointer; flex-shrink:0; transition:all .15s; }
+  .pill-off:hover { color:#e95420; border-color:rgba(233,84,32,0.3); background:rgba(233,84,32,0.08); }
+  .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:rgba(255,255,255,0.15); }
+  .dot-on { background:#4ade80; box-shadow:0 0 5px rgba(74,222,128,.4); } .dot-err { background:#f87171; }
+  .statusbar { display:flex; align-items:center; gap:12px; padding:8px 20px; border-top:1px solid rgba(255,255,255,0.06); font-size:10px; color:rgba(255,255,255,0.3); font-family:'DM Mono',monospace; flex-shrink:0; }
+  .sb-online { width:6px; height:6px; border-radius:50%; background:#4ade80; flex-shrink:0; } .sb-online.offline { background:rgba(255,255,255,0.15); }
+  .empty-hint { text-align:center; padding:24px; border:1px dashed rgba(255,255,255,0.08); border-radius:9px; color:rgba(255,255,255,0.25); font-size:11px; line-height:1.6; }
 </style>

@@ -56,6 +56,13 @@ func handleFilesRoutes(w http.ResponseWriter, r *http.Request) {
 // ═══════════════════════════════════
 
 func getSharePermission(session map[string]interface{}, share map[string]interface{}) string {
+	// Remote shares: admin gets rw (NFS mount is already authenticated)
+	if isRemote, _ := share["_remote"].(bool); isRemote {
+		if role, _ := session["role"].(string); role == "admin" {
+			return "rw"
+		}
+		return "ro"
+	}
 	if role, _ := session["role"].(string); role == "admin" {
 		return "rw"
 	}
@@ -66,6 +73,46 @@ func getSharePermission(session map[string]interface{}, share map[string]interfa
 		}
 	}
 	return "none"
+}
+
+// resolveShare looks up a share first in the local DB, then in remote_mounts.
+// Returns a share-like map with at least "name" and "path" fields.
+func resolveShare(name string) (map[string]interface{}, error) {
+	// Try local DB first
+	share, err := dbSharesGet(name)
+	if err == nil && share != nil {
+		return share, nil
+	}
+
+	// Try remote mounts — name format: "remote:<device>/<share>"
+	// or just the shareName if it matches a remote mount
+	if strings.HasPrefix(name, "remote:") {
+		parts := strings.SplitN(strings.TrimPrefix(name, "remote:"), "/", 2)
+		if len(parts) == 2 {
+			// Look up by device name + share name
+			rows, err := db.Query(`SELECT rm.mount_point, rm.share_name, bd.name
+				FROM remote_mounts rm JOIN backup_devices bd ON rm.device_id = bd.id`)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var mountPoint, shareName, devName string
+					rows.Scan(&mountPoint, &shareName, &devName)
+					safeDev := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(devName, "_")
+					if safeDev == parts[0] && shareName == parts[1] {
+						return map[string]interface{}{
+							"name":        name,
+							"displayName": fmt.Sprintf("%s (%s)", shareName, devName),
+							"path":        mountPoint,
+							"pool":        "remote",
+							"_remote":     true,
+						}, nil
+					}
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("share not found: %s", name)
 }
 
 func validatePathWithinShare(sharePath, subPath string) (string, error) {
@@ -110,6 +157,15 @@ func isPathOnMountedPool(path string) bool {
 
 // requireShareMounted checks if a share's pool is mounted, returns error response if not
 func requireShareMounted(w http.ResponseWriter, share map[string]interface{}) bool {
+	// Remote shares: check if the NFS mount point is active
+	if isRemote, _ := share["_remote"].(bool); isRemote {
+		mountPoint, _ := share["path"].(string)
+		if out, _ := run(fmt.Sprintf("mountpoint -q %s 2>/dev/null && echo yes", mountPoint)); strings.Contains(out, "yes") {
+			return true
+		}
+		jsonError(w, 503, "Remote share not mounted")
+		return false
+	}
 	sharePath, _ := share["path"].(string)
 	if !isPathOnMountedPool(sharePath) {
 		jsonError(w, 503, "Storage pool not mounted — cannot access files")
@@ -130,7 +186,7 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session map[string]inte
 	}
 
 	if shareName == "" {
-		// Return list of accessible shares
+		// Return list of accessible shares (local + remote)
 		shares, _ := dbSharesList()
 		username, _ := session["username"].(string)
 		role, _ := session["role"].(string)
@@ -151,6 +207,36 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session map[string]inte
 				})
 			}
 		}
+
+		// Add remote mounted shares (admin only for now)
+		if role == "admin" {
+			rows, qerr := db.Query(`SELECT rm.device_id, rm.share_name, rm.mount_point, bd.name
+				FROM remote_mounts rm JOIN backup_devices bd ON rm.device_id = bd.id`)
+			if qerr == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var devID, shareName, mountPoint, devName string
+					rows.Scan(&devID, &shareName, &mountPoint, &devName)
+					// Check if actually mounted
+					mounted := false
+					if out, _ := run(fmt.Sprintf("mountpoint -q %s 2>/dev/null && echo yes", mountPoint)); strings.Contains(out, "yes") {
+						mounted = true
+					}
+					if mounted {
+						safeDev := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(devName, "_")
+						accessible = append(accessible, map[string]interface{}{
+							"name":        fmt.Sprintf("remote:%s/%s", safeDev, shareName),
+							"displayName": fmt.Sprintf("%s (%s)", shareName, devName),
+							"description": "Carpeta remota",
+							"permission":  "rw",
+							"remote":      true,
+							"deviceName":  devName,
+						})
+					}
+				}
+			}
+		}
+
 		if accessible == nil {
 			accessible = []map[string]interface{}{}
 		}
@@ -158,7 +244,7 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session map[string]inte
 		return
 	}
 
-	share, err := dbSharesGet(shareName)
+	share, err := resolveShare(shareName)
 	if err != nil || share == nil {
 		jsonError(w, 404, "Shared folder not found")
 		return
@@ -244,7 +330,7 @@ func filesMkdir(w http.ResponseWriter, r *http.Request, session map[string]inter
 		return
 	}
 
-	share, _ := dbSharesGet(shareName)
+	share, _ := resolveShare(shareName)
 	if share == nil {
 		jsonError(w, 404, "Shared folder not found")
 		return
@@ -285,7 +371,7 @@ func filesDelete(w http.ResponseWriter, r *http.Request, session map[string]inte
 		return
 	}
 
-	share, _ := dbSharesGet(shareName)
+	share, _ := resolveShare(shareName)
 	if share == nil {
 		jsonError(w, 404, "Shared folder not found")
 		return
@@ -337,7 +423,7 @@ func filesRename(w http.ResponseWriter, r *http.Request, session map[string]inte
 		return
 	}
 
-	share, _ := dbSharesGet(shareName)
+	share, _ := resolveShare(shareName)
 	if share == nil {
 		jsonError(w, 404, "Shared folder not found")
 		return
@@ -386,8 +472,8 @@ func filesPaste(w http.ResponseWriter, r *http.Request, session map[string]inter
 		return
 	}
 
-	srcShare, _ := dbSharesGet(srcShareName)
-	destShare, _ := dbSharesGet(destShareName)
+	srcShare, _ := resolveShare(srcShareName)
+	destShare, _ := resolveShare(destShareName)
 	if srcShare == nil || destShare == nil {
 		jsonError(w, 404, "Share not found")
 		return
@@ -465,7 +551,7 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	share, _ := dbSharesGet(shareName)
+	share, _ := resolveShare(shareName)
 	if share == nil {
 		jsonError(w, 404, "Share not found")
 		return
@@ -573,7 +659,7 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	share, _ := dbSharesGet(shareName)
+	share, _ := resolveShare(shareName)
 	if share == nil {
 		jsonError(w, 404, "Share not found")
 		return

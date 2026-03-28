@@ -2130,6 +2130,8 @@ func fetchRemoteShares(device map[string]interface{}) ([]map[string]interface{},
 					"description": m["description"],
 					"path":        m["path"],
 					"pool":        m["pool"],
+					"used":        m["used"],
+					"total":       m["total"],
 				})
 			}
 		}
@@ -2143,6 +2145,8 @@ func fetchRemoteShares(device map[string]interface{}) ([]map[string]interface{},
 						"description": m["description"],
 						"path":        m["path"],
 						"pool":        m["pool"],
+						"used":        m["used"],
+						"total":       m["total"],
 					})
 				}
 			}

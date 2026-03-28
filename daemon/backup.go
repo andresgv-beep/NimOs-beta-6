@@ -1092,6 +1092,65 @@ func stopAutoDiscovery() {
 	}
 }
 
+// ─── Device Status Cache ────────────────────────────────────────────────────
+
+// deviceStatusCache holds the latest status for each paired device, keyed by device ID.
+var (
+	deviceStatusCache   = map[string]map[string]interface{}{}
+	deviceStatusCacheMu sync.RWMutex
+)
+
+// refreshPairedDeviceStatus pings all paired devices and caches their status.
+func refreshPairedDeviceStatus() {
+	devices, err := dbBackupDeviceList()
+	if err != nil || len(devices) == 0 {
+		return
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	newCache := map[string]map[string]interface{}{}
+
+	for _, dev := range devices {
+		dev := dev // capture
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			id, _ := dev["id"].(string)
+			status := checkDeviceStatus(dev)
+			mu.Lock()
+			newCache[id] = status
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	deviceStatusCacheMu.Lock()
+	deviceStatusCache = newCache
+	deviceStatusCacheMu.Unlock()
+}
+
+// getDeviceStatusCached returns cached status for a device, or a default offline status.
+func getDeviceStatusCached(id string) map[string]interface{} {
+	deviceStatusCacheMu.RLock()
+	defer deviceStatusCacheMu.RUnlock()
+	if s, ok := deviceStatusCache[id]; ok {
+		return s
+	}
+	return map[string]interface{}{"online": false, "ping": "—"}
+}
+
+// enrichDevicesWithStatus adds online/ping/freeSpace/version to each device from cache.
+func enrichDevicesWithStatus(devices []map[string]interface{}) {
+	for _, dev := range devices {
+		id, _ := dev["id"].(string)
+		status := getDeviceStatusCached(id)
+		for k, v := range status {
+			dev[k] = v
+		}
+	}
+}
+
 func runDiscoveryScan() {
 	// Get our own local addresses to exclude ourselves
 	localAddrs := getLocalAddrs()
@@ -1120,6 +1179,9 @@ func runDiscoveryScan() {
 		}
 		logMsg("discovery: found %d NimOS device(s): %s", len(filtered), strings.Join(names, ", "))
 	}
+
+	// Also refresh status of all paired devices
+	refreshPairedDeviceStatus()
 }
 
 func getDiscoveredDevices() []DiscoveredDevice {
@@ -1318,6 +1380,7 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 				jsonError(w, 500, err.Error())
 				return
 			}
+			enrichDevicesWithStatus(devices)
 			jsonOk(w, map[string]interface{}{"devices": devices})
 
 		// GET /api/backup/devices/:id/status

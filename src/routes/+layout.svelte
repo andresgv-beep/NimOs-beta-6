@@ -3,8 +3,10 @@
 </script>
 
 <svelte:head>
-  <!-- Aplicar tema base antes del primer render para evitar flash -->
-  <!-- Se sobreescribe en milisegundos cuando loadPrefs aplica el tema real -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   {@html `<style>
     :root {
       --accent: #E95420;

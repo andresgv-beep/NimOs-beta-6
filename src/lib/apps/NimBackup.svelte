@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getToken } from '$lib/stores/auth.js';
+  import NimLink from '$lib/apps/NimLink.svelte';
 
   const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
 
@@ -13,6 +14,10 @@
   let activeDevice = null;    // dispositivo seleccionado
   let devTab = 'proposito';   // tab dentro del panel de dispositivo
   let loading = false;
+
+  // ── Wizard modals ──
+  let showWizard = false;
+  let wizardMode = 'pair';  // 'pair' | 'job' | 'sync'
 
   // ── Iconos SVG por tipo de dispositivo ──
   // Fácil de reemplazar — solo cambia el SVG aquí
@@ -187,7 +192,7 @@
 
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="sb-add" on:click={() => alert('Wizard de emparejamiento — próximamente')}>
+    <div class="sb-add" on:click={() => { wizardMode = 'pair'; showWizard = true; }}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       Emparejar dispositivo
     </div>
@@ -460,7 +465,7 @@
             {/each}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="add-row" on:click={() => alert('Nuevo trabajo — próximamente')}>
+            <div class="add-row" on:click={() => { wizardMode = 'job'; showWizard = true; }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Añadir trabajo de backup
             </div>
@@ -490,7 +495,7 @@
             {/each}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="add-row" on:click={() => alert('Nuevo par sync — próximamente')}>
+            <div class="add-row" on:click={() => { wizardMode = 'sync'; showWizard = true; }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Añadir par de sincronización
             </div>
@@ -532,6 +537,16 @@
 
     </div>
   </div>
+
+  {#if showWizard}
+    <NimLink
+      mode={wizardMode}
+      device={activeDevice}
+      on:close={() => { showWizard = false; }}
+      on:paired={() => { showWizard = false; loadDevices(); }}
+      on:created={() => { showWizard = false; loadJobs(); loadDevices(); }}
+    />
+  {/if}
 </div>
 
 <style>

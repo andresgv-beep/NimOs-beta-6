@@ -21,6 +21,8 @@
   // ── Modals ──
   let renameModal = null; // { file, newName }
   let infoModal = null;   // file
+  let viewMode = 'grid';  // 'grid' | 'list'
+  let newFolderModal = null; // { name: '' }
 
   const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
 
@@ -107,6 +109,16 @@
     input.click();
   }
 
+
+  async function createFolder() {
+    if (!newFolderModal?.name?.trim() || !currentShare) return;
+    const folderPath = currentPath === "/" ? "/" + newFolderModal.name.trim() : currentPath + "/" + newFolderModal.name.trim();
+    try {
+      await fetch("/api/files/mkdir", { method: "POST", headers: hdrs(), body: JSON.stringify({ share: currentShare, path: folderPath }) });
+      fetchFiles();
+    } catch {}
+    newFolderModal = null;
+  }
   // ── Context menu ──
   function onContextMenu(e, file, idx) {
     e.preventDefault();
@@ -331,6 +343,19 @@
           {#if currentShare}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <button class="tb-icon-btn" title="Vista cuadrícula" class:active={viewMode === 'grid'} on:click={() => viewMode = 'grid'}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            </button>
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <button class="tb-icon-btn" title="Vista lista" class:active={viewMode === 'list'} on:click={() => viewMode = 'list'}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            </button>
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <button class="tb-icon-btn" title="Nueva carpeta" on:click={() => newFolderModal = { name: '' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+            </button>
             <button class="btn-import" on:click={uploadFiles}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               Subir
@@ -339,50 +364,75 @@
         </div>
       </div>
 
-      <!-- FILE GRID -->
+
+
+      <!-- FILE GRID / LIST -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="file-grid" bind:this={gridEl}>
-        {#if !currentShare}
-          {#each shares.filter(s => !s.remote) as share}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="f-item" on:dblclick={() => navigate(share.name, '/')}>
-              <div class="f-icon">📁</div>
-              <div class="f-name">{share.displayName || share.name}</div>
-            </div>
-          {/each}
-          {#each shares.filter(s => s.remote) as share}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="f-item" on:dblclick={() => navigate(share.name, '/')}>
-              <div class="f-icon">🌐</div>
-              <div class="f-name">{share.displayName || share.name}</div>
-            </div>
-          {/each}
-        {:else if loading}
-          <div class="f-loading"><div class="spinner"></div></div>
-        {:else}
-          {#each sorted as file, i}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div
-              class="f-item"
-              class:sel={selected.has(i)}
-              class:cut={clipboard?.op === 'cut' && clipboard?.path === filePath(file)}
-              data-idx={i}
-              on:click={(e) => toggleSelect(i, e)}
-              on:dblclick={() => openItem(file)}
-            >
-              <div class="f-icon">{fIcon(file)}</div>
-              <div class="f-name">{file.name}</div>
-              <div class="f-date">{fDate(file.modified)}</div>
-            </div>
-          {/each}
-          {#if sorted.length === 0}
-            <div class="f-empty">Carpeta vacía</div>
+      {#if viewMode === 'grid'}
+        <div class="file-grid" bind:this={gridEl}>
+          {#if !currentShare}
+            {#each shares.filter(s => !s.remote) as share}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="f-item" on:dblclick={() => navigate(share.name, '/')}>
+                <div class="f-icon">📁</div>
+                <div class="f-name">{share.displayName || share.name}</div>
+              </div>
+            {/each}
+            {#each shares.filter(s => s.remote) as share}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="f-item" on:dblclick={() => navigate(share.name, '/')}>
+                <div class="f-icon">🌐</div>
+                <div class="f-name">{share.displayName || share.name}</div>
+              </div>
+            {/each}
+          {:else if loading}
+            <div class="f-loading"><div class="spinner"></div></div>
+          {:else}
+            {#each sorted as file, i}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="f-item" class:sel={selected.has(i)} class:cut={clipboard?.op === 'cut' && clipboard?.path === filePath(file)}
+                data-idx={i} on:click={(e) => toggleSelect(i, e)} on:dblclick={() => openItem(file)}>
+                <div class="f-icon">{fIcon(file)}</div>
+                <div class="f-name">{file.name}</div>
+                <div class="f-date">{fDate(file.modified)}</div>
+              </div>
+            {/each}
+            {#if sorted.length === 0}<div class="f-empty">Carpeta vacía</div>{/if}
           {/if}
-        {/if}
-      </div>
+        </div>
+      {:else}
+        <div class="file-list" bind:this={gridEl}>
+          {#if !currentShare}
+            {#each [...shares.filter(s => !s.remote), ...shares.filter(s => s.remote)] as share}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="fl-row" on:dblclick={() => navigate(share.name, '/')}>
+                <span class="fl-icon">{share.remote ? '🌐' : '📁'}</span>
+                <span class="fl-name">{share.displayName || share.name}</span>
+              </div>
+            {/each}
+          {:else if loading}
+            <div class="f-loading"><div class="spinner"></div></div>
+          {:else}
+            {#each sorted as file, i}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="fl-row" class:sel={selected.has(i)} class:cut={clipboard?.op === 'cut' && clipboard?.path === filePath(file)}
+                data-idx={i} on:click={(e) => toggleSelect(i, e)} on:dblclick={() => openItem(file)}
+                on:contextmenu={(e) => onContextMenu(e, file, i)}>
+                <span class="fl-icon">{fIcon(file)}</span>
+                <span class="fl-name">{file.name}</span>
+                <span class="fl-size">{file.isDirectory ? '—' : fmtSize(file.size)}</span>
+                <span class="fl-date">{fDate(file.modified)}</span>
+              </div>
+            {/each}
+            {#if sorted.length === 0}<div class="f-empty">Carpeta vacía</div>{/if}
+          {/if}
+        </div>
+      {/if}
 
       <!-- STATUSBAR -->
       <div class="statusbar">
@@ -543,6 +593,39 @@
     </div>
   </div>
 {/if}
+
+<!-- ══ MODAL NUEVA CARPETA ══ -->
+{#if newFolderModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-overlay" on:click|self={() => newFolderModal = null}></div>
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Nueva carpeta</div>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="modal-close" on:click={() => newFolderModal = null}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label class="form-label">Nombre de la carpeta</label>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input class="form-input" type="text" bind:value={newFolderModal.name} autofocus
+          on:keydown={(e) => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') newFolderModal = null; }} />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <button class="btn-secondary" on:click={() => newFolderModal = null}>Cancelar</button>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <button class="btn-accent" on:click={createFolder}>Crear</button>
+    </div>
+  </div>
+{/if}
 </div>
 
 <style>
@@ -668,4 +751,23 @@
   .btn-accent:hover { opacity:.88; }
   .btn-secondary { padding:7px 14px; border-radius:8px; border:1px solid var(--border); background:var(--ibtn-bg); color:var(--text-2); font-size:11px; font-weight:500; cursor:pointer; font-family:inherit; transition:all .15s; }
   .btn-secondary:hover { color:var(--text-1); border-color:var(--border-hi); }
+
+  /* ── view toggle buttons ── */
+  .tb-icon-btn { width:27px; height:27px; background:var(--ibtn-bg); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-2); transition:all .15s; flex-shrink:0; }
+  .tb-icon-btn:hover { background:rgba(124,111,255,0.12); color:var(--text-1); border-color:var(--border-hi); }
+  .tb-icon-btn.active { background:rgba(124,111,255,0.15); color:var(--text-1); border-color:var(--border-hi); }
+  .tb-icon-btn svg { pointer-events:none; }
+
+  /* ── list view ── */
+  .file-list { flex:1; overflow-y:auto; padding:6px 8px; display:flex; flex-direction:column; gap:1px; }
+  .file-list::-webkit-scrollbar { width:3px; }
+  .file-list::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
+  .fl-row { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:6px; cursor:pointer; border:1px solid transparent; transition:all .12s; font-size:12px; color:var(--text-1); }
+  .fl-row:hover { background:rgba(128,128,128,0.07); }
+  .fl-row.sel { background:var(--active-bg); border-color:var(--border-hi); }
+  .fl-row.cut { opacity:.45; }
+  .fl-icon { font-size:15px; flex-shrink:0; width:20px; text-align:center; }
+  .fl-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fl-size { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; width:60px; text-align:right; flex-shrink:0; }
+  .fl-date { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; width:110px; text-align:right; flex-shrink:0; }
 </style>

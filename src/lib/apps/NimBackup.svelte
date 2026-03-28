@@ -340,9 +340,9 @@
 
 <style>
   .backup-root { width:100%; height:100%; display:flex; overflow:hidden; font-family:'DM Sans',system-ui,sans-serif; color:var(--text-1); }
-  .sidebar { width:200px; flex-shrink:0; background:var(--bg-sidebar); border-right:1px solid var(--border); display:flex; flex-direction:column; padding:16px 10px; gap:4px; overflow-y:auto; }
+  .sidebar { width:200px; flex-shrink:0; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:16px 10px; gap:4px; overflow-y:auto; }
   .sidebar::-webkit-scrollbar { width:3px; } .sidebar::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.2); border-radius:2px; }
-  .sb-title { display:flex; align-items:center; gap:8px; padding:8px 8px 16px; font-size:14px; font-weight:700; color:var(--text-1); }
+  .sb-title { display:flex; align-items:center; gap:8px; padding:24px 8px 16px; font-size:14px; font-weight:700; color:var(--text-1); }
   .sb-title svg { width:18px; height:18px; flex-shrink:0; }
   .sb-section { font-size:9px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.08em; padding:8px 8px 4px; }
   .sb-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; font-size:12px; color:var(--text-2); cursor:pointer; border:1px solid transparent; transition:all .15s; }

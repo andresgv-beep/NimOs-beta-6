@@ -217,9 +217,10 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add nimbus user to share group so NimTorrent (runs as nimbus) can write
-	shareGroup := "nimos-share-" + safeName
-	runCmd("usermod", []string{"-aG", shareGroup, "nimbus"}, CmdOptions{Timeout: 5 * time.Second})
+	// Give nimbus user access via ACL so NimTorrent can write without restart
+	// ACLs are immediate — no need to restart torrentd to pick up new groups
+	runCmd("setfacl", []string{"-m", "u:nimbus:rwx", folderPath}, CmdOptions{Timeout: 5 * time.Second})
+	runCmd("setfacl", []string{"-d", "-m", "u:nimbus:rwx", folderPath}, CmdOptions{Timeout: 5 * time.Second})
 
 	// Register in DB
 	username := session["username"].(string)

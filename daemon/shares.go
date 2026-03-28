@@ -217,6 +217,10 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Add nimbus user to share group so NimTorrent (runs as nimbus) can write
+	shareGroup := "nimos-share-" + safeName
+	runCmd("usermod", []string{"-aG", shareGroup, "nimbus"}, CmdOptions{Timeout: 5 * time.Second})
+
 	// Register in DB
 	username := session["username"].(string)
 	if err := dbSharesCreate(safeName, name, description, folderPath, volumeName, volumeName, username); err != nil {

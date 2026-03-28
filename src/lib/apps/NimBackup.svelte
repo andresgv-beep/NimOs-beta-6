@@ -154,6 +154,7 @@
 
       <!-- === DEVICE === -->
       {:else if view==='device'&&activeDevice}
+        {#if configPane===null}
         <div class="inner-titlebar">
           <span class="tb-title">{activeDevice.name}</span>
           <span class="tb-sub">— {activeDevice.addr} · {isLocal(activeDevice.addr)?'LAN':'WAN'} · {activeDevice.ping||'—'}</span>
@@ -165,6 +166,7 @@
             </button>
           </div>
         </div>
+        {/if}
 
         <div class="slider" class:show-config={configPane!==null}>
           <!-- PANE 1: overview -->
@@ -222,11 +224,22 @@
               <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
               <button class="icon-btn" on:click={()=>configPane=null}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button>
               <div><div class="tb-title" style="font-size:13px">{SERVICES.find(s=>s.key===configPane)?.name||''}</div><div class="tb-sub" style="font-size:10px">{activeDevice.name}</div></div>
-              <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
-              <button class="btn-secondary" style="margin-left:auto" on:click={()=>{if(configPane==='share')loadRemoteShares(activeDevice.id);else if(configPane==='sync'){wizardMode='sync';showWizard=true;}else{wizardMode='job';showWizard=true;}}}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:11px;height:11px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                {#if configPane==='share'}Refrescar{:else if configPane==='sync'}Añadir par{:else}Nuevo trabajo{/if}
-              </button>
+              <div class="tb-right">
+                <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
+                <button class="btn-secondary" on:click={()=>{if(configPane==='share')loadRemoteShares(activeDevice.id);else if(configPane==='sync'){wizardMode='sync';showWizard=true;}else{wizardMode='job';showWizard=true;}}}>
+                  {#if configPane==='share'}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-5.4"/></svg>
+                    Refrescar
+                  {:else if configPane==='sync'}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:11px;height:11px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Añadir par
+                  {:else}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:11px;height:11px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Nuevo trabajo
+                  {/if}
+                </button>
+                <div class="dev-badge" class:offline={!activeDevice.online}><div class="dev-badge-dot"></div>{activeDevice.online?'Online':'Offline'}</div>
+              </div>
             </div>
             <div class="content">
               {#if configPane==='share'}
@@ -239,7 +252,8 @@
                       <div class="row-info"><div class="row-name">{share.displayName||share.name}</div><div class="row-meta">{share.path}</div></div>
                       {#if share.mounted}
                         <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <span class="pill pill-on" on:click={()=>unmountShare(activeDevice.id,share)}>{share._m?'...':'Montada'}</span>
+                        <span class="pill pill-danger" on:click={()=>unmountShare(activeDevice.id,share)}>{share._m?'...':'Desmontar'}</span>
+                        <span class="pill pill-on">Montada</span>
                       {:else}
                         <!-- svelte-ignore a11y_click_events_have_key_events --><!-- svelte-ignore a11y_no_static_element_interactions -->
                         <span class="pill pill-off" on:click={()=>mountShare(activeDevice.id,share)}>{share._m?'...':'Montar'}</span>
@@ -377,6 +391,7 @@
   .pill-on { color:var(--green); background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); }
   .pill-off { color:var(--text-3); background:rgba(255,255,255,0.04); border:1px solid var(--border); }
   .pill-off:hover { color:var(--accent); border-color:var(--border-hi); }
+  .pill-danger { color:var(--red); background:rgba(248,113,113,0.1); border:1px solid rgba(248,113,113,0.2); }
 
   /* Dots */
   .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; background:rgba(255,255,255,0.15); }

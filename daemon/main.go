@@ -637,6 +637,7 @@ func main() {
 	// Start backup scheduler
 	startBackupScheduler()
 	startAutoDiscovery()
+	remountAllOnStartup()
 
 	// Clean up stale socket
 	os.Remove(socketPath)

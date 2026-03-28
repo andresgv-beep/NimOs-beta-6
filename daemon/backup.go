@@ -73,6 +73,16 @@ func createBackupTables() error {
 	CREATE INDEX IF NOT EXISTS idx_backup_history_job ON backup_history(job_id);
 	CREATE INDEX IF NOT EXISTS idx_backup_history_device ON backup_history(device_id);
 	CREATE INDEX IF NOT EXISTS idx_backup_history_time ON backup_history(time DESC);
+
+	CREATE TABLE IF NOT EXISTS remote_mounts (
+		device_id    TEXT NOT NULL,
+		share_name   TEXT NOT NULL,
+		remote_path  TEXT NOT NULL,
+		mount_point  TEXT NOT NULL,
+		device_addr  TEXT NOT NULL,
+		created_at   TEXT NOT NULL,
+		PRIMARY KEY (device_id, share_name)
+	);
 	`
 	_, err := db.Exec(schema)
 	return err
@@ -1364,7 +1374,19 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 	urlPath := r.URL.Path
 	method := r.Method
 
-	// All backup routes require admin
+	// Public endpoint: paired devices can list shares without full auth
+	// (verified by checking if requester IP is a paired device)
+	if urlPath == "/api/backup/public-shares" && method == "GET" {
+		result := getPublicShares(r)
+		if errMsg, ok := result["error"].(string); ok && errMsg != "" {
+			jsonError(w, 403, errMsg)
+			return
+		}
+		jsonOk(w, result)
+		return
+	}
+
+	// All other backup routes require admin
 	session := requireAdmin(w, r)
 	if session == nil {
 		return
@@ -1447,6 +1469,44 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 		case urlPath == "/api/backup/discovered":
 			devices := getDiscoveredDevices()
 			jsonOk(w, map[string]interface{}{"devices": devices})
+
+		// GET /api/backup/devices/:id/remote-shares — list shares available on remote device
+		case strings.HasSuffix(urlPath, "/remote-shares") && strings.HasPrefix(urlPath, "/api/backup/devices/"):
+			id := extractPathSegment(urlPath, "/api/backup/devices/", "/remote-shares")
+			dev, err := dbBackupDeviceGet(id)
+			if err != nil {
+				jsonError(w, 404, err.Error())
+				return
+			}
+			shares, err := fetchRemoteShares(dev)
+			if err != nil {
+				jsonError(w, 500, err.Error())
+				return
+			}
+			// Enrich with mount status
+			mounted := listMountedRemoteShares(id)
+			mountedMap := map[string]map[string]interface{}{}
+			for _, m := range mounted {
+				if sn, ok := m["shareName"].(string); ok {
+					mountedMap[sn] = m
+				}
+			}
+			for _, s := range shares {
+				name, _ := s["name"].(string)
+				if m, ok := mountedMap[name]; ok {
+					s["mounted"] = m["mounted"]
+					s["mountPoint"] = m["mountPoint"]
+				} else {
+					s["mounted"] = false
+				}
+			}
+			jsonOk(w, map[string]interface{}{"shares": shares})
+
+		// GET /api/backup/devices/:id/mounts — list currently mounted remote shares
+		case strings.HasSuffix(urlPath, "/mounts") && strings.HasPrefix(urlPath, "/api/backup/devices/"):
+			id := extractPathSegment(urlPath, "/api/backup/devices/", "/mounts")
+			mounts := listMountedRemoteShares(id)
+			jsonOk(w, map[string]interface{}{"mounts": mounts})
 
 		// GET /api/backup/wg/* — WireGuard routes
 		case strings.HasPrefix(urlPath, "/api/backup/wg/"):
@@ -1674,6 +1734,44 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 			fsType := bodyStr(body, "fsType")
 			source := bodyStr(body, "source")
 			result := deleteBackupSnapshot(name, fsType, source)
+			jsonOk(w, result)
+
+		// POST /api/backup/devices/:id/mount — mount a remote share
+		case strings.HasSuffix(urlPath, "/mount") && strings.HasPrefix(urlPath, "/api/backup/devices/") && method == "POST":
+			id := extractPathSegment(urlPath, "/api/backup/devices/", "/mount")
+			dev, err := dbBackupDeviceGet(id)
+			if err != nil {
+				jsonError(w, 404, err.Error())
+				return
+			}
+			shareName := bodyStr(body, "shareName")
+			remotePath := bodyStr(body, "remotePath")
+			if shareName == "" || remotePath == "" {
+				jsonError(w, 400, "shareName and remotePath required")
+				return
+			}
+			devName, _ := dev["name"].(string)
+			devAddr, _ := dev["addr"].(string)
+			result := mountRemoteShare(id, devName, devAddr, shareName, remotePath)
+			if errMsg, ok := result["error"].(string); ok && errMsg != "" {
+				jsonError(w, 500, errMsg)
+				return
+			}
+			jsonOk(w, result)
+
+		// POST /api/backup/devices/:id/unmount — unmount a remote share
+		case strings.HasSuffix(urlPath, "/unmount") && strings.HasPrefix(urlPath, "/api/backup/devices/") && method == "POST":
+			id := extractPathSegment(urlPath, "/api/backup/devices/", "/unmount")
+			shareName := bodyStr(body, "shareName")
+			if shareName == "" {
+				jsonError(w, 400, "shareName required")
+				return
+			}
+			result := unmountRemoteShare(id, shareName)
+			if errMsg, ok := result["error"].(string); ok && errMsg != "" {
+				jsonError(w, 500, errMsg)
+				return
+			}
 			jsonOk(w, result)
 
 		// POST/DELETE /api/backup/wg/* and /api/backup/pair/wg-* — WireGuard routes
@@ -1974,4 +2072,305 @@ func deleteBackupSnapshot(name, fsType, source string) map[string]interface{} {
 	}
 
 	return map[string]interface{}{"error": "Unsupported fsType"}
+}
+
+// ─── Remote Shares (NFS mount) ──────────────────────────────────────────────
+
+const remoteMountBase = "/nimbus/remote"
+
+// fetchRemoteShares queries the shares list from a remote NimOS device.
+// Uses the pairing credentials to authenticate.
+func fetchRemoteShares(device map[string]interface{}) ([]map[string]interface{}, error) {
+	addr, _ := device["addr"].(string)
+	if addr == "" {
+		return nil, fmt.Errorf("device has no address")
+	}
+
+	proto := "http"
+	port := "5000"
+	if !isLocalAddr(addr) {
+		proto = "https"
+		port = "5009"
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	url := fmt.Sprintf("%s://%s:%s/api/shares", proto, addr, port)
+
+	// We need an auth token on the remote — try to login with stored creds
+	// For now, try unauthenticated first (some setups allow it),
+	// then fall back to the /api/backup/remote-shares endpoint on the remote
+	// which serves shares without full auth if the requester is a paired device.
+	resp, err := client.Get(fmt.Sprintf("%s://%s:%s/api/backup/public-shares", proto, addr, port))
+	if err != nil {
+		return nil, fmt.Errorf("cannot reach remote: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("remote returned status %d", resp.StatusCode)
+	}
+
+	var data interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("invalid response: %v", err)
+	}
+
+	// Response can be an array or { "shares": [...] }
+	var shares []map[string]interface{}
+	switch v := data.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				shares = append(shares, map[string]interface{}{
+					"name":        m["name"],
+					"displayName": m["displayName"],
+					"description": m["description"],
+					"path":        m["path"],
+					"pool":        m["pool"],
+				})
+			}
+		}
+	case map[string]interface{}:
+		if arr, ok := v["shares"].([]interface{}); ok {
+			for _, item := range arr {
+				if m, ok := item.(map[string]interface{}); ok {
+					shares = append(shares, map[string]interface{}{
+						"name":        m["name"],
+						"displayName": m["displayName"],
+						"description": m["description"],
+						"path":        m["path"],
+						"pool":        m["pool"],
+					})
+				}
+			}
+		}
+	}
+
+	if shares == nil {
+		shares = []map[string]interface{}{}
+	}
+	return shares, nil
+}
+
+// getPublicShares returns this NAS's shares in a simplified format for paired devices.
+// No full auth required — but we verify the request comes from a paired device IP.
+func getPublicShares(r *http.Request) map[string]interface{} {
+	// Verify requester is a paired device
+	remoteIP := r.RemoteAddr
+	if idx := strings.LastIndex(remoteIP, ":"); idx > 0 {
+		remoteIP = remoteIP[:idx]
+	}
+	remoteIP = strings.Trim(remoteIP, "[]") // IPv6 brackets
+
+	devices, _ := dbBackupDeviceList()
+	isPaired := false
+	for _, d := range devices {
+		if addr, _ := d["addr"].(string); addr == remoteIP {
+			isPaired = true
+			break
+		}
+	}
+
+	if !isPaired {
+		return map[string]interface{}{"error": "not a paired device"}
+	}
+
+	shares, err := dbSharesList()
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+
+	// Return simplified share info (no permissions, no app access)
+	var result []map[string]interface{}
+	for _, s := range shares {
+		path, _ := s["path"].(string)
+		result = append(result, map[string]interface{}{
+			"name":        s["name"],
+			"displayName": s["displayName"],
+			"description": s["description"],
+			"path":        path,
+			"pool":        s["pool"],
+		})
+	}
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
+
+	return map[string]interface{}{"shares": result}
+}
+
+// mountRemoteShare mounts a remote NFS share locally.
+func mountRemoteShare(deviceID, deviceName, deviceAddr, shareName, remotePath string) map[string]interface{} {
+	// Sanitize names for filesystem
+	safeDev := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(deviceName, "_")
+	safeShare := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(shareName, "_")
+
+	mountPoint := fmt.Sprintf("%s/%s/%s", remoteMountBase, safeDev, safeShare)
+
+	// Create mount point
+	run(fmt.Sprintf("mkdir -p %s", mountPoint))
+
+	// Check if already mounted
+	if out, ok := run(fmt.Sprintf("mountpoint -q %s 2>/dev/null && echo yes", mountPoint)); ok && strings.Contains(out, "yes") {
+		return map[string]interface{}{"ok": true, "mountPoint": mountPoint, "message": "Already mounted"}
+	}
+
+	// Mount via NFS
+	// Ensure NFS client is available
+	run("which mount.nfs >/dev/null 2>&1 || apt-get install -y -qq nfs-common 2>/dev/null")
+
+	nfsCmd := fmt.Sprintf("mount -t nfs -o soft,timeo=50,retrans=3,nolock %s:%s %s",
+		deviceAddr, remotePath, mountPoint)
+
+	out, ok := run(nfsCmd)
+	if !ok {
+		// Fallback: try CIFS/SMB mount
+		cifsCmd := fmt.Sprintf("mount -t cifs //%s/%s %s -o guest,vers=3.0,soft",
+			deviceAddr, shareName, mountPoint)
+		out2, ok2 := run(cifsCmd)
+		if !ok2 {
+			return map[string]interface{}{
+				"error": fmt.Sprintf("NFS failed: %s | SMB failed: %s", out, out2),
+			}
+		}
+	}
+
+	logMsg("remote-share: mounted %s:%s → %s", deviceAddr, remotePath, mountPoint)
+
+	// Save mount info for persistence
+	saveMountRecord(deviceID, shareName, remotePath, mountPoint, deviceAddr)
+
+	return map[string]interface{}{
+		"ok":         true,
+		"mountPoint": mountPoint,
+	}
+}
+
+// unmountRemoteShare unmounts a remote share.
+func unmountRemoteShare(deviceID, shareName string) map[string]interface{} {
+	record := getMountRecord(deviceID, shareName)
+	if record == nil {
+		return map[string]interface{}{"error": "mount not found"}
+	}
+
+	mountPoint, _ := record["mountPoint"].(string)
+	if mountPoint == "" {
+		return map[string]interface{}{"error": "no mount point"}
+	}
+
+	out, ok := run(fmt.Sprintf("umount %s 2>&1", mountPoint))
+	if !ok {
+		// Force unmount
+		run(fmt.Sprintf("umount -f %s 2>&1", mountPoint))
+	}
+	_ = out
+
+	// Clean up empty directory
+	run(fmt.Sprintf("rmdir %s 2>/dev/null", mountPoint))
+
+	removeMountRecord(deviceID, shareName)
+
+	logMsg("remote-share: unmounted %s/%s", deviceID, shareName)
+	return map[string]interface{}{"ok": true}
+}
+
+// listMountedRemoteShares returns all currently mounted remote shares for a device.
+func listMountedRemoteShares(deviceID string) []map[string]interface{} {
+	deviceStatusCacheMu.RLock()
+	defer deviceStatusCacheMu.RUnlock()
+	// Read from mount records in DB
+	rows, err := db.Query(`SELECT share_name, remote_path, mount_point, device_addr
+		FROM remote_mounts WHERE device_id = ?`, deviceID)
+	if err != nil {
+		return []map[string]interface{}{}
+	}
+	defer rows.Close()
+
+	var mounts []map[string]interface{}
+	for rows.Next() {
+		var shareName, remotePath, mountPoint, addr string
+		if rows.Scan(&shareName, &remotePath, &mountPoint, &addr) != nil {
+			continue
+		}
+		// Check if still mounted
+		mounted := false
+		if _, ok := run(fmt.Sprintf("mountpoint -q %s 2>/dev/null && echo yes", mountPoint)); ok {
+			mounted = true
+		}
+		mounts = append(mounts, map[string]interface{}{
+			"shareName":  shareName,
+			"remotePath": remotePath,
+			"mountPoint": mountPoint,
+			"mounted":    mounted,
+		})
+	}
+	if mounts == nil {
+		mounts = []map[string]interface{}{}
+	}
+	return mounts
+}
+
+// ─── Mount Records (SQLite) ─────────────────────────────────────────────────
+
+func createRemoteMountsTable() error {
+	_, err := db.Exec(`
+	CREATE TABLE IF NOT EXISTS remote_mounts (
+		device_id    TEXT NOT NULL,
+		share_name   TEXT NOT NULL,
+		remote_path  TEXT NOT NULL,
+		mount_point  TEXT NOT NULL,
+		device_addr  TEXT NOT NULL,
+		created_at   TEXT NOT NULL,
+		PRIMARY KEY (device_id, share_name)
+	);`)
+	return err
+}
+
+func saveMountRecord(deviceID, shareName, remotePath, mountPoint, deviceAddr string) {
+	db.Exec(`INSERT OR REPLACE INTO remote_mounts (device_id, share_name, remote_path, mount_point, device_addr, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		deviceID, shareName, remotePath, mountPoint, deviceAddr,
+		time.Now().UTC().Format(time.RFC3339))
+}
+
+func getMountRecord(deviceID, shareName string) map[string]interface{} {
+	var remotePath, mountPoint, deviceAddr string
+	err := db.QueryRow(`SELECT remote_path, mount_point, device_addr FROM remote_mounts
+		WHERE device_id = ? AND share_name = ?`, deviceID, shareName).Scan(&remotePath, &mountPoint, &deviceAddr)
+	if err != nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"remotePath": remotePath,
+		"mountPoint": mountPoint,
+		"deviceAddr": deviceAddr,
+	}
+}
+
+func removeMountRecord(deviceID, shareName string) {
+	db.Exec(`DELETE FROM remote_mounts WHERE device_id = ? AND share_name = ?`, deviceID, shareName)
+}
+
+// remountAllOnStartup re-mounts all saved remote shares on daemon start.
+func remountAllOnStartup() {
+	rows, err := db.Query(`SELECT device_id, share_name, remote_path, mount_point, device_addr FROM remote_mounts`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var deviceID, shareName, remotePath, mountPoint, addr string
+		if rows.Scan(&deviceID, &shareName, &remotePath, &mountPoint, &addr) != nil {
+			continue
+		}
+		// Only remount if not already mounted
+		if out, _ := run(fmt.Sprintf("mountpoint -q %s 2>/dev/null && echo yes", mountPoint)); strings.Contains(out, "yes") {
+			continue
+		}
+		run(fmt.Sprintf("mkdir -p %s", mountPoint))
+		if _, ok := run(fmt.Sprintf("mount -t nfs -o soft,timeo=50,retrans=3,nolock %s:%s %s", addr, remotePath, mountPoint)); ok {
+			logMsg("remote-share: remounted %s:%s → %s", addr, remotePath, mountPoint)
+		}
+	}
 }

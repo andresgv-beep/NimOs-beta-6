@@ -882,7 +882,6 @@
   .status-dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 4px rgba(74,222,128,.5); }
   .st-sep { color:rgba(255,255,255,0.1); }
   .st-right { margin-left:auto; color:var(--accent); }
-</style>
 
   /* ── Slide device view ── */
   .dev-slider { display:flex; width:200%; flex:1; overflow:hidden; transition:transform .3s ease-in-out; }
@@ -927,3 +926,4 @@
   .donut-path { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .donut-sizes { font-size:10px; color:var(--text-2); }
   .donut-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; color:var(--green); background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); border-radius:5px; padding:2px 7px; margin-top:2px; }
+</style>

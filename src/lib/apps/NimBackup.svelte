@@ -108,6 +108,56 @@
     } catch {}
   }
 
+  // ── Remote Shares ──
+  let remoteShares = [];
+  let sharesLoading = false;
+
+  async function loadRemoteShares(deviceId) {
+    sharesLoading = true;
+    try {
+      const r = await fetch(`/api/backup/devices/${deviceId}/remote-shares`, { headers: hdrs() });
+      const d = await r.json();
+      remoteShares = d.shares || [];
+    } catch { remoteShares = []; }
+    sharesLoading = false;
+  }
+
+  async function mountShare(deviceId, share) {
+    share._mounting = true;
+    remoteShares = [...remoteShares];
+    try {
+      const r = await fetch(`/api/backup/devices/${deviceId}/mount`, {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({ shareName: share.name, remotePath: share.path })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        share.mounted = true;
+        share.mountPoint = d.mountPoint;
+      }
+    } catch {}
+    share._mounting = false;
+    remoteShares = [...remoteShares];
+  }
+
+  async function unmountShare(deviceId, share) {
+    share._mounting = true;
+    remoteShares = [...remoteShares];
+    try {
+      const r = await fetch(`/api/backup/devices/${deviceId}/unmount`, {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({ shareName: share.name })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        share.mounted = false;
+        share.mountPoint = '';
+      }
+    } catch {}
+    share._mounting = false;
+    remoteShares = [...remoteShares];
+  }
+
   // ── Helpers ──
   function fmtTime(iso) {
     if (!iso) return '—';
@@ -349,11 +399,11 @@
 
         <!-- Tabs -->
         <div class="tab-nav">
-          {#each ['proposito','backup','sync','actividad'] as t}
+          {#each ['proposito','backup','shares','sync','actividad'] as t}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="tab" class:active={devTab === t} on:click={() => devTab = t}>
-              <span>{{proposito:'Propósito',backup:'Backup',sync:'Sincronización',actividad:'Actividad'}[t]}</span>
+            <div class="tab" class:active={devTab === t} on:click={() => { devTab = t; if (t === 'shares' && activeDevice) loadRemoteShares(activeDevice.id); }}>
+              <span>{{proposito:'Propósito',backup:'Backup',shares:'Shares',sync:'Sincronización',actividad:'Actividad'}[t]}</span>
               {#if devTab === t}<div class="tab-line"></div>{/if}
             </div>
           {/each}
@@ -469,6 +519,64 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Añadir trabajo de backup
             </div>
+          </div>
+
+        <!-- Tab: Shares -->
+        {:else if devTab === 'shares'}
+          <div class="content">
+            <div class="section-label">Carpetas compartidas de {activeDevice.name}</div>
+            {#if sharesLoading}
+              <div class="empty-hint">Cargando shares del dispositivo remoto...</div>
+            {:else if remoteShares.length === 0}
+              <div class="empty-hint">
+                No se encontraron carpetas compartidas en este dispositivo.<br>
+                Asegúrate de que el dispositivo tiene shares creadas y es accesible.
+                <br><br>
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <span style="color:var(--accent);cursor:pointer" on:click={() => loadRemoteShares(activeDevice.id)}>Reintentar</span>
+              </div>
+            {:else}
+              {#each remoteShares as share}
+                <div class="row">
+                  <div class="row-icon" style="background:rgba(74,222,128,0.1)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:14px;height:14px;color:var(--green)"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  </div>
+                  <div class="row-info">
+                    <div class="row-name">{share.displayName || share.name}</div>
+                    <div class="row-meta">{share.path}{share.description ? ` · ${share.description}` : ''}</div>
+                    {#if share.mounted && share.mountPoint}
+                      <div class="row-meta" style="color:var(--green)">→ {share.mountPoint}</div>
+                    {/if}
+                  </div>
+                  <div class="row-status">
+                    <div class="dot" class:dot-on={share.mounted} class:dot-off={!share.mounted}></div>
+                    <span style="font-size:10px;color:{share.mounted ? 'var(--green)' : 'var(--text-3)'}">
+                      {share.mounted ? 'Montada' : 'Disponible'}
+                    </span>
+                  </div>
+                  <div class="row-actions">
+                    {#if share.mounted}
+                      <!-- svelte-ignore a11y_click_events_have_key_events -->
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <button class="btn-secondary" style="padding:3px 10px;font-size:10px"
+                        disabled={share._mounting}
+                        on:click={() => unmountShare(activeDevice.id, share)}>
+                        {share._mounting ? '...' : 'Desmontar'}
+                      </button>
+                    {:else}
+                      <!-- svelte-ignore a11y_click_events_have_key_events -->
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <button class="btn-secondary" style="padding:3px 10px;font-size:10px;color:var(--green);border-color:rgba(74,222,128,0.3)"
+                        disabled={share._mounting}
+                        on:click={() => mountShare(activeDevice.id, share)}>
+                        {share._mounting ? '...' : 'Montar'}
+                      </button>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            {/if}
           </div>
 
         <!-- Tab: Sync -->

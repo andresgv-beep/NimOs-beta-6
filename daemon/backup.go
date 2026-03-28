@@ -1023,9 +1023,14 @@ func probeNimOS(addr string) *DiscoveredDevice {
 		return nil
 	}
 
-	// NimOS /api/auth/status returns { "initialized": true/false, ... }
-	// If it responds with valid JSON and has the "initialized" field, it's NimOS
-	if _, ok := data["initialized"]; !ok {
+	// NimOS /api/auth/status returns either:
+	//   { "initialized": true/false, ... }   (newer versions)
+	//   { "setup": true/false, ... }          (current/older versions)
+	// Accept both — if either field exists, it's a NimOS device.
+	_, hasInitialized := data["initialized"]
+	_, hasSetup := data["setup"]
+	_, hasHostname := data["hostname"]
+	if !hasInitialized && !hasSetup && !hasHostname {
 		return nil
 	}
 
@@ -1043,6 +1048,100 @@ func probeNimOS(addr string) *DiscoveredDevice {
 		Name:    name,
 		Version: version,
 	}
+}
+
+// ─── Auto-Discovery Service ─────────────────────────────────────────────────
+
+// discoveredDevices holds the latest LAN scan results, updated periodically.
+var (
+	discoveredDevices   []DiscoveredDevice
+	discoveredDevicesMu sync.RWMutex
+	discoveryCancel     context.CancelFunc
+)
+
+// startAutoDiscovery runs a background goroutine that scans the LAN every 60s
+// for NimOS devices and keeps the list in memory.
+func startAutoDiscovery() {
+	ctx, cancel := context.WithCancel(context.Background())
+	discoveryCancel = cancel
+
+	// Run an initial scan immediately
+	go func() {
+		runDiscoveryScan()
+
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				logMsg("discovery: auto-discovery stopped")
+				return
+			case <-ticker.C:
+				runDiscoveryScan()
+			}
+		}
+	}()
+
+	logMsg("discovery: auto-discovery started (60s interval)")
+}
+
+func stopAutoDiscovery() {
+	if discoveryCancel != nil {
+		discoveryCancel()
+	}
+}
+
+func runDiscoveryScan() {
+	// Get our own local addresses to exclude ourselves
+	localAddrs := getLocalAddrs()
+
+	devices := scanLANForNimOS("")
+
+	// Filter out ourselves
+	var filtered []DiscoveredDevice
+	for _, d := range devices {
+		if !localAddrs[d.Addr] {
+			filtered = append(filtered, d)
+		}
+	}
+	if filtered == nil {
+		filtered = []DiscoveredDevice{}
+	}
+
+	discoveredDevicesMu.Lock()
+	discoveredDevices = filtered
+	discoveredDevicesMu.Unlock()
+
+	if len(filtered) > 0 {
+		names := make([]string, len(filtered))
+		for i, d := range filtered {
+			names[i] = fmt.Sprintf("%s(%s)", d.Name, d.Addr)
+		}
+		logMsg("discovery: found %d NimOS device(s): %s", len(filtered), strings.Join(names, ", "))
+	}
+}
+
+func getDiscoveredDevices() []DiscoveredDevice {
+	discoveredDevicesMu.RLock()
+	defer discoveredDevicesMu.RUnlock()
+	result := make([]DiscoveredDevice, len(discoveredDevices))
+	copy(result, discoveredDevices)
+	return result
+}
+
+func getLocalAddrs() map[string]bool {
+	result := map[string]bool{"127.0.0.1": true, "localhost": true}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return result
+	}
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+			result[ipnet.IP.String()] = true
+		}
+	}
+	return result
 }
 
 func detectSubnet() string {
@@ -1281,6 +1380,11 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 			pool := r.URL.Query().Get("pool")
 			jsonOk(w, listBackupSnapshots(pool))
 
+		// GET /api/backup/discovered — auto-discovered NimOS devices on LAN
+		case urlPath == "/api/backup/discovered":
+			devices := getDiscoveredDevices()
+			jsonOk(w, map[string]interface{}{"devices": devices})
+
 		// GET /api/backup/wg/* — WireGuard routes
 		case strings.HasPrefix(urlPath, "/api/backup/wg/"):
 			handleWGRoutes(w, r, urlPath, nil)
@@ -1450,14 +1554,26 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 			go executeBackupJob(job)
 			jsonOk(w, map[string]interface{}{"ok": true, "message": "Backup started"})
 
-		// POST /api/backup/pair/scan — scan LAN for NimOS devices
+		// POST /api/backup/pair/scan — scan LAN for NimOS devices (also refreshes auto-discovery)
 		case urlPath == "/api/backup/pair/scan" && method == "POST":
 			subnet := bodyStr(body, "subnet")
+			localAddrs := getLocalAddrs()
 			devices := scanLANForNimOS(subnet)
-			if devices == nil {
-				devices = []DiscoveredDevice{}
+			// Filter out ourselves
+			var filtered []DiscoveredDevice
+			for _, d := range devices {
+				if !localAddrs[d.Addr] {
+					filtered = append(filtered, d)
+				}
 			}
-			jsonOk(w, map[string]interface{}{"devices": devices})
+			if filtered == nil {
+				filtered = []DiscoveredDevice{}
+			}
+			// Update discovery cache
+			discoveredDevicesMu.Lock()
+			discoveredDevices = filtered
+			discoveredDevicesMu.Unlock()
+			jsonOk(w, map[string]interface{}{"devices": filtered})
 
 		// POST /api/backup/pair/connect — initiate pairing with remote device
 		case urlPath == "/api/backup/pair/connect" && method == "POST":

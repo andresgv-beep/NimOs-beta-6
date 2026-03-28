@@ -636,6 +636,7 @@ func main() {
 
 	// Start backup scheduler
 	startBackupScheduler()
+	startAutoDiscovery()
 
 	// Clean up stale socket
 	os.Remove(socketPath)
@@ -664,6 +665,7 @@ func main() {
 		sig := <-sigCh
 		logMsg("Shutting down (signal: %v)...", sig)
 		stopBackupScheduler()
+		stopAutoDiscovery()
 		listener.Close()
 		os.Remove(socketPath)
 		os.Exit(0)

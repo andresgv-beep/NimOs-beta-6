@@ -885,7 +885,7 @@
 </style>
 
   /* ── Slide device view ── */
-  .dev-slider { display:flex; width:200%; flex:1; overflow:hidden; transition:transform .3s cubic-bezier(0.4,0,0.2,1); }
+  .dev-slider { display:flex; width:200%; flex:1; overflow:hidden; transition:transform .3s ease-in-out; }
   .dev-slider.slide { transform:translateX(-50%); }
   .dev-pane { width:50%; display:flex; flex-direction:column; overflow:hidden; }
   .dev-pane .content { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }

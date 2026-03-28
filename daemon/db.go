@@ -125,6 +125,11 @@ func createTables() error {
 	// Migration: add backup_codes column if it doesn't exist
 	db.Exec(`ALTER TABLE users ADD COLUMN backup_codes TEXT DEFAULT ''`)
 
+	// Migration: create backup tables
+	if err := createBackupTables(); err != nil {
+		return fmt.Errorf("backup tables: %v", err)
+	}
+
 	return nil
 }
 

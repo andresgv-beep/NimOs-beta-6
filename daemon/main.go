@@ -634,6 +634,9 @@ func main() {
 	startStorageMonitoring()
 	startZfsScheduler()
 
+	// Start backup scheduler
+	startBackupScheduler()
+
 	// Clean up stale socket
 	os.Remove(socketPath)
 
@@ -660,6 +663,7 @@ func main() {
 	go func() {
 		sig := <-sigCh
 		logMsg("Shutting down (signal: %v)...", sig)
+		stopBackupScheduler()
 		listener.Close()
 		os.Remove(socketPath)
 		os.Exit(0)

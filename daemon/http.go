@@ -379,6 +379,10 @@ func startHTTPServer() {
 	mux.HandleFunc("/api/app-access/apps", handleAppAccessRoutes)
 	mux.HandleFunc("/api/my-apps", handleMyAppsRoute)
 
+	// ── Backup routes ──
+	mux.HandleFunc("/api/backup", handleBackupRoutes)
+	mux.HandleFunc("/api/backup/", handleBackupRoutes)
+
 	// ── Torrent proxy to NimTorrent ──
 	mux.HandleFunc("/api/torrent/", handleTorrentProxy)
 	mux.HandleFunc("/api/torrent", handleTorrentProxy)

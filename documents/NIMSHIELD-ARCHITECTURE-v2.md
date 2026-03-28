@@ -1070,7 +1070,7 @@ NimShield se considera exitoso cuando:
 
 ---
 
-## 11. Diferenciadores vs Competencia (actualizado)
+## 11. Diferenciadores  (actualizado)
 
 | Feature | Synology DSM | TrueNAS | NimOS + NimShield |
 |---------|-------------|---------|-------------------|

@@ -2094,12 +2094,8 @@ func fetchRemoteShares(device map[string]interface{}) ([]map[string]interface{},
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	url := fmt.Sprintf("%s://%s:%s/api/shares", proto, addr, port)
 
-	// We need an auth token on the remote — try to login with stored creds
-	// For now, try unauthenticated first (some setups allow it),
-	// then fall back to the /api/backup/remote-shares endpoint on the remote
-	// which serves shares without full auth if the requester is a paired device.
+	// Query the remote's public-shares endpoint (verified by paired device IP)
 	resp, err := client.Get(fmt.Sprintf("%s://%s:%s/api/backup/public-shares", proto, addr, port))
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach remote: %v", err)

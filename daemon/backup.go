@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -1386,6 +1387,12 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Public endpoint: paired devices request NFS export of a share path
+	if urlPath == "/api/backup/nfs-export" && method == "POST" {
+		handleNFSExport(w, r)
+		return
+	}
+
 	// All other backup routes require admin
 	session := requireAdmin(w, r)
 	if session == nil {
@@ -2196,6 +2203,8 @@ func getPublicShares(r *http.Request) map[string]interface{} {
 }
 
 // mountRemoteShare mounts a remote NFS share locally.
+// First requests the remote NAS to export the path via NFS for our IP,
+// then mounts it locally.
 func mountRemoteShare(deviceID, deviceName, deviceAddr, shareName, remotePath string) map[string]interface{} {
 	// Sanitize names for filesystem
 	safeDev := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(deviceName, "_")
@@ -2211,10 +2220,38 @@ func mountRemoteShare(deviceID, deviceName, deviceAddr, shareName, remotePath st
 		return map[string]interface{}{"ok": true, "mountPoint": mountPoint, "message": "Already mounted"}
 	}
 
-	// Mount via NFS
-	// Ensure NFS client is available
+	// Step 1: Ask the remote NAS to export this path for our IP
+	ourIP := getLocalLANAddr(deviceAddr)
+	proto := "http"
+	port := "5000"
+	if !isLocalAddr(deviceAddr) {
+		proto = "https"
+		port = "5009"
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	exportPayload, _ := json.Marshal(map[string]string{
+		"path":     remotePath,
+		"clientIP": ourIP,
+	})
+	exportResp, exportErr := client.Post(
+		fmt.Sprintf("%s://%s:%s/api/backup/nfs-export", proto, deviceAddr, port),
+		"application/json",
+		strings.NewReader(string(exportPayload)),
+	)
+	if exportErr != nil {
+		logMsg("remote-share: failed to request NFS export from %s: %v", deviceAddr, exportErr)
+	} else {
+		exportResp.Body.Close()
+	}
+
+	// Brief wait for NFS export to take effect
+	time.Sleep(500 * time.Millisecond)
+
+	// Step 2: Ensure NFS client is available locally
 	run("which mount.nfs >/dev/null 2>&1 || apt-get install -y -qq nfs-common 2>/dev/null")
 
+	// Step 3: Mount via NFS
 	nfsCmd := fmt.Sprintf("mount -t nfs -o soft,timeo=50,retrans=3,nolock %s:%s %s",
 		deviceAddr, remotePath, mountPoint)
 
@@ -2369,4 +2406,150 @@ func remountAllOnStartup() {
 			logMsg("remote-share: remounted %s:%s → %s", addr, remotePath, mountPoint)
 		}
 	}
+}
+
+// ─── NFS Export Management ──────────────────────────────────────────────────
+// These functions manage /etc/exports so that paired devices can mount our shares.
+
+const exportsFile = "/etc/exports"
+const nimosExportMarker = "# NimOS-managed"
+
+// addNFSExport adds a path to /etc/exports for a specific client IP.
+// Only adds if not already exported. Runs exportfs -ra to apply.
+func addNFSExport(path, clientIP string) error {
+	// Ensure NFS server is installed
+	run("which exportfs >/dev/null 2>&1 || apt-get install -y -qq nfs-kernel-server 2>/dev/null")
+
+	// Read current exports
+	data, err := os.ReadFile(exportsFile)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read exports: %v", err)
+	}
+	content := string(data)
+
+	// Check if this exact export already exists
+	exportLine := fmt.Sprintf("%s %s(rw,sync,no_subtree_check,no_root_squash) %s", path, clientIP, nimosExportMarker)
+	if strings.Contains(content, fmt.Sprintf("%s %s(", path, clientIP)) {
+		// Already exported
+		run("exportfs -ra")
+		return nil
+	}
+
+	// Append the export
+	if !strings.HasSuffix(content, "\n") && content != "" {
+		content += "\n"
+	}
+	content += exportLine + "\n"
+
+	if err := os.WriteFile(exportsFile, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write exports: %v", err)
+	}
+
+	// Apply exports
+	out, ok := run("exportfs -ra")
+	if !ok {
+		logMsg("nfs: exportfs -ra failed: %s", out)
+		// Try starting the NFS server
+		run("systemctl start nfs-kernel-server 2>/dev/null || service nfs-kernel-server start 2>/dev/null")
+		run("exportfs -ra")
+	}
+
+	logMsg("nfs: exported %s for %s", path, clientIP)
+	return nil
+}
+
+// removeNFSExport removes a path from /etc/exports for a specific client IP.
+func removeNFSExport(path, clientIP string) {
+	data, err := os.ReadFile(exportsFile)
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var kept []string
+	for _, line := range lines {
+		// Remove lines matching this path + clientIP
+		if strings.HasPrefix(strings.TrimSpace(line), path+" ") && strings.Contains(line, clientIP) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+
+	os.WriteFile(exportsFile, []byte(strings.Join(kept, "\n")), 0644)
+	run("exportfs -ra")
+	logMsg("nfs: unexported %s for %s", path, clientIP)
+}
+
+// ensureNFSServer makes sure NFS server is running.
+func ensureNFSServer() {
+	// Check if running
+	if out, _ := run("systemctl is-active nfs-kernel-server 2>/dev/null"); strings.TrimSpace(out) == "active" {
+		return
+	}
+	// Start it
+	run("systemctl enable nfs-kernel-server 2>/dev/null")
+	run("systemctl start nfs-kernel-server 2>/dev/null")
+	logMsg("nfs: started nfs-kernel-server")
+}
+
+// handleNFSExport handles the /api/backup/nfs-export endpoint.
+// Called by a paired device requesting us to export a path for their IP.
+// Verifies the requester is a paired device by checking their IP.
+func handleNFSExport(w http.ResponseWriter, r *http.Request) {
+	// Verify requester is a paired device
+	remoteIP := r.RemoteAddr
+	if idx := strings.LastIndex(remoteIP, ":"); idx > 0 {
+		remoteIP = remoteIP[:idx]
+	}
+	remoteIP = strings.Trim(remoteIP, "[]")
+
+	devices, _ := dbBackupDeviceList()
+	isPaired := false
+	for _, d := range devices {
+		if addr, _ := d["addr"].(string); addr == remoteIP {
+			isPaired = true
+			break
+		}
+	}
+
+	if !isPaired {
+		jsonError(w, 403, "not a paired device")
+		return
+	}
+
+	body, err := readBody(r)
+	if err != nil {
+		jsonError(w, 400, err.Error())
+		return
+	}
+
+	path := bodyStr(body, "path")
+	clientIP := bodyStr(body, "clientIP")
+	if path == "" || clientIP == "" {
+		jsonError(w, 400, "path and clientIP required")
+		return
+	}
+
+	// Security: verify the path is actually a share we own
+	shares, _ := dbSharesList()
+	validPath := false
+	for _, s := range shares {
+		if sp, _ := s["path"].(string); sp == path {
+			validPath = true
+			break
+		}
+	}
+	if !validPath {
+		jsonError(w, 403, "path is not a shared folder")
+		return
+	}
+
+	ensureNFSServer()
+
+	if err := addNFSExport(path, clientIP); err != nil {
+		jsonError(w, 500, err.Error())
+		return
+	}
+
+	jsonOk(w, map[string]interface{}{"ok": true, "exported": path, "client": clientIP})
 }

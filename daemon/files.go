@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ═══════════════════════════════════
@@ -157,13 +158,25 @@ func isPathOnMountedPool(path string) bool {
 
 // requireShareMounted checks if a share's pool is mounted, returns error response if not
 func requireShareMounted(w http.ResponseWriter, share map[string]interface{}) bool {
-	// Remote shares: check if the NFS mount point is active
+	// Remote shares: quick check — try to stat the directory (non-blocking)
+	// Don't use mountpoint command which can hang on dead NFS
 	if isRemote, _ := share["_remote"].(bool); isRemote {
 		mountPoint, _ := share["path"].(string)
-		if out, _ := run(fmt.Sprintf("mountpoint -q %s 2>/dev/null && echo yes", mountPoint)); strings.Contains(out, "yes") {
-			return true
+		// Use os.Stat with a deadline via goroutine — 2s max
+		done := make(chan bool, 1)
+		go func() {
+			_, err := os.Stat(mountPoint)
+			done <- (err == nil)
+		}()
+		select {
+		case ok := <-done:
+			if ok {
+				return true
+			}
+		case <-time.After(2 * time.Second):
+			// Timed out — NFS is dead
 		}
-		jsonError(w, 503, "Remote share not mounted")
+		jsonError(w, 503, "Remote share not available — device may be offline")
 		return false
 	}
 	sharePath, _ := share["path"].(string)
@@ -209,6 +222,8 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session map[string]inte
 		}
 
 		// Add remote mounted shares (admin only for now)
+		// NEVER run mountpoint checks here — NFS timeouts would block the entire listing.
+		// Just list what's in the DB. Actual mount status is checked when browsing.
 		if role == "admin" {
 			rows, qerr := db.Query(`SELECT rm.device_id, rm.share_name, rm.mount_point, bd.name
 				FROM remote_mounts rm JOIN backup_devices bd ON rm.device_id = bd.id`)
@@ -217,22 +232,15 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session map[string]inte
 				for rows.Next() {
 					var devID, shareName, mountPoint, devName string
 					rows.Scan(&devID, &shareName, &mountPoint, &devName)
-					// Check if actually mounted
-					mounted := false
-					if out, _ := run(fmt.Sprintf("mountpoint -q %s 2>/dev/null && echo yes", mountPoint)); strings.Contains(out, "yes") {
-						mounted = true
-					}
-					if mounted {
-						safeDev := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(devName, "_")
-						accessible = append(accessible, map[string]interface{}{
-							"name":        fmt.Sprintf("remote:%s/%s", safeDev, shareName),
-							"displayName": fmt.Sprintf("%s (%s)", shareName, devName),
-							"description": "Carpeta remota",
-							"permission":  "rw",
-							"remote":      true,
-							"deviceName":  devName,
-						})
-					}
+					safeDev := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(devName, "_")
+					accessible = append(accessible, map[string]interface{}{
+						"name":        fmt.Sprintf("remote:%s/%s", safeDev, shareName),
+						"displayName": fmt.Sprintf("%s (%s)", shareName, devName),
+						"description": "Carpeta remota",
+						"permission":  "rw",
+						"remote":      true,
+						"deviceName":  devName,
+					})
 				}
 			}
 		}

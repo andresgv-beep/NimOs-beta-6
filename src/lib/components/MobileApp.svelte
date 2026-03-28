@@ -86,16 +86,6 @@
 
 <div class="mobile-root" class:dark={isDark} class:light={!isDark}>
 
-  <!-- STATUS BAR -->
-  <div class="status-bar">
-    <span class="status-time">
-      {new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-    </span>
-    <div class="status-icons">
-      <svg viewBox="0 0 24 24"><path d="M1 6s4-4 11-4 11 4 11 4M5 10s2.5-2.5 7-2.5S19 10 19 10M9 14s1.5-1.5 3-1.5 3 1.5 3 1.5M12 18h.01"/></svg>
-      <svg viewBox="0 0 24 24"><rect x="1" y="6" width="18" height="12" rx="2"/><path d="M23 11v2"/></svg>
-    </div>
-  </div>
 
   <!-- SCREEN -->
   <div class="screen">
@@ -342,10 +332,6 @@
   .dark  { background: #111111; color: #f0f0f0; }
   .light { background: #f2f1f6; color: #1a1a1a; }
 
-  /* ── STATUS BAR ── */
-  .status-bar { display:flex; justify-content:space-between; align-items:center; padding:14px 22px 6px; font-size:13px; font-weight:600; flex-shrink:0; }
-  .status-icons { display:flex; align-items:center; gap:5px; }
-  .status-icons svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:2; }
 
   /* ── SCREEN ── */
   .screen { flex:1; overflow-y:auto; overflow-x:hidden; }

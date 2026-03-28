@@ -328,6 +328,8 @@
     display: flex; flex-direction: column;
     font-family: -apple-system, 'SF Pro Display', 'DM Sans', sans-serif;
     overflow: hidden;
+    zoom: 1 !important;
+    -webkit-text-size-adjust: 100%;
   }
   .dark  { background: #111111; color: #f0f0f0; }
   .light { background: #f2f1f6; color: #1a1a1a; }

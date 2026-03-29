@@ -245,6 +245,16 @@ func dbBackupDeviceUpdateSyncPairs(id string, pairs interface{}) error {
 	return err
 }
 
+func dbBackupDeviceUpdate(id, field, value string) error {
+	// Only allow safe fields to be updated
+	allowed := map[string]bool{"addr": true, "name": true, "type": true}
+	if !allowed[field] {
+		return fmt.Errorf("field %s not updatable", field)
+	}
+	_, err := db.Exec(fmt.Sprintf(`UPDATE backup_devices SET %s = ? WHERE id = ?`, field), value, id)
+	return err
+}
+
 // ─── Job DB Operations ──────────────────────────────────────────────────────
 
 func dbBackupJobCreate(job map[string]interface{}) error {
@@ -1749,6 +1759,48 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 			}
 			jsonOk(w, result)
 
+		// POST /api/backup/pair/update-addr — remote tells us to use tunnel IP
+		case urlPath == "/api/backup/pair/update-addr" && method == "POST":
+			tunnelAddr := bodyStr(body, "tunnelAddr")
+			if tunnelAddr == "" {
+				jsonError(w, 400, "tunnelAddr required")
+				return
+			}
+			// Find the device by the request's source IP and update its addr
+			remoteIP := r.RemoteAddr
+			if idx := strings.LastIndex(remoteIP, ":"); idx > 0 {
+				remoteIP = remoteIP[:idx]
+			}
+			remoteIP = strings.Trim(remoteIP, "[]")
+
+			devices, _ := dbBackupDeviceList()
+			updated := false
+			for _, d := range devices {
+				dAddr, _ := d["addr"].(string)
+				dID, _ := d["id"].(string)
+				// Match by current addr (could be DDNS or IP)
+				if dAddr == remoteIP || dAddr == tunnelAddr {
+					dbBackupDeviceUpdate(dID, "addr", tunnelAddr)
+					logMsg("wireguard: updated device %s addr to tunnel IP %s (requested by remote)", dID, tunnelAddr)
+					updated = true
+					break
+				}
+			}
+			if !updated {
+				// Try matching by any addr that isn't a local 192.168/10./172. addr
+				for _, d := range devices {
+					dAddr, _ := d["addr"].(string)
+					dID, _ := d["id"].(string)
+					if !isLocalAddr(dAddr) {
+						dbBackupDeviceUpdate(dID, "addr", tunnelAddr)
+						logMsg("wireguard: updated WAN device %s addr to tunnel IP %s", dID, tunnelAddr)
+						updated = true
+						break
+					}
+				}
+			}
+			jsonOk(w, map[string]interface{}{"ok": true, "updated": updated})
+
 		// POST /api/backup/snapshots — create manual backup snapshot
 		case urlPath == "/api/backup/snapshots" && method == "POST":
 			source := bodyStr(body, "source")
@@ -1950,6 +2002,27 @@ func pairWithRemote(addr, username, password, totpCode string) map[string]interf
 			result["wireguard"] = map[string]interface{}{"error": err.Error()}
 		} else {
 			result["wireguard"] = wgResult
+
+			// Update local device addr to the remote's tunnel IP
+			if assignedIP, ok := wgResult["assignedIP"].(string); ok && assignedIP != "" {
+				dbBackupDeviceUpdate(id, "addr", assignedIP)
+				result["addr"] = assignedIP
+				logMsg("wireguard: updated device %s addr to tunnel IP %s", id, assignedIP)
+			}
+
+			// Update the remote's record of us to our tunnel IP
+			if localIP, ok := wgResult["localIP"].(string); ok && localIP != "" {
+				updatePayload, _ := json.Marshal(map[string]interface{}{
+					"tunnelAddr": localIP,
+				})
+				updReq, _ := http.NewRequest("POST", baseURL+"/api/backup/pair/update-addr", strings.NewReader(string(updatePayload)))
+				updReq.Header.Set("Authorization", "Bearer "+token)
+				updReq.Header.Set("Content-Type", "application/json")
+				if updResp, err := client.Do(updReq); err == nil {
+					updResp.Body.Close()
+					logMsg("wireguard: notified remote to use tunnel IP %s for us", localIP)
+				}
+			}
 		}
 	}
 

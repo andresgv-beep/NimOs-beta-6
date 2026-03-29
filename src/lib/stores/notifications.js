@@ -1,11 +1,28 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 
 export const notifications = writable([]);
 export const unreadCount = derived(notifications, $n => $n.filter(x => !x.read).length);
 
-let nextId = 0;
+// ── Auth token helper ──
+function getAuthToken() {
+  try { return localStorage.getItem('nimbusos_token') || ''; } catch { return ''; }
+}
+function hdrs() {
+  return { 'Authorization': `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' };
+}
 
-export function notify(message, options = {}) {
+// ── Load from backend on init ──
+export async function loadNotifications() {
+  try {
+    const r = await fetch('/api/notifications?limit=100', { headers: hdrs() });
+    if (!r.ok) return;
+    const d = await r.json();
+    notifications.set(d.notifications || []);
+  } catch {}
+}
+
+// ── Create notification (persisted to backend) ──
+export async function notify(message, options = {}) {
   const {
     type     = 'info',
     category = 'notification',
@@ -13,16 +30,30 @@ export function notify(message, options = {}) {
     bubble   = true,
   } = options;
 
-  const id = ++nextId;
+  try {
+    const r = await fetch('/api/notifications', {
+      method: 'POST', headers: hdrs(),
+      body: JSON.stringify({ type, category, title, message }),
+    });
+    const d = await r.json();
+    if (d.ok && d.notification) {
+      const entry = { ...d.notification, showBubble: bubble };
+      notifications.update(n => [entry, ...n]);
+      return entry.id;
+    }
+  } catch {}
+
+  // Fallback: local only if backend unavailable
+  const id = Date.now();
   notifications.update(n => [{
     id, type, category, title, message,
-    timestamp:  new Date().toISOString(),
-    read:       false,
-    showBubble: bubble,
+    timestamp: new Date().toISOString(),
+    read: false, showBubble: bubble,
   }, ...n]);
   return id;
 }
 
+// ── Helpers ──
 export function notifySuccess(message, title = '')  { return notify(message, { type: 'success', title }); }
 export function notifyError(message,   title = '')  { return notify(message, { type: 'error',   title }); }
 export function notifyWarning(message, title = '')  { return notify(message, { type: 'warning',  title }); }
@@ -34,21 +65,35 @@ export function notifySystem(message, title = 'Sistema') {
   return notify(message, { type: 'info', category: 'system', title });
 }
 
-export function markRead(id) {
+// ── Mark read ──
+export async function markRead(id) {
   notifications.update(n => n.map(x => x.id === id ? { ...x, read: true } : x));
+  try { await fetch(`/api/notifications/${id}/read`, { method: 'PUT', headers: hdrs() }); } catch {}
 }
-export function markAllRead() {
+
+export async function markAllRead() {
   notifications.update(n => n.map(x => ({ ...x, read: true })));
+  try { await fetch('/api/notifications/read-all', { method: 'PUT', headers: hdrs() }); } catch {}
 }
-export function dismissNotification(id) {
+
+// ── Dismiss ──
+export async function dismissNotification(id) {
   notifications.update(n => n.filter(x => x.id !== id));
+  try { await fetch(`/api/notifications/${id}`, { method: 'DELETE', headers: hdrs() }); } catch {}
 }
-export function clearCategory(category) {
+
+// ── Clear by category ──
+export async function clearCategory(category) {
   notifications.update(n => n.filter(x => x.category !== category));
+  try { await fetch(`/api/notifications?category=${category}`, { method: 'DELETE', headers: hdrs() }); } catch {}
 }
-export function clearAll() {
+
+export async function clearAll() {
   notifications.set([]);
+  try { await fetch('/api/notifications', { method: 'DELETE', headers: hdrs() }); } catch {}
 }
+
+// ── Hide bubble (local only — no backend needed) ──
 export function hideBubble(id) {
   notifications.update(n => n.map(x => x.id === id ? { ...x, showBubble: false } : x));
 }

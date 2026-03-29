@@ -603,17 +603,25 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	availableBytes := getAvailableBytes(sharePath)
 	fileSize := header.Size
 
+	logMsg("upload: share=%s path=%s fileSize=%d availableBytes=%d", shareName, sharePath, fileSize, availableBytes)
+
 	// Reject if we know the file is too big
-	if fileSize > 0 && availableBytes > 0 && fileSize > availableBytes {
+	if fileSize > 0 && availableBytes >= 0 && fileSize > availableBytes {
 		jsonError(w, 507, fmt.Sprintf("Not enough space. File: %s, Available: %s",
 			fmtSizeFiles(fileSize), fmtSizeFiles(availableBytes)))
 		return
 	}
 
-	// Even if header.Size is unknown/zero, cap at available space
+	// Also reject if available is 0 (quota full)
+	if availableBytes == 0 {
+		jsonError(w, 507, "Disk quota exceeded — no space available")
+		return
+	}
+
+	// Cap write at available space
 	maxWrite := availableBytes
 	if maxWrite <= 0 {
-		maxWrite = 500 * 1024 * 1024 // fallback 500MB if df fails
+		maxWrite = 500 * 1024 * 1024 // fallback 500MB if check fails
 	}
 
 	// Ensure parent dir exists

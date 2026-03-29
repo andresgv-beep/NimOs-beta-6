@@ -515,8 +515,17 @@ func filesPaste(w http.ResponseWriter, r *http.Request, session map[string]inter
 
 	if action == "cut" {
 		if err := os.Rename(fullSrc, fullDest); err != nil {
-			jsonError(w, 500, err.Error())
-			return
+			// "invalid cross-device link" — different subvolumes, use cp + rm
+			if strings.Contains(err.Error(), "cross-device") || strings.Contains(err.Error(), "invalid cross") {
+				if _, ok := run(fmt.Sprintf(`cp -r "%s" "%s"`, fullSrc, fullDest)); !ok {
+					jsonError(w, 500, "Copy failed during cross-device move")
+					return
+				}
+				run(fmt.Sprintf(`rm -rf "%s"`, fullSrc))
+			} else {
+				jsonError(w, 500, err.Error())
+				return
+			}
 		}
 	} else {
 		// Check available space on destination before copying

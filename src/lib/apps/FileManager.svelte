@@ -229,6 +229,14 @@
   $: shareInfo = shares.find(s => s.name === currentShare);
   $: pathParts = currentPath === '/' ? [] : currentPath.split('/').filter(Boolean);
 
+  const SVG_FOLDER_LOCAL  = `<svg width="36" height="36" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+  const SVG_FOLDER_REMOTE = `<svg width="36" height="36" viewBox="0 0 24 24" fill="#3b82f6" stroke="#2563eb" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+  const SVG_FOLDER_SM_LOCAL  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+  const SVG_FOLDER_SM_REMOTE = `<svg width="15" height="15" viewBox="0 0 24 24" fill="#3b82f6" stroke="#2563eb" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+  function fIconHtml(file, small = false) {
+    if (file.isDirectory) return small ? SVG_FOLDER_SM_LOCAL : SVG_FOLDER_LOCAL;
+    return fIcon(file);
+  }
   function fIcon(file) {
     if (file.isDirectory) return '📁';
     const e = file.name.split('.').pop().toLowerCase();
@@ -353,7 +361,7 @@
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div class="f-item" on:dblclick={() => navigate(share.name, '/')}>
-                <div class="f-icon">📁</div>
+                <div class="f-icon">{@html SVG_FOLDER_LOCAL}</div>
                 <div class="f-name">{share.displayName || share.name}</div>
               </div>
             {/each}
@@ -361,7 +369,7 @@
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div class="f-item" on:dblclick={() => navigate(share.name, '/')}>
-                <div class="f-icon">🌐</div>
+                <div class="f-icon">{@html SVG_FOLDER_REMOTE}</div>
                 <div class="f-name">{share.displayName || share.name}</div>
               </div>
             {/each}
@@ -374,7 +382,7 @@
               <div class="f-item" class:sel={selected.has(i)} class:cut={clipboard?.op === 'cut' && clipboard?.path === filePath(file)}
                 data-idx={i} on:click={(e) => toggleSelect(i, e)} on:dblclick={() => openItem(file)}
                 on:contextmenu={(e) => onContextMenu(e, file, i)}>
-                <div class="f-icon">{fIcon(file)}</div>
+                <div class="f-icon">{@html fIconHtml(file)}</div>
                 <div class="f-name">{file.name}</div>
                 <div class="f-date">{fDate(file.modified)}</div>
               </div>
@@ -390,7 +398,7 @@
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div class="fl-row" on:dblclick={() => navigate(share.name, '/')}>
-                <span class="fl-icon">{share.remote ? '🌐' : '📁'}</span>
+                <span class="fl-icon">{@html share.remote ? SVG_FOLDER_SM_REMOTE : SVG_FOLDER_SM_LOCAL}</span>
                 <span class="fl-name">{share.displayName || share.name}</span>
               </div>
             {/each}
@@ -403,7 +411,7 @@
               <div class="fl-row" class:sel={selected.has(i)} class:cut={clipboard?.op === 'cut' && clipboard?.path === filePath(file)}
                 data-idx={i} on:click={(e) => toggleSelect(i, e)} on:dblclick={() => openItem(file)}
                 on:contextmenu={(e) => onContextMenu(e, file, i)}>
-                <span class="fl-icon">{fIcon(file)}</span>
+                <span class="fl-icon">{@html fIconHtml(file, true)}</span>
                 <span class="fl-name">{file.name}</span>
                 <span class="fl-size">{file.isDirectory ? '—' : fmtSize(file.size)}</span>
                 <span class="fl-date">{fDate(file.modified)}</span>
@@ -658,7 +666,7 @@
   .f-item.sel { background:var(--active-bg); border-color:var(--border-hi); }
   .f-item.cut { opacity:.45; }
   @keyframes fadeUp { from{opacity:0;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }
-  .f-icon { font-size:36px; line-height:1; filter:drop-shadow(0 2px 6px rgba(0,0,0,0.4)); transition:transform .15s; }
+  .f-icon { font-size:36px; line-height:1; transition:transform .15s; display:flex; align-items:center; justify-content:center; width:36px; height:36px; }
   .f-item:hover .f-icon { transform:scale(1.07) translateY(-2px); }
   .f-name { font-size:10px; color:var(--text-1); text-align:center; line-height:1.3; max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .f-date { font-size:9px; color:var(--text-3); font-family:'DM Mono',monospace; }
@@ -747,7 +755,7 @@
   .fl-row:hover { background:rgba(128,128,128,0.07); }
   .fl-row.sel { background:var(--active-bg); border-color:var(--border-hi); }
   .fl-row.cut { opacity:.45; }
-  .fl-icon { font-size:15px; flex-shrink:0; width:20px; text-align:center; }
+  .fl-icon { font-size:15px; flex-shrink:0; width:20px; display:flex; align-items:center; justify-content:center; }
   .fl-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .fl-size { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; width:60px; text-align:right; flex-shrink:0; }
   .fl-date { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; width:110px; text-align:right; flex-shrink:0; }

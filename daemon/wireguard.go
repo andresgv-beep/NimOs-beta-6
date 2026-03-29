@@ -1,11 +1,5 @@
 package main
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// NimOS Backup — WireGuard Tunnel Management
-// Manages WireGuard interfaces for encrypted NAS-to-NAS connections over WAN.
-// Used by NimBackup when devices are not on the same LAN.
-// ═══════════════════════════════════════════════════════════════════════════════
-
 import (
 	"encoding/json"
 	"fmt"
@@ -15,55 +9,50 @@ import (
 	"time"
 )
 
-// ─── Constants ──────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// NimOS Backup — WireGuard Tunnel Management
+// ═══════════════════════════════════════════════════════════════════════════════
 
 const (
 	wgConfigDir  = "/etc/wireguard"
 	wgInterface  = "wg-nimbackup"
 	wgListenPort = 51820
-	wgSubnet     = "10.10.0"        // WG peers get 10.10.0.x/24
+	wgSubnet     = "10.10.0"
 )
 
 // ─── Key Generation ─────────────────────────────────────────────────────────
 
-// generateWGKeyPair generates a WireGuard private/public key pair using wg cli.
 func generateWGKeyPair() (privateKey, publicKey string, err error) {
-	// Generate private key
 	privOut, ok := run("wg genkey")
 	if !ok || privOut == "" {
-		return "", "", fmt.Errorf("wg genkey failed: %s", privOut)
+		return "", "", fmt.Errorf("wg genkey failed (is wireguard-tools installed?)")
 	}
 	privateKey = strings.TrimSpace(privOut)
 
-	// Derive public key
 	pubOut, ok := run(fmt.Sprintf("echo '%s' | wg pubkey", privateKey))
 	if !ok || pubOut == "" {
-		return "", "", fmt.Errorf("wg pubkey failed: %s", pubOut)
+		return "", "", fmt.Errorf("wg pubkey failed")
 	}
 	publicKey = strings.TrimSpace(pubOut)
-
 	return privateKey, publicKey, nil
 }
 
 // ─── Config Management ─────────────────────────────────────────────────────
 
-// WGPeerConfig represents a single WireGuard peer entry.
 type WGPeerConfig struct {
 	PublicKey  string `json:"publicKey"`
-	Endpoint  string `json:"endpoint"`  // host:port
-	AllowedIPs string `json:"allowedIPs"` // e.g., "10.10.0.2/32"
-	DeviceID  string `json:"deviceId"`  // NimBackup device ID for tracking
+	Endpoint   string `json:"endpoint"`
+	AllowedIPs string `json:"allowedIPs"`
+	DeviceID   string `json:"deviceId"`
 }
 
-// wgState holds the local WireGuard state for NimBackup.
-// Persisted as JSON in the config directory.
 type wgState struct {
 	PrivateKey string         `json:"privateKey"`
 	PublicKey  string         `json:"publicKey"`
 	ListenPort int            `json:"listenPort"`
-	LocalIP    string         `json:"localIP"` // e.g., "10.10.0.1/24"
+	LocalIP    string         `json:"localIP"`
 	Peers      []WGPeerConfig `json:"peers"`
-	NextPeerIP int            `json:"nextPeerIP"` // tracks next available .x
+	NextPeerIP int            `json:"nextPeerIP"`
 }
 
 const wgStatePath = "/var/lib/nimbusos/config/wireguard-state.json"
@@ -72,7 +61,7 @@ func loadWGState() (*wgState, error) {
 	data, err := os.ReadFile(wgStatePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil // No state yet — first time
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -91,23 +80,24 @@ func saveWGState(state *wgState) error {
 	return os.WriteFile(wgStatePath, data, 0600)
 }
 
-// initWGState initializes WireGuard state if it doesn't exist yet.
-// Generates keys and assigns the local IP as .1 in the subnet.
+// initWGState initializes WireGuard state. The localIP is passed in:
+// - Initiator calls with "" → gets .1
+// - Responder calls with the IP assigned by the initiator
 func initWGState() (*wgState, error) {
 	state, err := loadWGState()
 	if err != nil {
 		return nil, fmt.Errorf("load wg state: %v", err)
 	}
 	if state != nil {
-		return state, nil // Already initialized
+		return state, nil
 	}
 
-	// Generate new key pair
 	privKey, pubKey, err := generateWGKeyPair()
 	if err != nil {
 		return nil, fmt.Errorf("generate keys: %v", err)
 	}
 
+	// Default to .1 — will be overridden by responder
 	state = &wgState{
 		PrivateKey: privKey,
 		PublicKey:  pubKey,
@@ -127,7 +117,6 @@ func initWGState() (*wgState, error) {
 
 // ─── Config File Generation ─────────────────────────────────────────────────
 
-// writeWGConfig writes the wg-nimbackup.conf file from current state.
 func writeWGConfig(state *wgState) error {
 	os.MkdirAll(wgConfigDir, 0700)
 
@@ -160,20 +149,17 @@ func writeWGConfig(state *wgState) error {
 
 // ─── Interface Control ──────────────────────────────────────────────────────
 
-// wgUp brings up the WireGuard interface.
 func wgUp() error {
-	// Check if already up
 	if out, ok := run(fmt.Sprintf("ip link show %s 2>/dev/null", wgInterface)); ok && out != "" {
-		// Already up — just reload config
-		_, ok := run(fmt.Sprintf("wg syncconf %s %s/%s.conf", wgInterface, wgConfigDir, wgInterface))
-		if !ok {
-			return fmt.Errorf("wg syncconf failed")
-		}
-		logMsg("wireguard: config reloaded (interface was already up)")
+		// Already up — reload config
+		// wg syncconf doesn't handle Address changes, use setconf
+		confPath := fmt.Sprintf("%s/%s.conf", wgConfigDir, wgInterface)
+		// Strip Address and other wg-quick-only directives for wg setconf
+		run(fmt.Sprintf("wg syncconf %s <(wg-quick strip %s) 2>/dev/null || wg setconf %s %s", wgInterface, confPath, wgInterface, confPath))
+		logMsg("wireguard: config reloaded")
 		return nil
 	}
 
-	// Bring up with wg-quick
 	out, ok := run(fmt.Sprintf("wg-quick up %s", wgInterface))
 	if !ok {
 		return fmt.Errorf("wg-quick up failed: %s", out)
@@ -182,36 +168,60 @@ func wgUp() error {
 	return nil
 }
 
-// wgDown takes down the WireGuard interface.
 func wgDown() error {
-	out, ok := run(fmt.Sprintf("wg-quick down %s 2>/dev/null", wgInterface))
-	if !ok {
-		// Not a fatal error — interface might not be up
-		logMsg("wireguard: wg-quick down: %s", out)
-	}
+	run(fmt.Sprintf("wg-quick down %s 2>/dev/null", wgInterface))
 	logMsg("wireguard: interface %s is down", wgInterface)
 	return nil
 }
 
-// wgIsUp checks if the WireGuard interface is currently up.
 func wgIsUp() bool {
 	out, ok := run(fmt.Sprintf("ip link show %s 2>/dev/null", wgInterface))
 	return ok && out != "" && strings.Contains(out, "UP")
 }
 
+// ─── Auto-start on daemon boot ──────────────────────────────────────────────
+
+// startWGTunnel checks if WireGuard was configured and brings it up on daemon start.
+// Called from main.go startup sequence.
+func startWGTunnel() {
+	state, err := loadWGState()
+	if err != nil || state == nil {
+		return // No WG configured
+	}
+	if len(state.Peers) == 0 {
+		return // No peers to connect to
+	}
+
+	// Write config and bring up
+	if err := writeWGConfig(state); err != nil {
+		logMsg("wireguard: auto-start failed (write config): %v", err)
+		return
+	}
+	if err := wgUp(); err != nil {
+		logMsg("wireguard: auto-start failed (wg up): %v", err)
+		return
+	}
+	logMsg("wireguard: auto-started with %d peers", len(state.Peers))
+}
+
 // ─── Peer Management ────────────────────────────────────────────────────────
 
-// addWGPeer adds a new peer to the WireGuard configuration and brings up/reloads the tunnel.
-// Returns the assigned IP for the remote peer.
 func addWGPeer(deviceID, remotePublicKey, remoteEndpoint string) (assignedIP string, err error) {
 	state, err := initWGState()
 	if err != nil {
 		return "", err
 	}
 
-	// Check if peer already exists for this device
+	// Check if peer already exists (by public key to avoid duplicates)
 	for _, p := range state.Peers {
-		if p.DeviceID == deviceID {
+		if p.PublicKey == remotePublicKey {
+			// Update endpoint if changed
+			if remoteEndpoint != "" && p.Endpoint != remoteEndpoint {
+				p.Endpoint = remoteEndpoint
+				saveWGState(state)
+				writeWGConfig(state)
+				wgUp()
+			}
 			return strings.TrimSuffix(p.AllowedIPs, "/32"), nil
 		}
 	}
@@ -231,26 +241,17 @@ func addWGPeer(deviceID, remotePublicKey, remoteEndpoint string) (assignedIP str
 	if err := saveWGState(state); err != nil {
 		return "", fmt.Errorf("save state: %v", err)
 	}
-
 	if err := writeWGConfig(state); err != nil {
 		return "", fmt.Errorf("write config: %v", err)
 	}
-
 	if err := wgUp(); err != nil {
 		return "", fmt.Errorf("bring up interface: %v", err)
 	}
-
-	// Update the device record in the database with WG info
-	localIP := state.LocalIP
-	db.Exec(`UPDATE backup_devices SET wg_active = 1, wg_public_key = ?, wg_endpoint = ?,
-		wg_allowed_ips = ?, wg_local_ip = ? WHERE id = ?`,
-		remotePublicKey, remoteEndpoint, peerIP+"/32", localIP, deviceID)
 
 	logMsg("wireguard: peer added — device=%s, ip=%s, endpoint=%s", deviceID, peerIP, remoteEndpoint)
 	return peerIP, nil
 }
 
-// removeWGPeer removes a peer associated with a device.
 func removeWGPeer(deviceID string) error {
 	state, err := loadWGState()
 	if err != nil || state == nil {
@@ -272,25 +273,18 @@ func removeWGPeer(deviceID string) error {
 	}
 
 	state.Peers = filtered
-
 	if err := saveWGState(state); err != nil {
 		return err
 	}
-
 	if err := writeWGConfig(state); err != nil {
 		return err
 	}
 
-	// Clear WG info in device record
-	db.Exec(`UPDATE backup_devices SET wg_active = 0, wg_public_key = '', wg_endpoint = '',
-		wg_allowed_ips = '', wg_local_ip = '' WHERE id = ?`, deviceID)
-
-	// If no more peers, take down the interface
 	if len(state.Peers) == 0 {
 		wgDown()
 		logMsg("wireguard: last peer removed, interface down")
 	} else {
-		wgUp() // Reload config
+		wgUp()
 		logMsg("wireguard: peer removed for device %s, %d peers remain", deviceID, len(state.Peers))
 	}
 
@@ -299,28 +293,31 @@ func removeWGPeer(deviceID string) error {
 
 // ─── Key Exchange (Pairing Flow) ────────────────────────────────────────────
 
-// initiateWGPairing performs the WireGuard key exchange with a remote NimOS device.
-// Called during the pairing process when the connection is WAN (not LAN).
-//
-// Flow:
-//  1. Initialize local WG state (generate keys if first time)
-//  2. Send our public key to the remote device via authenticated API
-//  3. Remote generates its key pair and returns its public key
-//  4. Both sides configure their wg interfaces
-//  5. Verify connectivity through the tunnel
+// initiateWGPairing is called by the INITIATOR (the NAS that starts the pairing).
+// It sends our public key + our public IP to the remote, receives the remote's
+// public key + assigned tunnel IP, and configures the tunnel.
 func initiateWGPairing(deviceID, remoteAddr, remoteToken string) (map[string]interface{}, error) {
-	// 1. Init local state
 	state, err := initWGState()
 	if err != nil {
 		return nil, fmt.Errorf("init local wg: %v", err)
 	}
 
-	// 2. Send our public key to the remote
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Get our own public IP to send as endpoint
+	ourPublicIP, _ := run("curl -fsSL --connect-timeout 5 https://api.ipify.org 2>/dev/null")
+	ourPublicIP = strings.TrimSpace(ourPublicIP)
+	ourEndpoint := ""
+	if ourPublicIP != "" {
+		ourEndpoint = fmt.Sprintf("%s:%d", ourPublicIP, wgListenPort)
+	}
+
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+
 	payload := map[string]interface{}{
 		"publicKey":  state.PublicKey,
 		"listenPort": state.ListenPort,
-		"localIP":    state.LocalIP,
+		"endpoint":   ourEndpoint, // Our public endpoint so the remote can reach us
 	}
 	payloadJSON, _ := json.Marshal(payload)
 
@@ -346,25 +343,38 @@ func initiateWGPairing(deviceID, remoteAddr, remoteToken string) (map[string]int
 	}
 
 	remotePublicKey, _ := result["publicKey"].(string)
-	remoteEndpoint := fmt.Sprintf("%s:%d", remoteAddr, wgListenPort)
-
 	if remotePublicKey == "" {
 		return nil, fmt.Errorf("remote did not provide a public key")
 	}
 
-	// 3. Add the remote as a peer locally
-	assignedIP, err := addWGPeer(deviceID, remotePublicKey, remoteEndpoint)
+	// The remote assigned us a tunnel IP — update our local IP
+	assignedToUs, _ := result["yourIP"].(string)
+	if assignedToUs != "" {
+		state.LocalIP = assignedToUs + "/24"
+		saveWGState(state)
+		writeWGConfig(state)
+		logMsg("wireguard: remote assigned us tunnel IP %s", assignedToUs)
+	}
+
+	// Remote's tunnel IP (what we'll use to reach them)
+	remoteTunnelIP, _ := result["myIP"].(string)
+
+	// Add the remote as a peer with their DDNS/public endpoint
+	remoteEndpoint := fmt.Sprintf("%s:%d", remoteAddr, wgListenPort)
+	_, err = addWGPeer(deviceID, remotePublicKey, remoteEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("add peer: %v", err)
 	}
 
-	// 4. Verify tunnel connectivity (ping through WG)
+	// Verify tunnel connectivity
 	tunnelOk := false
-	for attempt := 0; attempt < 5; attempt++ {
-		time.Sleep(time.Duration(500+attempt*500) * time.Millisecond)
-		if out, ok := run(fmt.Sprintf("ping -c 1 -W 2 %s 2>/dev/null", assignedIP)); ok && strings.Contains(out, "1 received") {
-			tunnelOk = true
-			break
+	if remoteTunnelIP != "" {
+		for attempt := 0; attempt < 8; attempt++ {
+			time.Sleep(time.Duration(500+attempt*500) * time.Millisecond)
+			if out, ok := run(fmt.Sprintf("ping -c 1 -W 2 %s 2>/dev/null", remoteTunnelIP)); ok && strings.Contains(out, "1 received") {
+				tunnelOk = true
+				break
+			}
 		}
 	}
 
@@ -373,64 +383,89 @@ func initiateWGPairing(deviceID, remoteAddr, remoteToken string) (map[string]int
 		"tunnelVerified":  tunnelOk,
 		"localPublicKey":  state.PublicKey,
 		"remotePublicKey": remotePublicKey,
-		"assignedIP":      assignedIP,
-		"localIP":         state.LocalIP,
+		"localIP":         strings.TrimSuffix(state.LocalIP, "/24"),
+		"remoteIP":        remoteTunnelIP,
 	}, nil
 }
 
-// handleWGExchange handles the remote side of the WireGuard key exchange.
-// Called on the remote NAS when the initiating NAS sends its public key.
-func handleWGExchange(body map[string]interface{}) map[string]interface{} {
+// handleWGExchange is called on the RESPONDER (the NAS that receives the pairing request).
+// It receives the initiator's public key + endpoint, assigns tunnel IPs, and returns
+// its own public key + the assigned IPs.
+func handleWGExchange(body map[string]interface{}, r *http.Request) map[string]interface{} {
 	remotePubKey := bodyStr(body, "publicKey")
 	if remotePubKey == "" {
 		return map[string]interface{}{"error": "publicKey required"}
 	}
 
-	// Init our state
 	state, err := initWGState()
 	if err != nil {
 		return map[string]interface{}{"error": "init wg failed: " + err.Error()}
 	}
 
-	// We'll be assigned as a peer too — but we don't know the device ID yet on this side.
-	// Use the public key as temporary identifier.
-	peerIP := fmt.Sprintf("%s.%d", wgSubnet, state.NextPeerIP)
+	// Get remote endpoint — from the body (their public IP) or from the request source
+	remoteEndpoint := bodyStr(body, "endpoint")
+	if remoteEndpoint == "" {
+		// Try to get from request IP
+		remoteIP := r.RemoteAddr
+		if idx := strings.LastIndex(remoteIP, ":"); idx > 0 {
+			remoteIP = remoteIP[:idx]
+		}
+		remoteIP = strings.Trim(remoteIP, "[]")
+		if remoteIP != "" && remoteIP != "127.0.0.1" {
+			remoteEndpoint = fmt.Sprintf("%s:%d", remoteIP, wgListenPort)
+		}
+	}
+
+	// We (responder) keep .1, assign the initiator the next available IP
+	initiatorIP := fmt.Sprintf("%s.%d", wgSubnet, state.NextPeerIP)
 	state.NextPeerIP++
 
-	// Get remote endpoint from the request context (not available here — caller must provide)
-	remoteEndpoint := bodyStr(body, "endpoint")
-
-	peer := WGPeerConfig{
-		PublicKey:  remotePubKey,
-		Endpoint:   remoteEndpoint,
-		AllowedIPs: peerIP + "/32",
-		DeviceID:   "pending-" + remotePubKey[:8],
+	// Check if this peer already exists (re-pairing)
+	exists := false
+	for i, p := range state.Peers {
+		if p.PublicKey == remotePubKey {
+			// Update endpoint
+			state.Peers[i].Endpoint = remoteEndpoint
+			state.Peers[i].AllowedIPs = initiatorIP + "/32"
+			exists = true
+			break
+		}
 	}
-	state.Peers = append(state.Peers, peer)
+
+	if !exists {
+		peer := WGPeerConfig{
+			PublicKey:  remotePubKey,
+			Endpoint:   remoteEndpoint,
+			AllowedIPs: initiatorIP + "/32",
+			DeviceID:   "pending-" + remotePubKey[:8],
+		}
+		state.Peers = append(state.Peers, peer)
+	}
 
 	if err := saveWGState(state); err != nil {
 		return map[string]interface{}{"error": "save state: " + err.Error()}
 	}
-
 	if err := writeWGConfig(state); err != nil {
 		return map[string]interface{}{"error": "write config: " + err.Error()}
 	}
-
 	if err := wgUp(); err != nil {
 		return map[string]interface{}{"error": "bring up interface: " + err.Error()}
 	}
+
+	// Our tunnel IP (without /24)
+	myIP := strings.TrimSuffix(state.LocalIP, "/24")
 
 	return map[string]interface{}{
 		"ok":         true,
 		"publicKey":  state.PublicKey,
 		"listenPort": state.ListenPort,
-		"assignedIP": peerIP,
+		"myIP":       myIP,        // Responder's tunnel IP (what initiator uses to reach us)
+		"yourIP":     initiatorIP, // Initiator's assigned tunnel IP
 	}
 }
 
 // ─── Status ─────────────────────────────────────────────────────────────────
 
-// getWGStatus returns the current WireGuard status for the NimBackup interface.
 func getWGStatus() map[string]interface{} {
 	state, err := loadWGState()
 	if err != nil || state == nil {
@@ -445,7 +480,6 @@ func getWGStatus() map[string]interface{} {
 
 	peers := []map[string]interface{}{}
 	if active {
-		// Get live peer stats from wg show
 		out, ok := run(fmt.Sprintf("wg show %s dump 2>/dev/null", wgInterface))
 		if ok && out != "" {
 			peerStats := parseWGDump(out)
@@ -456,7 +490,6 @@ func getWGStatus() map[string]interface{} {
 					"deviceId":   p.DeviceID,
 					"endpoint":   p.Endpoint,
 				}
-				// Merge live stats
 				if stats, ok := peerStats[p.PublicKey]; ok {
 					peerInfo["lastHandshake"] = stats["lastHandshake"]
 					peerInfo["rxBytes"] = stats["rxBytes"]
@@ -488,13 +521,11 @@ func getWGStatus() map[string]interface{} {
 	}
 }
 
-// parseWGDump parses output of "wg show <iface> dump" into a map keyed by public key.
-// Format: <pubkey>\t<preshared>\t<endpoint>\t<allowed-ips>\t<latest-handshake>\t<rx>\t<tx>\t<keepalive>
 func parseWGDump(dump string) map[string]map[string]interface{} {
 	result := map[string]map[string]interface{}{}
 	lines := strings.Split(strings.TrimSpace(dump), "\n")
 
-	for _, line := range lines[1:] { // Skip first line (interface info)
+	for _, line := range lines[1:] {
 		fields := strings.Split(line, "\t")
 		if len(fields) < 7 {
 			continue
@@ -528,16 +559,12 @@ func parseWGDump(dump string) map[string]map[string]interface{} {
 }
 
 // ─── HTTP Route Extensions ──────────────────────────────────────────────────
-// These are called from handleBackupRoutes in backup.go via the WG-specific paths.
 
-// handleWGRoutes handles /api/backup/wg/* endpoints.
 func handleWGRoutes(w http.ResponseWriter, r *http.Request, urlPath string, body map[string]interface{}) {
 	switch {
-	// GET /api/backup/wg/status
 	case urlPath == "/api/backup/wg/status" && r.Method == "GET":
 		jsonOk(w, getWGStatus())
 
-	// POST /api/backup/wg/setup — init WireGuard (generate keys, create config)
 	case urlPath == "/api/backup/wg/setup" && r.Method == "POST":
 		state, err := initWGState()
 		if err != nil {
@@ -554,7 +581,6 @@ func handleWGRoutes(w http.ResponseWriter, r *http.Request, urlPath string, body
 			"localIP":   state.LocalIP,
 		})
 
-	// POST /api/backup/wg/up — bring up interface
 	case urlPath == "/api/backup/wg/up" && r.Method == "POST":
 		state, err := loadWGState()
 		if err != nil || state == nil {
@@ -571,21 +597,18 @@ func handleWGRoutes(w http.ResponseWriter, r *http.Request, urlPath string, body
 		}
 		jsonOk(w, map[string]interface{}{"ok": true, "active": true})
 
-	// POST /api/backup/wg/down — take down interface
 	case urlPath == "/api/backup/wg/down" && r.Method == "POST":
 		wgDown()
 		jsonOk(w, map[string]interface{}{"ok": true, "active": false})
 
-	// POST /api/backup/pair/wg-exchange — handle remote key exchange
 	case urlPath == "/api/backup/pair/wg-exchange" && r.Method == "POST":
-		result := handleWGExchange(body)
+		result := handleWGExchange(body, r)
 		if errMsg, ok := result["error"].(string); ok && errMsg != "" {
 			jsonError(w, 500, errMsg)
 			return
 		}
 		jsonOk(w, result)
 
-	// DELETE /api/backup/wg/peer/:deviceId — remove a WG peer
 	case strings.HasPrefix(urlPath, "/api/backup/wg/peer/") && r.Method == "DELETE":
 		deviceID := strings.TrimPrefix(urlPath, "/api/backup/wg/peer/")
 		deviceID = strings.TrimSuffix(deviceID, "/")

@@ -2005,13 +2005,14 @@ func pairWithRemote(addr, username, password, totpCode string) map[string]interf
 			result["wireguard"] = wgResult
 
 			// Update local device addr to the remote's tunnel IP
-			if assignedIP, ok := wgResult["assignedIP"].(string); ok && assignedIP != "" {
-				dbBackupDeviceUpdate(id, "addr", assignedIP)
-				result["addr"] = assignedIP
-				logMsg("wireguard: updated device %s addr to tunnel IP %s", id, assignedIP)
+			// (so we use the tunnel to reach them from now on)
+			if remoteIP, ok := wgResult["remoteIP"].(string); ok && remoteIP != "" {
+				dbBackupDeviceUpdate(id, "addr", remoteIP)
+				result["addr"] = remoteIP
+				logMsg("wireguard: updated device %s addr to tunnel IP %s", id, remoteIP)
 			}
 
-			// Update the remote's record of us to our tunnel IP
+			// Tell the remote to update their record of us to our tunnel IP
 			if localIP, ok := wgResult["localIP"].(string); ok && localIP != "" {
 				updatePayload, _ := json.Marshal(map[string]interface{}{
 					"tunnelAddr": localIP,

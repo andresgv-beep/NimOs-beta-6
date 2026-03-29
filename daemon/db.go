@@ -130,6 +130,11 @@ func createTables() error {
 		return fmt.Errorf("backup tables: %v", err)
 	}
 
+	// Create notification table
+	if err := createNotificationTable(); err != nil {
+		return fmt.Errorf("notification table: %v", err)
+	}
+
 	return nil
 }
 

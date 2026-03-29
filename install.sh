@@ -503,8 +503,9 @@ setup_nginx() {
   systemctl stop apache2 2>/dev/null || true
   systemctl disable apache2 2>/dev/null || true
 
-  # Hide nginx version globally
-  sed -i '/http {/a \\tserver_tokens off;' /etc/nginx/nginx.conf 2>/dev/null || true
+  # Hide nginx version globally (only if not already set)
+  grep -q 'server_tokens off' /etc/nginx/nginx.conf 2>/dev/null || \
+    sed -i '/http {/a \\tserver_tokens off;' /etc/nginx/nginx.conf 2>/dev/null || true
 
   cat > /etc/nginx/sites-available/nimbusos << EOF
 server {

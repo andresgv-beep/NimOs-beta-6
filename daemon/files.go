@@ -26,6 +26,10 @@ func handleFilesRoutes(w http.ResponseWriter, r *http.Request) {
 		handleFileUpload(w, r)
 		return
 	}
+	if urlPath == "/api/files/upload-chunk" && method == "POST" {
+		handleChunkedUpload(w, r)
+		return
+	}
 	if strings.HasPrefix(urlPath, "/api/files/download") && method == "GET" {
 		handleFileDownload(w, r)
 		return
@@ -693,6 +697,164 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonOk(w, map[string]interface{}{"ok": true, "name": fileName})
+}
+
+// ═══════════════════════════════════
+// POST /api/files/upload-chunk (streaming chunked upload)
+// ═══════════════════════════════════
+//
+// Receives file in chunks. Each request sends one chunk with headers:
+//   X-Share, X-Path, X-Filename, X-Chunk-Index, X-Total-Chunks, X-Total-Size
+// Body = raw binary chunk data (no multipart)
+
+func handleChunkedUpload(w http.ResponseWriter, r *http.Request) {
+	session := requireAuth(w, r)
+	if session == nil {
+		return
+	}
+
+	shareName := r.Header.Get("X-Share")
+	uploadPath := r.Header.Get("X-Path")
+	rawFilename := r.Header.Get("X-Filename")
+	chunkIdx := r.Header.Get("X-Chunk-Index")
+	totalChunks := r.Header.Get("X-Total-Chunks")
+	totalSizeStr := r.Header.Get("X-Total-Size")
+
+	if shareName == "" || rawFilename == "" || chunkIdx == "" || totalChunks == "" {
+		jsonError(w, 400, "Missing chunk headers")
+		return
+	}
+
+	idx, _ := strconv.Atoi(chunkIdx)
+	total, _ := strconv.Atoi(totalChunks)
+	totalSize, _ := strconv.ParseInt(totalSizeStr, 10, 64)
+
+	if idx < 0 || total <= 0 {
+		jsonError(w, 400, "Invalid chunk index/total")
+		return
+	}
+
+	// Validate share
+	share, _ := resolveShare(shareName)
+	if share == nil {
+		jsonError(w, 404, "Share not found")
+		return
+	}
+	if !requireShareMounted(w, share) {
+		return
+	}
+	if getSharePermission(session, share) != "rw" {
+		jsonError(w, 403, "Write access denied")
+		return
+	}
+
+	// Sanitize
+	fileName := sanitizeFileName(rawFilename)
+	if fileName == "" || len(fileName) > 255 {
+		jsonError(w, 400, "Invalid filename")
+		return
+	}
+	if strings.Contains(uploadPath, "..") {
+		jsonError(w, 400, "Invalid upload path")
+		return
+	}
+
+	sharePath, _ := share["path"].(string)
+	fullPath, err := validatePathWithinShare(sharePath, filepath.Join(uploadPath, fileName))
+	if err != nil {
+		jsonError(w, 400, err.Error())
+		return
+	}
+
+	// On first chunk, check available space
+	if idx == 0 && totalSize > 0 {
+		availableBytes := getAvailableBytes(sharePath)
+		if availableBytes == 0 {
+			jsonError(w, 507, "Disk quota exceeded — no space available")
+			return
+		}
+		if availableBytes > 0 && totalSize > availableBytes {
+			jsonError(w, 507, fmt.Sprintf("Not enough space. File: %s, Available: %s",
+				fmtSizeFiles(totalSize), fmtSizeFiles(availableBytes)))
+			return
+		}
+	}
+
+	// Temp directory for chunks
+	tmpDir := filepath.Join(os.TempDir(), "nimos-chunks", fmt.Sprintf("%x", hashStr(shareName+uploadPath+fileName)))
+	os.MkdirAll(tmpDir, 0755)
+
+	// Write this chunk to temp file
+	chunkFile := filepath.Join(tmpDir, fmt.Sprintf("chunk_%05d", idx))
+	dst, err := os.Create(chunkFile)
+	if err != nil {
+		jsonError(w, 500, "Cannot create chunk file")
+		return
+	}
+	_, err = io.Copy(dst, r.Body)
+	dst.Close()
+	if err != nil {
+		os.Remove(chunkFile)
+		jsonError(w, 500, "Chunk write failed")
+		return
+	}
+
+	// If this is the last chunk, assemble the file
+	if idx == total-1 {
+		os.MkdirAll(filepath.Dir(fullPath), 0755)
+
+		finalFile, err := os.Create(fullPath)
+		if err != nil {
+			jsonError(w, 500, err.Error())
+			cleanupChunks(tmpDir)
+			return
+		}
+
+		// Concatenate all chunks in order
+		var writeErr error
+		for i := 0; i < total; i++ {
+			cf := filepath.Join(tmpDir, fmt.Sprintf("chunk_%05d", i))
+			chunk, err := os.Open(cf)
+			if err != nil {
+				writeErr = fmt.Errorf("missing chunk %d", i)
+				break
+			}
+			_, err = io.Copy(finalFile, chunk)
+			chunk.Close()
+			if err != nil {
+				writeErr = fmt.Errorf("write error at chunk %d: %v", i, err)
+				break
+			}
+		}
+		finalFile.Close()
+
+		// Cleanup temp chunks
+		cleanupChunks(tmpDir)
+
+		if writeErr != nil {
+			os.Remove(fullPath)
+			jsonError(w, 500, writeErr.Error())
+			return
+		}
+
+		jsonOk(w, map[string]interface{}{"ok": true, "name": fileName, "assembled": true})
+		return
+	}
+
+	// Not the last chunk — acknowledge
+	jsonOk(w, map[string]interface{}{"ok": true, "chunk": idx})
+}
+
+func hashStr(s string) uint32 {
+	var h uint32
+	for _, c := range s {
+		h = h*31 + uint32(c)
+	}
+	return h
+}
+
+func cleanupChunks(dir string) {
+	os.RemoveAll(dir)
 }
 
 func sanitizeFileName(name string) string {

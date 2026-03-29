@@ -276,6 +276,7 @@
         activePath={currentPath}
         activeShare={currentShare}
         onNavigate={navigate}
+        remote={false}
       />
     {/each}
 
@@ -290,6 +291,7 @@
           activePath={currentPath}
           activeShare={currentShare}
           onNavigate={navigate}
+          remote={true}
         />
       {/each}
     {/if}

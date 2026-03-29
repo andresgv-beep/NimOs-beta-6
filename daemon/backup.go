@@ -1535,6 +1535,20 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 			name := bodyStr(body, "name")
 			addr := bodyStr(body, "addr")
 			devType := bodyStr(body, "type")
+
+			// Clean addr: strip protocol, port, trailing slashes
+			addr = strings.TrimSpace(addr)
+			addr = strings.TrimPrefix(addr, "https://")
+			addr = strings.TrimPrefix(addr, "http://")
+			addr = strings.TrimRight(addr, "/")
+			// Strip port if present (e.g., "nimosbarraca.duckdns.org:5009" → "nimosbarraca.duckdns.org")
+			if idx := strings.LastIndex(addr, ":"); idx > 0 {
+				portPart := addr[idx+1:]
+				if _, err := strconv.Atoi(portPart); err == nil {
+					addr = addr[:idx]
+				}
+			}
+
 			if name == "" || addr == "" {
 				jsonError(w, 400, "Name and addr are required")
 				return
@@ -1711,6 +1725,18 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 			username := bodyStr(body, "username")
 			password := bodyStr(body, "password")
 			totpCode := bodyStr(body, "totpCode")
+
+			// Clean addr: strip protocol, port, trailing slashes
+			addr = strings.TrimSpace(addr)
+			addr = strings.TrimPrefix(addr, "https://")
+			addr = strings.TrimPrefix(addr, "http://")
+			addr = strings.TrimRight(addr, "/")
+			if idx := strings.LastIndex(addr, ":"); idx > 0 {
+				portPart := addr[idx+1:]
+				if _, err := strconv.Atoi(portPart); err == nil {
+					addr = addr[:idx]
+				}
+			}
 
 			if addr == "" || username == "" || password == "" {
 				jsonError(w, 400, "addr, username, and password are required")

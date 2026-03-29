@@ -3,9 +3,13 @@
   import { prefs } from '$lib/stores/theme.js';
   import { logout } from '$lib/stores/auth.js';
   import Taskbar from './Taskbar.svelte';
-  import BubbleContainer from '$lib/components/BubbleContainer.svelte';
   import WindowFrame from './WindowFrame.svelte';
   import WidgetLayer from './WidgetLayer.svelte';
+  import BubbleContainer from '$lib/components/BubbleContainer.svelte';
+  import { loadNotifications } from '$lib/stores/notifications.js';
+  import { onMount } from 'svelte';
+
+  onMount(() => { loadNotifications(); });
 </script>
 
 <div class="desktop" style={$prefs.wallpaper ? `background-image:url('${$prefs.wallpaper}');background-size:cover;background-position:center` : ''}>

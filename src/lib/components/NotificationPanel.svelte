@@ -95,10 +95,12 @@
     right: 12px;
     width: 340px;
     max-height: 440px;
-    background: var(--bg-inner);
-    border: 1px solid var(--border);
+    background: var(--taskbar-bg, rgba(17,16,40,0.82));
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    border: 1px solid var(--taskbar-border, rgba(255,255,255,0.08));
     border-radius: 14px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
     display: flex;
     flex-direction: column;
     overflow: hidden;

@@ -600,14 +600,20 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check available space before writing
+	availableBytes := getAvailableBytes(sharePath)
 	fileSize := header.Size
-	if fileSize > 0 {
-		availableBytes := getAvailableBytes(sharePath)
-		if availableBytes > 0 && fileSize > availableBytes {
-			jsonError(w, 507, fmt.Sprintf("Not enough space. File: %s, Available: %s",
-				fmtSizeFiles(fileSize), fmtSizeFiles(availableBytes)))
-			return
-		}
+
+	// Reject if we know the file is too big
+	if fileSize > 0 && availableBytes > 0 && fileSize > availableBytes {
+		jsonError(w, 507, fmt.Sprintf("Not enough space. File: %s, Available: %s",
+			fmtSizeFiles(fileSize), fmtSizeFiles(availableBytes)))
+		return
+	}
+
+	// Even if header.Size is unknown/zero, cap at available space
+	maxWrite := availableBytes
+	if maxWrite <= 0 {
+		maxWrite = 500 * 1024 * 1024 // fallback 500MB if df fails
 	}
 
 	// Ensure parent dir exists
@@ -618,13 +624,24 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 500, err.Error())
 		return
 	}
-	defer dst.Close()
 
-	if _, err := io.Copy(dst, file); err != nil {
-		// Write failed (likely disk full) — clean up partial file
-		dst.Close()
+	// Write with size limit — never write more than available space
+	written, copyErr := io.CopyN(dst, file, maxWrite)
+	dst.Close()
+
+	if copyErr != nil && copyErr != io.EOF {
+		// Write failed — clean up partial file
 		os.Remove(fullPath)
 		jsonError(w, 507, "Write failed — disk full or quota exceeded")
+		return
+	}
+
+	// Check if the file was truncated (more data remains but we hit the limit)
+	if copyErr != io.EOF {
+		// We wrote maxWrite bytes but there's more data — file was too big
+		os.Remove(fullPath)
+		jsonError(w, 507, fmt.Sprintf("File too large for available space. Written: %s, Available: %s",
+			fmtSizeFiles(written), fmtSizeFiles(availableBytes)))
 		return
 	}
 

@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import TreeNode from '$lib/components/TreeNode.svelte';
   import { getToken } from '$lib/stores/auth.js';
+  import { notifySuccess, notifyError, notifyWarning } from '$lib/stores/notifications.js';
 
   let shares = [];
   let currentShare = null;
@@ -77,10 +78,29 @@
   function uploadFiles() {
     const input = document.createElement('input'); input.type = 'file'; input.multiple = true;
     input.onchange = async (e) => {
+      let ok = 0, fail = 0;
       for (const f of e.target.files) {
-        const fd = new FormData(); fd.append('file', f); fd.append('share', currentShare); fd.append('path', currentPath);
-        await fetch('/api/files/upload', { method: 'POST', headers: { 'Authorization': `Bearer ${getToken()}` }, body: fd });
+        try {
+          const fd = new FormData(); fd.append('file', f); fd.append('share', currentShare); fd.append('path', currentPath);
+          const r = await fetch('/api/files/upload', { method: 'POST', headers: { 'Authorization': `Bearer ${getToken()}` }, body: fd });
+          const d = await r.json();
+          if (d.ok) {
+            ok++;
+          } else {
+            fail++;
+            const msg = d.error || 'Error desconocido';
+            if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('space') || msg.toLowerCase().includes('full')) {
+              notifyError(`Sin espacio: ${f.name}`, 'Carpeta llena');
+            } else {
+              notifyError(`Error al subir ${f.name}: ${msg}`, 'Upload');
+            }
+          }
+        } catch {
+          fail++;
+          notifyError(`No se pudo subir ${f.name}`, 'Upload');
+        }
       }
+      if (ok > 0) notifySuccess(ok === 1 ? `${e.target.files[0].name} subido correctamente` : `${ok} archivos subidos`, 'Files');
       fetchFiles();
     };
     input.click();
@@ -91,9 +111,17 @@
     if (!newFolderModal?.name?.trim() || !currentShare) return;
     const name = newFolderModal.name.trim();
     try {
-      await fetch("/api/files/mkdir", { method: "POST", headers: hdrs(), body: JSON.stringify({ share: currentShare, path: currentPath, name }) });
-      fetchFiles();
-    } catch {}
+      const r = await fetch("/api/files/mkdir", { method: "POST", headers: hdrs(), body: JSON.stringify({ share: currentShare, path: currentPath, name }) });
+      const d = await r.json();
+      if (d.ok) {
+        notifySuccess(`Carpeta "${name}" creada`, 'Files');
+        fetchFiles();
+      } else {
+        notifyError(d.error || `No se pudo crear "${name}"`, 'Files');
+      }
+    } catch {
+      notifyError(`No se pudo crear "${name}"`, 'Files');
+    }
     newFolderModal = null;
   }
   // ── Context menu ──
@@ -170,21 +198,33 @@
     const destPath = currentPath === '/'
       ? `/${clipboard.file.name}`
       : `${currentPath}/${clipboard.file.name}`;
-    const res = await fetch('/api/files/paste', {
-      method: 'POST', headers: hdrs(),
-      body: JSON.stringify({
-        srcShare: clipboard.share,
-        srcPath: clipboard.path,
-        destShare: currentShare,
-        destPath,
-        action: clipboard.op
-      })
-    });
-    const d = await res.json();
-    if (d.ok) {
-      if (clipboard.op === 'cut') clipboard = null;
-      fetchFiles();
-    } else alert(d.error || 'Error al pegar');
+    try {
+      const res = await fetch('/api/files/paste', {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({
+          srcShare: clipboard.share,
+          srcPath: clipboard.path,
+          destShare: currentShare,
+          destPath,
+          action: clipboard.op
+        })
+      });
+      const d = await res.json();
+      if (d.ok) {
+        if (clipboard.op === 'cut') clipboard = null;
+        notifySuccess(`${clipboard?.file?.name || 'Archivo'} ${clipboard?.op === 'cut' ? 'movido' : 'copiado'} correctamente`, 'Files');
+        fetchFiles();
+      } else {
+        const msg = d.error || 'Error al pegar';
+        if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('space') || msg.toLowerCase().includes('full')) {
+          notifyError(`Sin espacio: ${clipboard.file.name}`, 'Carpeta llena');
+        } else {
+          notifyError(msg, 'Files');
+        }
+      }
+    } catch {
+      notifyError('Error de conexión al pegar', 'Files');
+    }
   }
 
   function startRename(file) {

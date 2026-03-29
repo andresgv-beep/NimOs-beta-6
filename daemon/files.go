@@ -519,6 +519,35 @@ func filesPaste(w http.ResponseWriter, r *http.Request, session map[string]inter
 			return
 		}
 	} else {
+		// Check available space on destination before copying
+		srcInfo, statErr := os.Stat(fullSrc)
+		if statErr != nil {
+			jsonError(w, 404, "Source not found")
+			return
+		}
+		var srcSize int64
+		if srcInfo.IsDir() {
+			// For directories, get total size with du
+			if out, ok := run(fmt.Sprintf(`du -sb "%s" 2>/dev/null | awk '{print $1}'`, fullSrc)); ok {
+				fmt.Sscanf(strings.TrimSpace(out), "%d", &srcSize)
+			}
+		} else {
+			srcSize = srcInfo.Size()
+		}
+
+		availableBytes := getAvailableBytes(destSharePath)
+		logMsg("paste: src=%s size=%d dest=%s available=%d", fullSrc, srcSize, destSharePath, availableBytes)
+
+		if availableBytes == 0 {
+			jsonError(w, 507, "Disk quota exceeded — no space available on destination")
+			return
+		}
+		if srcSize > 0 && availableBytes > 0 && srcSize > availableBytes {
+			jsonError(w, 507, fmt.Sprintf("Not enough space. Source: %s, Available: %s",
+				fmtSizeFiles(srcSize), fmtSizeFiles(availableBytes)))
+			return
+		}
+
 		// Copy recursively
 		if _, ok := run(fmt.Sprintf(`cp -r "%s" "%s"`, fullSrc, fullDest)); !ok {
 			jsonError(w, 500, "Copy failed")

@@ -49,35 +49,12 @@
     fetchShares();
     fetchStorage();
 
-    const handleCtx = (e) => {
-      if (!gridEl || !gridEl.contains(e.target)) return;
-      const item = e.target.closest('.f-item');
-      e.preventDefault();
-      if (!item) {
-        if (clipboard && currentShare) {
-          const p = calcMenuPos(e); ctxMenu = { x: p.x, y: p.y, file: null, idx: -1 };
-        }
-        return;
-      }
-      const idx = parseInt(item.dataset.idx);
-      const file = sorted[idx];
-      if (!file) return;
-      if (!selected.has(idx)) selected = new Set([idx]);
-      const p = calcMenuPos(e); ctxMenu = { x: p.x, y: p.y, file, idx };
-    };
-
     const handleMouseDown = (e) => {
       if (e.button === 2) return;
       if (!e.target.closest('.ctx-menu')) closeCtx();
     };
-
-    gridEl.addEventListener('contextmenu', handleCtx);
     document.addEventListener('mousedown', handleMouseDown);
-
-    return () => {
-      gridEl.removeEventListener('contextmenu', handleCtx);
-      document.removeEventListener('mousedown', handleMouseDown);
-    };
+    return () => { document.removeEventListener('mousedown', handleMouseDown); };
   });
   $: if (currentShare !== undefined || currentPath) fetchFiles();
 
@@ -369,7 +346,8 @@
       <!-- FILE GRID / LIST -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       {#if viewMode === 'grid'}
-        <div class="file-grid" bind:this={gridEl}>
+        <div class="file-grid" bind:this={gridEl}
+          on:contextmenu={(e) => { if (!e.target.closest('.f-item') && clipboard && currentShare) { e.preventDefault(); const p = calcMenuPos(e); ctxMenu = { x: p.x, y: p.y, file: null, idx: -1 }; } }}>
           {#if !currentShare}
             {#each shares.filter(s => !s.remote) as share}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -394,7 +372,8 @@
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div class="f-item" class:sel={selected.has(i)} class:cut={clipboard?.op === 'cut' && clipboard?.path === filePath(file)}
-                data-idx={i} on:click={(e) => toggleSelect(i, e)} on:dblclick={() => openItem(file)}>
+                data-idx={i} on:click={(e) => toggleSelect(i, e)} on:dblclick={() => openItem(file)}
+                on:contextmenu={(e) => onContextMenu(e, file, i)}>
                 <div class="f-icon">{fIcon(file)}</div>
                 <div class="f-name">{file.name}</div>
                 <div class="f-date">{fDate(file.modified)}</div>
@@ -404,7 +383,8 @@
           {/if}
         </div>
       {:else}
-        <div class="file-list" bind:this={gridEl}>
+        <div class="file-list" bind:this={gridEl}
+          on:contextmenu={(e) => { if (!e.target.closest('.fl-row') && clipboard && currentShare) { e.preventDefault(); const p = calcMenuPos(e); ctxMenu = { x: p.x, y: p.y, file: null, idx: -1 }; } }}>
           {#if !currentShare}
             {#each [...shares.filter(s => !s.remote), ...shares.filter(s => s.remote)] as share}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -433,6 +413,7 @@
           {/if}
         </div>
       {/if}
+
 
       <!-- STATUSBAR -->
       <div class="statusbar">

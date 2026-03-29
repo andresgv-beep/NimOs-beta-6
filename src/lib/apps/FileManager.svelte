@@ -112,9 +112,9 @@
 
   async function createFolder() {
     if (!newFolderModal?.name?.trim() || !currentShare) return;
-    const folderPath = currentPath === "/" ? "/" + newFolderModal.name.trim() : currentPath + "/" + newFolderModal.name.trim();
+    const name = newFolderModal.name.trim();
     try {
-      await fetch("/api/files/mkdir", { method: "POST", headers: hdrs(), body: JSON.stringify({ share: currentShare, path: folderPath }) });
+      await fetch("/api/files/mkdir", { method: "POST", headers: hdrs(), body: JSON.stringify({ share: currentShare, path: currentPath, name }) });
       fetchFiles();
     } catch {}
     newFolderModal = null;
@@ -654,7 +654,7 @@
   .inner { flex:1; border-radius:10px; border:1px solid var(--border); background:var(--bg-inner); display:flex; flex-direction:column; overflow:hidden; }
 
   /* Titlebar */
-  .inner-titlebar { display:flex; align-items:center; gap:8px; padding:10px 14px 9px; background:var(--bg-bar); flex-shrink:0; border-bottom:1px solid var(--border); }
+  .inner-titlebar { display:flex; align-items:center; gap:8px; padding:10px 14px 9px; background:var(--bg-bar); flex-shrink:0; border-bottom:1px solid var(--border); position:relative; z-index:2; }
   .nav-btn { background:none; border:none; cursor:pointer; color:var(--text-2); padding:4px; border-radius:6px; line-height:1; transition:all .15s; display:flex; align-items:center; }
   .nav-btn svg { width:16px; height:16px; }
   .nav-btn:hover { background:rgba(128,128,128,0.10); color:var(--text-1); }

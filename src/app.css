@@ -5,7 +5,8 @@
 
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+input, textarea, [contenteditable] { user-select: text; -webkit-user-select: text; }
 html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'DM Sans', sans-serif; }
 
 /* ── Midnight (default) ── */

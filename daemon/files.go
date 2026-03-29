@@ -780,8 +780,8 @@ func handleChunkedUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Store chunks on disk (NOT /tmp which is tmpfs/RAM on many systems)
-	tmpDir := filepath.Join("/var/lib/nimbusos/chunks", fmt.Sprintf("%x", hashStr(shareName+uploadPath+fileName)))
+	// Store chunks on the destination pool (not system disk)
+	tmpDir := filepath.Join(sharePath, ".nimchunks", fmt.Sprintf("%x", hashStr(uploadPath+fileName)))
 	os.MkdirAll(tmpDir, 0755)
 
 	// Write this chunk to temp file

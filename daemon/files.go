@@ -542,6 +542,7 @@ func filesPaste(w http.ResponseWriter, r *http.Request, session map[string]inter
 			jsonError(w, 507, "Disk quota exceeded — no space available on destination")
 			return
 		}
+		// availableBytes == -1 means unknown — allow the operation
 		if srcSize > 0 && availableBytes > 0 && srcSize > availableBytes {
 			jsonError(w, 507, fmt.Sprintf("Not enough space. Source: %s, Available: %s",
 				fmtSizeFiles(srcSize), fmtSizeFiles(availableBytes)))
@@ -844,6 +845,7 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 // For BTRFS subvolumes with quota, uses btrfs subvolume show (quota limit - usage).
 // For ZFS datasets with quota, uses zfs get.
 // Falls back to df for other filesystems.
+// Returns -1 if space cannot be determined (caller should allow the operation).
 func getAvailableBytes(path string) int64 {
 	// Try BTRFS quota first
 	if out, ok := run(fmt.Sprintf("btrfs subvolume show %s 2>/dev/null", path)); ok && out != "" {
@@ -868,10 +870,10 @@ func getAvailableBytes(path string) int64 {
 			}
 			return avail
 		}
+		// BTRFS subvolume without quota — fall through to df
 	}
 
 	// Try ZFS quota
-	// Find dataset name from path (e.g., /nimbus/pools/volume2/shares/data → nimos-volume2/shares/data)
 	if strings.HasPrefix(path, "/nimbus/pools/") {
 		parts := strings.Split(strings.TrimPrefix(path, "/nimbus/pools/"), "/")
 		if len(parts) >= 1 {
@@ -886,15 +888,22 @@ func getAvailableBytes(path string) int64 {
 		}
 	}
 
-	// Fallback to df
+	// Fallback to df (try with sudo for permission-restricted paths)
 	out, ok := run(fmt.Sprintf("df -B1 --output=avail %s 2>/dev/null | tail -1", path))
-	if !ok {
-		return 0
+	if !ok || strings.TrimSpace(out) == "" {
+		out, ok = run(fmt.Sprintf("sudo df -B1 --output=avail %s 2>/dev/null | tail -1", path))
 	}
-	s := strings.TrimSpace(out)
-	var n int64
-	fmt.Sscanf(s, "%d", &n)
-	return n
+	if ok {
+		s := strings.TrimSpace(out)
+		var n int64
+		fmt.Sscanf(s, "%d", &n)
+		if n > 0 {
+			return n
+		}
+	}
+
+	// Cannot determine available space — return -1 to signal "unknown"
+	return -1
 }
 
 // parseHumanBytesFiles parses strings like "4.66GiB", "7.20GiB", "500.00MiB" into bytes.

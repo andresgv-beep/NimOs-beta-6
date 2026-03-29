@@ -1,6 +1,9 @@
 <script>
   import { fly } from 'svelte/transition';
   import { notifications, hideBubble } from '$lib/stores/notifications.js';
+  import { uploadTasks, removeTask } from '$lib/stores/uploadTasks.js';
+
+  $: activeTasks = $uploadTasks.filter(t => t.status === 'uploading' || t.status === 'done');
 
   const DURATION = 5000;
   const MAX = 2;
@@ -59,6 +62,39 @@
       </div>
     </div>
   {/each}
+
+  {#each $uploadTasks as task (task.id)}
+    <div class="bubble upload-bubble" class:done={task.status === 'done'} class:error={task.status === 'error'}>
+      <div class="b-stripe" class:b-success={task.status === 'done'} class:b-error={task.status === 'error'} class:b-info={task.status === 'uploading'}></div>
+      <div class="b-ico" class:b-success={task.status === 'done'} class:b-error={task.status === 'error'} class:b-info={task.status === 'uploading'}>
+        {#if task.status === 'done'}
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+        {:else if task.status === 'error'}
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        {:else}
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        {/if}
+      </div>
+      <div class="b-body">
+        <div class="b-title">{task.name}</div>
+        {#if task.status === 'uploading'}
+          <div class="up-track"><div class="up-fill" style="width:{task.progress}%"></div></div>
+          <div class="up-pct">{task.progress}%</div>
+        {:else if task.status === 'done'}
+          <div class="b-msg" style="color:var(--green)">Subido correctamente</div>
+        {:else}
+          <div class="b-msg" style="color:var(--red)">{task.error || 'Error al subir'}</div>
+        {/if}
+      </div>
+      {#if task.status !== 'uploading'}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="b-close" on:click={() => removeTask(task.id)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </div>
+      {/if}
+    </div>
+  {/each}
 </div>
 
 <style>
@@ -98,4 +134,10 @@
   .b-close { width:16px; height:16px; flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-3); border-radius:4px; transition:color .15s; margin-top:1px; }
   .b-close:hover { color:var(--red); }
   .b-close svg { width:10px; height:10px; }
+  .upload-bubble { animation: none; }
+  .upload-bubble.done { border-left:2px solid var(--green); }
+  .upload-bubble.error { border-left:2px solid var(--red); }
+  .up-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:6px; }
+  .up-fill { height:100%; background:var(--accent); border-radius:2px; transition:width .3s ease; }
+  .up-pct { font-size:9px; color:var(--text-3); font-family:"DM Mono",monospace; margin-top:3px; }
 </style>

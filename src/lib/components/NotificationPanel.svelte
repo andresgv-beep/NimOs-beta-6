@@ -1,9 +1,10 @@
 <script>
   import { notifications, unreadCount, dismissNotification, clearCategory, markAllRead } from '$lib/stores/notifications.js';
+  import { uploadTasks, removeTask, clearDone } from '$lib/stores/uploadTasks.js';
 
   export let open = false;
 
-  let activeTab = 'notification'; // 'notification' | 'system'
+  let activeTab = 'notification'; // 'notification' | 'system' | 'tasks'
 
   $: general = $notifications.filter(n => n.category === 'notification');
   $: system  = $notifications.filter(n => n.category === 'system');
@@ -28,7 +29,15 @@
   }
 
   function clearCurrent() {
-    clearCategory(activeTab);
+    if (activeTab === 'tasks') clearDone();
+    else clearCategory(activeTab);
+  }
+
+  function fmtSize(b) {
+    if (!b) return '';
+    if (b >= 1e9) return (b/1e9).toFixed(1) + ' GB';
+    if (b >= 1e6) return (b/1e6).toFixed(0) + ' MB';
+    return (b/1e3).toFixed(0) + ' KB';
   }
 </script>
 
@@ -52,6 +61,9 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <span class="np-tab" class:on={activeTab === 'system'} on:click={() => activeTab = 'system'}>Sistema</span>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <span class="np-tab" class:on={activeTab === 'tasks'} on:click={() => activeTab = 'tasks'}>Tareas{#if $uploadTasks.length > 0} <span class="tab-badge">{$uploadTasks.length}</span>{/if}</span>
     </div>
 
     <div class="np-list">
@@ -83,6 +95,46 @@
         {/each}
       {/if}
     </div>
+
+    {#if activeTab === 'tasks'}
+      <div class="np-list">
+        {#if $uploadTasks.length === 0}
+          <div class="np-empty">Sin tareas activas</div>
+        {:else}
+          {#each $uploadTasks as task (task.id)}
+            <div class="task-item" class:task-done={task.status === 'done'} class:task-error={task.status === 'error'}>
+              <div class="task-ico t-{task.status === 'done' ? 'success' : task.status === 'error' ? 'error' : 'info'}">
+                {#if task.status === 'done'}
+                  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                {:else if task.status === 'error'}
+                  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                {/if}
+              </div>
+              <div class="task-body">
+                <div class="task-name">{task.name}</div>
+                {#if task.status === 'uploading'}
+                  <div class="task-track"><div class="task-fill" style="width:{task.progress}%"></div></div>
+                  <div class="task-pct">{task.progress}% · {fmtSize(task.size)}</div>
+                {:else if task.status === 'done'}
+                  <div class="task-meta" style="color:var(--green)">Completado · {fmtSize(task.size)}</div>
+                {:else}
+                  <div class="task-meta" style="color:var(--red)">{task.error || 'Error'}</div>
+                {/if}
+              </div>
+              {#if task.status !== 'uploading'}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <span class="np-x" on:click={() => removeTask(task.id)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </span>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -148,4 +200,23 @@
   .np-x svg { width:10px; height:10px; }
 
   .np-empty { text-align:center; padding:32px; color:var(--text-3); font-size:11px; }
+
+  .tab-badge { display:inline-flex; align-items:center; justify-content:center; background:var(--accent); color:#fff; font-size:8px; font-weight:700; border-radius:6px; padding:0 4px; min-width:14px; height:14px; margin-left:3px; vertical-align:middle; }
+
+  .task-item { display:flex; align-items:flex-start; gap:10px; padding:11px 14px; border-left:2px solid transparent; transition:background .12s; }
+  .task-item + .task-item { border-top:1px solid var(--border); }
+  .task-item:hover { background:var(--ibtn-bg); }
+  .task-done { border-left-color:var(--green); }
+  .task-error { border-left-color:var(--red); }
+  .task-ico { width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+  .task-ico svg { width:11px; height:11px; fill:none; stroke-width:2.5; stroke-linecap:round; }
+  .t-success { background:rgba(74,222,128,0.12); } .t-success svg { stroke:var(--green); }
+  .t-error   { background:rgba(248,113,113,0.12); } .t-error svg { stroke:var(--red); }
+  .t-info    { background:rgba(124,111,255,0.12); } .t-info svg { stroke:var(--accent); }
+  .task-body { flex:1; min-width:0; }
+  .task-name { font-size:11px; font-weight:600; color:var(--text-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .task-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:5px; }
+  .task-fill { height:100%; background:var(--accent); border-radius:2px; transition:width .3s ease; }
+  .task-pct { font-size:9px; color:var(--text-3); font-family:"DM Mono",monospace; margin-top:3px; }
+  .task-meta { font-size:10px; margin-top:2px; }
 </style>

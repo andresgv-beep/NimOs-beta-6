@@ -599,6 +599,17 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check available space before writing
+	fileSize := header.Size
+	if fileSize > 0 {
+		availableBytes := getAvailableBytes(sharePath)
+		if availableBytes > 0 && fileSize > availableBytes {
+			jsonError(w, 507, fmt.Sprintf("Not enough space. File: %s, Available: %s",
+				fmtSizeFiles(fileSize), fmtSizeFiles(availableBytes)))
+			return
+		}
+	}
+
 	// Ensure parent dir exists
 	os.MkdirAll(filepath.Dir(fullPath), 0755)
 
@@ -610,7 +621,10 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
-		jsonError(w, 500, err.Error())
+		// Write failed (likely disk full) — clean up partial file
+		dst.Close()
+		os.Remove(fullPath)
+		jsonError(w, 507, "Write failed — disk full or quota exceeded")
 		return
 	}
 
@@ -770,4 +784,26 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	io.Copy(w, f)
+}
+
+// getAvailableBytes returns available bytes on the filesystem containing path.
+func getAvailableBytes(path string) int64 {
+	out, ok := run(fmt.Sprintf("df -B1 --output=avail %s 2>/dev/null | tail -1", path))
+	if !ok {
+		return 0
+	}
+	s := strings.TrimSpace(out)
+	var n int64
+	fmt.Sscanf(s, "%d", &n)
+	return n
+}
+
+func fmtSizeFiles(b int64) string {
+	if b >= 1e9 {
+		return fmt.Sprintf("%.1f GB", float64(b)/1e9)
+	}
+	if b >= 1e6 {
+		return fmt.Sprintf("%.0f MB", float64(b)/1e6)
+	}
+	return fmt.Sprintf("%.0f KB", float64(b)/1e3)
 }

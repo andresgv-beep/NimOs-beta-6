@@ -511,11 +511,16 @@ func reconcile() Response {
 			fixed++
 		}
 
-		// 2. Ensure directory permissions
+		// 2. Ensure directory permissions (skip if quota is near full to avoid blocking)
 		if _, err := os.Stat(sharePath); err == nil {
-			run(fmt.Sprintf(`chown root:%s "%s"`, group, sharePath))
-			run(fmt.Sprintf(`chmod 2770 "%s"`, sharePath))
-			run(fmt.Sprintf(`setfacl -d -m g:%s:rwx "%s" 2>/dev/null`, group, sharePath))
+			avail := getAvailableBytes(sharePath)
+			if avail < 1024*1024 { // less than 1MB free — skip permissions
+				logMsg("  reconcile: skipping permissions for %s (disk full, %d bytes free)", name, avail)
+			} else {
+				run(fmt.Sprintf(`chown root:%s "%s"`, group, sharePath))
+				run(fmt.Sprintf(`chmod 2770 "%s"`, sharePath))
+				run(fmt.Sprintf(`setfacl -d -m g:%s:rwx "%s" 2>/dev/null`, group, sharePath))
+			}
 		}
 
 		// 3. Ensure user permissions match DB

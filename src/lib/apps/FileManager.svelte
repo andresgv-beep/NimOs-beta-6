@@ -3,7 +3,7 @@
   import TreeNode from '$lib/components/TreeNode.svelte';
   import { getToken } from '$lib/stores/auth.js';
   import { notifySuccess, notifyError, notifyWarning } from '$lib/stores/notifications.js';
-  import { addTask, updateProgress, completeTask, failTask } from '$lib/stores/uploadTasks.js';
+  import { addTask, updateProgress, completeTask, failTask, removeTask } from '$lib/stores/uploadTasks.js';
 
   let shares = [];
   let currentShare = null;
@@ -96,6 +96,8 @@
             const d = JSON.parse(xhr.responseText);
             if (d.ok) {
               completeTask(taskId);
+              notifySuccess(f.name, 'Subido correctamente');
+              setTimeout(() => removeTask(taskId), 3000);
             } else {
               const msg = d.error || 'Error desconocido';
               failTask(taskId, msg);

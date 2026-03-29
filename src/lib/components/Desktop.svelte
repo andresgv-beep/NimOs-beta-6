@@ -3,6 +3,7 @@
   import { prefs } from '$lib/stores/theme.js';
   import { logout } from '$lib/stores/auth.js';
   import Taskbar from './Taskbar.svelte';
+  import BubbleContainer from '$lib/components/BubbleContainer.svelte';
   import WindowFrame from './WindowFrame.svelte';
   import WidgetLayer from './WidgetLayer.svelte';
 </script>
@@ -20,6 +21,9 @@
 
   <!-- Taskbar -->
   <Taskbar />
+
+  <!-- Notifications -->
+  <BubbleContainer />
 </div>
 
 <style>

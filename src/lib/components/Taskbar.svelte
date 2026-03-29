@@ -4,8 +4,11 @@
   import { logout } from '$lib/stores/auth.js';
   import { APP_META } from '$lib/apps.js';
   import Launcher from './Launcher.svelte';
+  import NotificationPanel from '$lib/components/NotificationPanel.svelte';
+  import { unreadCount } from '$lib/stores/notifications.js';
 
   let showLauncher = false;
+  let showNotifPanel = false;
 
   function isIconUrl(icon) { return icon && (icon.startsWith('/') || icon.startsWith('http')); }
 
@@ -143,6 +146,20 @@
       <div class="clock-wrap">
         <span class="clock">{time}</span>
         <span class="clock-date">{date}</span>
+      </div>
+      <div class="notif-bell-wrap">
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="notif-bell" class:active={showNotifPanel} on:click={() => showNotifPanel = !showNotifPanel}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          {#if $unreadCount > 0}
+            <div class="notif-badge">{$unreadCount > 9 ? '9+' : $unreadCount}</div>
+          {/if}
+        </div>
+        <NotificationPanel bind:open={showNotifPanel} />
       </div>
       <div class="sep"></div>
       <button class="tb-btn" title="Cerrar sesión" on:click={logout}>
@@ -324,6 +341,13 @@
     background: var(--active-bg); color: var(--text-1);
   }
 
+  .notif-bell-wrap { position:relative; display:flex; align-items:center; }
+  .notif-bell { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; transition:background .15s; }
+  .notif-bell:hover { background:var(--ibtn-bg); }
+  .notif-bell.active { background:rgba(124,111,255,0.12); }
+  .notif-bell svg { width:15px; height:15px; color:var(--text-2); transition:color .15s; }
+  .notif-bell:hover svg, .notif-bell.active svg { color:var(--text-1); }
+  .notif-badge { position:absolute; top:5px; right:5px; min-width:13px; height:13px; border-radius:7px; background:var(--red); font-size:8px; font-weight:700; color:#fff; display:flex; align-items:center; justify-content:center; padding:0 3px; }
   .sep {
     width: 1px; height: 22px;
     background: var(--border);

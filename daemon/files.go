@@ -803,8 +803,53 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, f)
 }
 
-// getAvailableBytes returns available bytes on the filesystem containing path.
+// getAvailableBytes returns available bytes for writing to the given path.
+// For BTRFS subvolumes with quota, uses btrfs subvolume show (quota limit - usage).
+// For ZFS datasets with quota, uses zfs get.
+// Falls back to df for other filesystems.
 func getAvailableBytes(path string) int64 {
+	// Try BTRFS quota first
+	if out, ok := run(fmt.Sprintf("btrfs subvolume show %s 2>/dev/null", path)); ok && out != "" {
+		var limitBytes, usedBytes int64
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "Limit referenced:") {
+				val := strings.TrimSpace(strings.TrimPrefix(line, "Limit referenced:"))
+				if val != "-" && val != "none" {
+					limitBytes = parseHumanBytesFiles(val)
+				}
+			}
+			if strings.HasPrefix(line, "Usage referenced:") {
+				val := strings.TrimSpace(strings.TrimPrefix(line, "Usage referenced:"))
+				usedBytes = parseHumanBytesFiles(val)
+			}
+		}
+		if limitBytes > 0 {
+			avail := limitBytes - usedBytes
+			if avail < 0 {
+				avail = 0
+			}
+			return avail
+		}
+	}
+
+	// Try ZFS quota
+	// Find dataset name from path (e.g., /nimbus/pools/volume2/shares/data → nimos-volume2/shares/data)
+	if strings.HasPrefix(path, "/nimbus/pools/") {
+		parts := strings.Split(strings.TrimPrefix(path, "/nimbus/pools/"), "/")
+		if len(parts) >= 1 {
+			dataset := "nimos-" + strings.Join(parts, "/")
+			if out, ok := run(fmt.Sprintf("zfs get -Hp -o value available %s 2>/dev/null", dataset)); ok && out != "" {
+				var n int64
+				fmt.Sscanf(strings.TrimSpace(out), "%d", &n)
+				if n > 0 {
+					return n
+				}
+			}
+		}
+	}
+
+	// Fallback to df
 	out, ok := run(fmt.Sprintf("df -B1 --output=avail %s 2>/dev/null | tail -1", path))
 	if !ok {
 		return 0
@@ -813,6 +858,35 @@ func getAvailableBytes(path string) int64 {
 	var n int64
 	fmt.Sscanf(s, "%d", &n)
 	return n
+}
+
+// parseHumanBytesFiles parses strings like "4.66GiB", "7.20GiB", "500.00MiB" into bytes.
+func parseHumanBytesFiles(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "-" || s == "none" {
+		return 0
+	}
+
+	multiplier := int64(1)
+	if strings.HasSuffix(s, "TiB") {
+		multiplier = 1024 * 1024 * 1024 * 1024
+		s = strings.TrimSuffix(s, "TiB")
+	} else if strings.HasSuffix(s, "GiB") {
+		multiplier = 1024 * 1024 * 1024
+		s = strings.TrimSuffix(s, "GiB")
+	} else if strings.HasSuffix(s, "MiB") {
+		multiplier = 1024 * 1024
+		s = strings.TrimSuffix(s, "MiB")
+	} else if strings.HasSuffix(s, "KiB") {
+		multiplier = 1024
+		s = strings.TrimSuffix(s, "KiB")
+	} else if strings.HasSuffix(s, "B") {
+		s = strings.TrimSuffix(s, "B")
+	}
+
+	var val float64
+	fmt.Sscanf(strings.TrimSpace(s), "%f", &val)
+	return int64(val * float64(multiplier))
 }
 
 func fmtSizeFiles(b int64) string {

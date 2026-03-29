@@ -9,6 +9,7 @@
   export let activePath;
   export let activeShare;
   export let onNavigate;
+  export let remote = false; // root level: is this a remote share?
 
   const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}` });
 
@@ -42,16 +43,21 @@
 
   $: isActive = activeShare === share && activePath === path;
   $: indent = depth * 12;
+  $: iconColor = remote ? '#3b82f6' : '#f59e0b';
 </script>
 
 <div class="tree-item" class:active={isActive} style="padding-left:{14 + indent}px"
   on:click={handleClick} on:keydown role="button" tabindex="0">
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="tree-chevron" class:open={expanded} class:invisible={children !== null && children.length === 0} on:click={toggle}>
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+  <div class="tree-chevron" class:open={expanded}
+    class:invisible={children !== null && children.length === 0}
+    on:click={toggle}>
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+      <polyline points="9 18 15 12 9 6"/>
+    </svg>
   </div>
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="tree-folder-ico">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={iconColor} stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="tree-folder-ico">
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
   </svg>
   <span class="tree-name">{name}</span>
@@ -67,6 +73,7 @@
       activePath={activePath}
       activeShare={activeShare}
       onNavigate={onNavigate}
+      remote={remote}
     />
   {/each}
 {/if}
@@ -80,6 +87,6 @@
   .tree-chevron.open { transform:rotate(90deg); }
   .tree-chevron.invisible { visibility:hidden; pointer-events:none; }
   .tree-chevron svg { pointer-events:none; }
-  .tree-folder-ico { flex-shrink:0; opacity:.7; }
+  .tree-folder-ico { flex-shrink:0; }
   .tree-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 </style>

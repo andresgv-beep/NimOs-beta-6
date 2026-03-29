@@ -3,6 +3,7 @@
   import TreeNode from '$lib/components/TreeNode.svelte';
   import { getToken } from '$lib/stores/auth.js';
   import { notifySuccess, notifyError, notifyWarning } from '$lib/stores/notifications.js';
+  import { addTask, updateProgress, completeTask, failTask } from '$lib/stores/uploadTasks.js';
 
   let shares = [];
   let currentShare = null;
@@ -78,29 +79,39 @@
   function uploadFiles() {
     const input = document.createElement('input'); input.type = 'file'; input.multiple = true;
     input.onchange = async (e) => {
-      let ok = 0, fail = 0;
-      for (const f of e.target.files) {
-        try {
-          const fd = new FormData(); fd.append('file', f); fd.append('share', currentShare); fd.append('path', currentPath);
-          const r = await fetch('/api/files/upload', { method: 'POST', headers: { 'Authorization': `Bearer ${getToken()}` }, body: fd });
-          const d = await r.json();
-          if (d.ok) {
-            ok++;
-          } else {
-            fail++;
-            const msg = d.error || 'Error desconocido';
-            if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('space') || msg.toLowerCase().includes('full')) {
-              notifyError(`Sin espacio: ${f.name}`, 'Carpeta llena');
+      const files = Array.from(e.target.files);
+      const uploads = files.map(f => ({ f, taskId: addTask(f.name, f.size) }));
+
+      await Promise.all(uploads.map(({ f, taskId }) => new Promise(resolve => {
+        const fd = new FormData();
+        fd.append('file', f); fd.append('share', currentShare); fd.append('path', currentPath);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/files/upload');
+        xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`);
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) updateProgress(taskId, Math.round((ev.loaded / ev.total) * 100));
+        };
+        xhr.onload = () => {
+          try {
+            const d = JSON.parse(xhr.responseText);
+            if (d.ok) {
+              completeTask(taskId);
             } else {
-              notifyError(`Error al subir ${f.name}: ${msg}`, 'Upload');
+              const msg = d.error || 'Error desconocido';
+              failTask(taskId, msg);
+              if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('space') || msg.toLowerCase().includes('full')) {
+                notifyError(`Sin espacio: ${f.name}`, 'Carpeta llena');
+              } else {
+                notifyError(`Error al subir ${f.name}`, 'Upload');
+              }
             }
-          }
-        } catch {
-          fail++;
-          notifyError(`No se pudo subir ${f.name}`, 'Upload');
-        }
-      }
-      if (ok > 0) notifySuccess(ok === 1 ? `${e.target.files[0].name} subido correctamente` : `${ok} archivos subidos`, 'Files');
+          } catch { failTask(taskId, 'Error de respuesta'); }
+          resolve();
+        };
+        xhr.onerror = () => { failTask(taskId, 'Error de conexión'); notifyError(`No se pudo subir ${f.name}`, 'Upload'); resolve(); };
+        xhr.send(fd);
+      })));
+
       fetchFiles();
     };
     input.click();

@@ -62,7 +62,7 @@
 </div>
 
 <style>
-  .bubble-container { position:fixed; bottom:calc(var(--taskbar-height,48px) + 16px); right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; align-items:flex-end; }
+  .bubble-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; align-items:flex-end; }
 
   .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1px solid var(--glass-border); border-radius:11px; padding:11px 12px 0; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; }
 

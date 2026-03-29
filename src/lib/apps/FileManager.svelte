@@ -76,43 +76,65 @@
     if (e?.ctrlKey || e?.metaKey) { const n = new Set(selected); n.has(i) ? n.delete(i) : n.add(i); selected = n; }
     else selected = new Set([i]);
   }
+  const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB per chunk
+
   function uploadFiles() {
     const input = document.createElement('input'); input.type = 'file'; input.multiple = true;
     input.onchange = async (e) => {
       const files = Array.from(e.target.files);
-      const uploads = files.map(f => ({ f, taskId: addTask(f.name, f.size) }));
 
-      await Promise.all(uploads.map(({ f, taskId }) => new Promise(resolve => {
-        const fd = new FormData();
-        fd.append('file', f); fd.append('share', currentShare); fd.append('path', currentPath);
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/files/upload');
-        xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`);
-        xhr.upload.onprogress = (ev) => {
-          if (ev.lengthComputable) updateProgress(taskId, Math.round((ev.loaded / ev.total) * 100));
-        };
-        xhr.onload = () => {
-          try {
-            const d = JSON.parse(xhr.responseText);
-            if (d.ok) {
-              completeTask(taskId);
-              notifySuccess(f.name, 'Subido correctamente');
-              setTimeout(() => removeTask(taskId), 3000);
-            } else {
-              const msg = d.error || 'Error desconocido';
-              failTask(taskId, msg);
-              if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('space') || msg.toLowerCase().includes('full')) {
+      for (const f of files) {
+        const taskId = addTask(f.name, f.size);
+        const totalChunks = Math.ceil(f.size / CHUNK_SIZE) || 1;
+
+        try {
+          let failed = false;
+          for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, f.size);
+            const chunk = f.slice(start, end);
+
+            const resp = await fetch('/api/files/upload-chunk', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${getToken()}`,
+                'X-Share': currentShare,
+                'X-Path': currentPath,
+                'X-Filename': f.name,
+                'X-Chunk-Index': String(i),
+                'X-Total-Chunks': String(totalChunks),
+                'X-Total-Size': String(f.size),
+              },
+              body: chunk,
+            });
+
+            const d = await resp.json();
+            if (d.error) {
+              failTask(taskId, d.error);
+              if (d.error.toLowerCase().includes('quota') || d.error.toLowerCase().includes('space') || d.error.toLowerCase().includes('full')) {
                 notifyError(`Sin espacio: ${f.name}`, 'Carpeta llena');
               } else {
-                notifyError(`Error al subir ${f.name}`, 'Upload');
+                notifyError(d.error, 'Upload');
               }
+              failed = true;
+              break;
             }
-          } catch { failTask(taskId, 'Error de respuesta'); }
-          resolve();
-        };
-        xhr.onerror = () => { failTask(taskId, 'Error de conexión'); notifyError(`No se pudo subir ${f.name}`, 'Upload'); resolve(); };
-        xhr.send(fd);
-      })));
+
+            // Update progress
+            const pct = Math.round(((i + 1) / totalChunks) * 100);
+            updateProgress(taskId, pct);
+          }
+
+          if (!failed) {
+            completeTask(taskId);
+            notifySuccess(f.name, 'Subido correctamente');
+            setTimeout(() => removeTask(taskId), 3000);
+          }
+        } catch (err) {
+          failTask(taskId, 'Error de conexión');
+          notifyError(`No se pudo subir ${f.name}`, 'Upload');
+        }
+      }
 
       fetchFiles();
     };

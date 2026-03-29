@@ -577,8 +577,8 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart (max 500MB)
-	if err := r.ParseMultipartForm(500 << 20); err != nil {
+	// Parse multipart — buffer 32MB in RAM, rest goes to temp files on disk
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		jsonError(w, 400, "Failed to parse upload")
 		return
 	}

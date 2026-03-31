@@ -1,7 +1,6 @@
 <script>
   import { login as doLogin, user } from '$lib/stores/auth.js';
   import { onMount } from 'svelte';
-  import { fade, scale } from 'svelte/transition';
 
   let username = $user?.username || '';
   let password = '';
@@ -16,6 +15,8 @@
   let showAvatar = false;
   let showFields = false;
   let hasTyped = !!($user?.username);
+  let transitioning = false;
+  let show2FA = false;
 
   onMount(() => {
     if (username.trim()) {
@@ -58,7 +59,8 @@
     try {
       const result = await doLogin(username.trim(), password, needs2FA ? totpCode : undefined);
       if (result?.requires2FA) {
-        needs2FA = true;
+        transitioning = true;
+        setTimeout(() => { needs2FA = true; show2FA = true; transitioning = false; }, 280);
         loading = false;
         return;
       }
@@ -76,10 +78,10 @@
 </script>
 
 <div class="overlay">
-  <div class="card">
+  <div class="card" class:fading={transitioning}>
 
     {#if !needs2FA}
-      <div in:scale={{ duration:300, start:0.95, opacity:0 }} out:scale={{ duration:250, start:0.95, opacity:0 }}>
+      <div>
       <!-- ── TOP AREA ── -->
       <div class="top-area">
         <!-- Greeting -->
@@ -124,7 +126,7 @@
       </div>
     {:else}
       <!-- ── 2FA VIEW ── -->
-      <div class="tfa-wrap" in:scale={{ duration:300, start:0.95, opacity:0 }} out:scale={{ duration:250, start:0.95, opacity:0 }}>
+      <div class="tfa-wrap">
         <div class="shield">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -150,7 +152,7 @@
         <button class="login-btn tfa-btn" on:click={handleSubmit} disabled={loading}>
           {loading ? 'Verificando...' : 'Verificar'}
         </button>
-        <button class="back-link" on:click={() => { needs2FA = false; totpCode = ''; error = ''; }}>
+        <button class="back-link" on:click={() => { transitioning = true; setTimeout(() => { needs2FA = false; show2FA = false; totpCode = ''; error = ''; transitioning = false; }, 280); }}>
           ← Volver al inicio
         </button>
       </div>
@@ -173,6 +175,7 @@
   .card {
     width: 340px;
     min-height: 380px;
+    transition: opacity .25s ease;
     background: rgba(255,255,255,0.05);
     backdrop-filter: blur(28px) saturate(1.5);
     -webkit-backdrop-filter: blur(28px) saturate(1.5);
@@ -182,6 +185,7 @@
     display: flex; flex-direction: column; align-items: center;
     position: relative; overflow: hidden;
   }
+  .card.fading { opacity: 0; }
 
   /* ── TOP AREA ── */
   .top-area {
@@ -202,6 +206,7 @@
     animation: fadeIn .5s ease forwards;
   }
   @keyframes fadeIn { to { opacity: 1; filter: blur(0); } }
+  @keyframes viewIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 
   .avatar {
     width: 68px; height: 68px; border-radius: 50%;
@@ -251,7 +256,7 @@
   /* ── 2FA ── */
   .tfa-wrap {
     width: 100%; display: flex; flex-direction: column; align-items: center; gap: 0;
-    animation: fadeIn .4s ease;
+    animation: viewIn .3s ease;
   }
   .shield {
     width: 72px; height: 72px; border-radius: 50%;

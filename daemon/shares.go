@@ -165,6 +165,7 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 			// Create dataset — it auto-mounts at folderPath
 			_, err := runCmd("zfs", []string{"create", datasetName}, opts)
 			if err != nil {
+				logMsg("ERROR share.create ZFS dataset '%s': %s", datasetName, err)
 				jsonError(w, 500, fmt.Sprintf("Failed to create ZFS dataset: %s", err))
 				return
 			}
@@ -191,6 +192,7 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 			// Create subvolume
 			_, err := runCmd("btrfs", []string{"subvolume", "create", subvolPath}, opts)
 			if err != nil {
+				logMsg("ERROR share.create BTRFS subvolume '%s': %s", subvolPath, err)
 				jsonError(w, 500, fmt.Sprintf("Failed to create BTRFS subvolume: %s", err))
 				return
 			}
@@ -213,6 +215,7 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if !daemonResult.Ok {
+		logMsg("ERROR share.create handleOp failed for '%s': %s", safeName, daemonResult.Error)
 		jsonError(w, 500, fmt.Sprintf("Failed to create share: %s", daemonResult.Error))
 		return
 	}
@@ -225,6 +228,7 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 	// Register in DB
 	username := session["username"].(string)
 	if err := dbSharesCreate(safeName, name, description, folderPath, volumeName, volumeName, username); err != nil {
+		logMsg("ERROR dbSharesCreate '%s': %s", safeName, err)
 		jsonError(w, 500, err.Error())
 		return
 	}

@@ -997,11 +997,16 @@ func scanLANForNimOS(subnet string) []DiscoveredDevice {
 		wg      sync.WaitGroup
 	)
 
+	// Limit concurrent probes to avoid saturating network and system resources
+	sem := make(chan struct{}, 20)
+
 	for i := 1; i <= 254; i++ {
 		addr := fmt.Sprintf("%s.%d", base, i)
 		wg.Add(1)
 		go func(addr string) {
 			defer wg.Done()
+			sem <- struct{}{}        // acquire
+			defer func() { <-sem }() // release
 			dev := probeNimOS(addr)
 			if dev != nil {
 				mu.Lock()
@@ -1079,6 +1084,7 @@ var (
 	discoveredDevices   []DiscoveredDevice
 	discoveredDevicesMu sync.RWMutex
 	discoveryCancel     context.CancelFunc
+	lastDiscoveryScan   time.Time
 )
 
 // startAutoDiscovery runs a background goroutine that scans the LAN every 60s
@@ -1087,11 +1093,12 @@ func startAutoDiscovery() {
 	ctx, cancel := context.WithCancel(context.Background())
 	discoveryCancel = cancel
 
-	// Run an initial scan immediately
 	go func() {
+		// Delay initial scan to let the daemon fully start without DB contention
+		time.Sleep(30 * time.Second)
 		runDiscoveryScan()
 
-		ticker := time.NewTicker(60 * time.Second)
+		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 
 		for {
@@ -1105,7 +1112,7 @@ func startAutoDiscovery() {
 		}
 	}()
 
-	logMsg("discovery: auto-discovery started (60s interval)")
+	logMsg("discovery: auto-discovery started (10min interval, 30s initial delay)")
 }
 
 func stopAutoDiscovery() {
@@ -1192,6 +1199,7 @@ func runDiscoveryScan() {
 
 	discoveredDevicesMu.Lock()
 	discoveredDevices = filtered
+	lastDiscoveryScan = time.Now()
 	discoveredDevicesMu.Unlock()
 
 	if len(filtered) > 0 {
@@ -1485,7 +1493,11 @@ func handleBackupRoutes(w http.ResponseWriter, r *http.Request) {
 			jsonOk(w, listBackupSnapshots(pool))
 
 		// GET /api/backup/discovered — auto-discovered NimOS devices on LAN
+		// Triggers a fresh scan if last scan was >2 minutes ago
 		case urlPath == "/api/backup/discovered":
+			if time.Since(lastDiscoveryScan) > 2*time.Minute {
+				go runDiscoveryScan()
+			}
 			devices := getDiscoveredDevices()
 			jsonOk(w, map[string]interface{}{"devices": devices})
 

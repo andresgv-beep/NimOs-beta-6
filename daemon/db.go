@@ -430,13 +430,15 @@ func dbSessionCleanup() int64 {
 // Share operations (data layer)
 // ═══════════════════════════════════
 
-func dbSharesList() ([]map[string]interface{}, error) {
+// dbSharesListRaw returns typed share structs from the DB.
+// This is the primary query — other functions build on top of it.
+func dbSharesListRaw() ([]DBShare, error) {
 	rows, err := db.Query(`SELECT name, display_name, description, path, volume, pool, recycle_bin, created_by, created_at FROM shares ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
 
-	// Collect all share rows first, then close before subqueries
+	// Collect rows first, then close before subqueries
 	type shareRow struct {
 		DBShare
 		recycleBinInt int
@@ -450,8 +452,7 @@ func dbSharesList() ([]map[string]interface{}, error) {
 	}
 	rows.Close()
 
-	// Now build results with subqueries (rows are closed, no deadlock)
-	var shares []map[string]interface{}
+	var shares []DBShare
 	for _, sr := range shareRows {
 		s := sr.DBShare
 		s.Permissions = map[string]string{}
@@ -479,22 +480,36 @@ func dbSharesList() ([]map[string]interface{}, error) {
 			s.AppPermissions = []AppPermission{}
 		}
 
-		shares = append(shares, s.ToMap())
+		shares = append(shares, s)
 	}
 	if shares == nil {
-		shares = []map[string]interface{}{}
+		shares = []DBShare{}
 	}
 	return shares, nil
 }
 
-func dbSharesGet(name string) (map[string]interface{}, error) {
-	shares, err := dbSharesList()
+// dbSharesList returns shares as maps for backward compatibility.
+func dbSharesList() ([]map[string]interface{}, error) {
+	raw, err := dbSharesListRaw()
 	if err != nil {
 		return nil, err
 	}
-	for _, s := range shares {
-		if s["name"] == name {
-			return s, nil
+	result := make([]map[string]interface{}, len(raw))
+	for i, s := range raw {
+		result[i] = s.ToMap()
+	}
+	return result, nil
+}
+
+func dbSharesGet(name string) (map[string]interface{}, error) {
+	raw, err := dbSharesListRaw()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range raw {
+		if s.Name == name {
+			m := s.ToMap()
+			return m, nil
 		}
 	}
 	return nil, fmt.Errorf("share not found: %s", name)

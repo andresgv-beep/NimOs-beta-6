@@ -181,7 +181,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		// Security headers
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://raw.githubusercontent.com; connect-src 'self' https://raw.githubusercontent.com; frame-src 'self' http://127.0.0.1:* http://localhost:*")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://raw.githubusercontent.com; connect-src 'self' https://raw.githubusercontent.com; frame-src 'self' http://127.0.0.1:* http://localhost:*")
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
@@ -382,10 +382,6 @@ func startHTTPServer() {
 	// ── Backup routes ──
 	mux.HandleFunc("/api/backup", handleBackupRoutes)
 	mux.HandleFunc("/api/backup/", handleBackupRoutes)
-
-	// Notifications
-	mux.HandleFunc("/api/notifications", handleNotificationRoutes)
-	mux.HandleFunc("/api/notifications/", handleNotificationRoutes)
 
 	// ── Torrent proxy to NimTorrent ──
 	mux.HandleFunc("/api/torrent/", handleTorrentProxy)

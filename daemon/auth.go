@@ -615,12 +615,7 @@ func authSetup(w http.ResponseWriter, r *http.Request) {
 	// Auto-login
 	token, _ := generateToken()
 	hToken := sha256Hex(token)
-	for attempt := 0; attempt < 5; attempt++ {
-		if err := dbSessionCreate(hToken, username, "admin", clientIP(r)); err == nil {
-			break
-		}
-		time.Sleep(time.Duration(200*(attempt+1)) * time.Millisecond)
-	}
+	dbSessionCreate(hToken, username, "admin", clientIP(r))
 
 	jsonOk(w, map[string]interface{}{
 		"ok":    true,
@@ -732,21 +727,7 @@ func authLogin(w http.ResponseWriter, r *http.Request) {
 	role, _ := user["role"].(string)
 	token, _ := generateToken()
 	hToken := sha256Hex(token)
-
-	// Retry session creation — DB may be briefly locked by background tasks
-	var sessionErr error
-	for attempt := 0; attempt < 5; attempt++ {
-		sessionErr = dbSessionCreate(hToken, username, role, ip)
-		if sessionErr == nil {
-			break
-		}
-		time.Sleep(time.Duration(200*(attempt+1)) * time.Millisecond)
-	}
-	if sessionErr != nil {
-		logMsg("WARNING: login session not saved for %s: %v", username, sessionErr)
-		jsonError(w, 500, "Login failed: database temporarily unavailable")
-		return
-	}
+	dbSessionCreate(hToken, username, role, ip)
 
 	jsonOk(w, map[string]interface{}{
 		"ok":    true,

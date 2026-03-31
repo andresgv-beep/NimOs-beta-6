@@ -513,6 +513,7 @@ func reconcile() Response {
 
 		// 2. Ensure directory permissions (skip if quota is near full to avoid blocking)
 		if _, err := os.Stat(sharePath); err == nil {
+			// Check if dataset has space — chmod on a full dataset blocks the daemon
 			avail := getAvailableBytes(sharePath)
 			if avail < 1024*1024 { // less than 1MB free — skip permissions
 				logMsg("  reconcile: skipping permissions for %s (disk full, %d bytes free)", name, avail)
@@ -642,7 +643,6 @@ func main() {
 	// Start backup scheduler
 	startBackupScheduler()
 	startAutoDiscovery()
-	//startWGTunnel()
 	remountAllOnStartup()
 
 	// Clean up stale socket

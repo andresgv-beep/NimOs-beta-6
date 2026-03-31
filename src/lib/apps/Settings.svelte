@@ -221,14 +221,14 @@
   function startNewShare() {
     editingShare = { _isNew: true, name: '', description: '', pool: pools[0]?.name || '', _perms: {} };
     for (const u of users) { if (u.role === 'admin') editingShare._perms[u.username] = 'rw'; }
-    shareMsg = ''; wizardStep = 1;
+    shareMsg = '';
   }
 
   function startEditShare(s) {
     const perms = {};
     if (s.permissions) for (const [u, p] of Object.entries(s.permissions)) perms[u] = p;
     editingShare = { _isNew: false, name: s.name, displayName: s.displayName, description: s.description || '', pool: s.pool, _perms: perms };
-    shareMsg = ''; wizardStep = 1;
+    shareMsg = '';
   }
 
   async function saveShare() {
@@ -1096,7 +1096,9 @@
     {users}
     {editingShare}
     on:close={() => editingShare = null}
+    saving={savingShare}
     on:save={async (e) => {
+      if (savingShare) return;
       savingShare = true; shareMsg = '';
       try {
         const s = e.detail;

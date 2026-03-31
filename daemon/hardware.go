@@ -996,7 +996,7 @@ func handleHardwareRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleSystemPost(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func handleSystemPost(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	if session.Role != "admin" {
 		jsonError(w, 403, "Unauthorized")
 		return

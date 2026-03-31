@@ -134,7 +134,7 @@ func sanitizeDockerNameGo(name string) string {
 	return sanitized
 }
 
-func hasDockerPermission(session map[string]interface{}) bool {
+func hasDockerPermission(session *DBSession) bool {
 	if session.Role == "admin" {
 		return true
 	}

@@ -60,7 +60,7 @@ func handleFilesRoutes(w http.ResponseWriter, r *http.Request) {
 // Permission helpers
 // ═══════════════════════════════════
 
-func getSharePermission(session map[string]interface{}, share map[string]interface{}) string {
+func getSharePermission(session *DBSession, share map[string]interface{}) string {
 	// Remote shares: admin gets rw (NFS mount is already authenticated)
 	if isRemote, _ := share["_remote"].(bool); isRemote {
 		if session.Role == "admin" {
@@ -195,7 +195,7 @@ func requireShareMounted(w http.ResponseWriter, share map[string]interface{}) bo
 // GET /api/files?share=name&path=/subdir
 // ═══════════════════════════════════
 
-func filesBrowse(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func filesBrowse(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	shareName := r.URL.Query().Get("share")
 	subPath := r.URL.Query().Get("path")
 	if subPath == "" {
@@ -327,7 +327,7 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session map[string]inte
 // POST /api/files/mkdir
 // ═══════════════════════════════════
 
-func filesMkdir(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func filesMkdir(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	body, _ := readBody(r)
 	shareName := bodyStr(body, "share")
 	dirPath := bodyStr(body, "path")
@@ -373,7 +373,7 @@ func filesMkdir(w http.ResponseWriter, r *http.Request, session map[string]inter
 // POST /api/files/delete
 // ═══════════════════════════════════
 
-func filesDelete(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func filesDelete(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	body, _ := readBody(r)
 	shareName := bodyStr(body, "share")
 	filePath := bodyStr(body, "path")
@@ -424,7 +424,7 @@ func filesDelete(w http.ResponseWriter, r *http.Request, session map[string]inte
 // POST /api/files/rename
 // ═══════════════════════════════════
 
-func filesRename(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func filesRename(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	body, _ := readBody(r)
 	shareName := bodyStr(body, "share")
 	oldPath := bodyStr(body, "oldPath")
@@ -471,7 +471,7 @@ func filesRename(w http.ResponseWriter, r *http.Request, session map[string]inte
 // POST /api/files/paste (copy or move)
 // ═══════════════════════════════════
 
-func filesPaste(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func filesPaste(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	body, _ := readBody(r)
 	srcShareName := bodyStr(body, "srcShare")
 	srcPath := bodyStr(body, "srcPath")

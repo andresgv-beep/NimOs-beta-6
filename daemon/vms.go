@@ -192,7 +192,7 @@ func vmsOverview(w http.ResponseWriter) {
 	})
 }
 
-func vmsCreate(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func vmsCreate(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	if session.Role != "admin" {
 		jsonError(w, 403, "Admin required")
 		return
@@ -284,7 +284,7 @@ func vmsCreate(w http.ResponseWriter, r *http.Request, session map[string]interf
 	jsonOk(w, map[string]interface{}{"ok": true, "name": safeName, "log": string(out)})
 }
 
-func vmsAction(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func vmsAction(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	if session.Role != "admin" {
 		jsonError(w, 403, "Admin required")
 		return
@@ -394,7 +394,7 @@ func vmsLogs(w http.ResponseWriter) {
 	jsonOk(w, map[string]interface{}{"logs": logs})
 }
 
-func vmsSnapshot(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
+func vmsSnapshot(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	if session.Role != "admin" {
 		jsonError(w, 403, "Admin required")
 		return

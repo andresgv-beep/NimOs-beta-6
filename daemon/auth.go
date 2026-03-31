@@ -673,16 +673,14 @@ func authLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user for role and 2FA check
-	user, err := dbUsersGet(username)
+	user, err := dbUsersGetRaw(username)
 	if err != nil {
 		jsonError(w, 500, "User lookup failed")
 		return
 	}
 
 	// Check 2FA
-	totpSecret, _ := user["totpSecret"].(string)
-	totpEnabled, _ := user["totpEnabled"].(bool)
-	if totpSecret != "" && totpEnabled {
+	if user.TotpSecret != "" && user.TotpEnabled {
 		if totpCode == "" {
 			jsonOk(w, map[string]interface{}{
 				"requires2FA": true,
@@ -690,7 +688,7 @@ func authLogin(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		decrypted, err := decryptSecret(totpSecret)
+		decrypted, err := decryptSecret(user.TotpSecret)
 		if err != nil {
 			jsonError(w, 500, "2FA decryption failed")
 			return
@@ -698,17 +696,15 @@ func authLogin(w http.ResponseWriter, r *http.Request) {
 		if !verifyTotp(decrypted, totpCode) {
 			// Check backup codes
 			backupValid := false
-			if backupCodesRaw, ok := user["backupCodes"]; ok {
-				if codes, ok := backupCodesRaw.([]interface{}); ok {
-					inputHash := sha256Hex(strings.ToUpper(totpCode))
-					for i, c := range codes {
-						if cs, ok := c.(string); ok && cs == inputHash {
-							// Remove used backup code
-							codes = append(codes[:i], codes[i+1:]...)
-							dbUsersUpdate(username, map[string]interface{}{"backupCodes": codes})
-							backupValid = true
-							break
-						}
+			if user.BackupCodes != nil {
+				inputHash := sha256Hex(strings.ToUpper(totpCode))
+				for i, c := range user.BackupCodes {
+					if cs, ok := c.(string); ok && cs == inputHash {
+						// Remove used backup code
+						codes := append(user.BackupCodes[:i], user.BackupCodes[i+1:]...)
+						dbUsersUpdate(username, map[string]interface{}{"backupCodes": codes})
+						backupValid = true
+						break
 					}
 				}
 			}
@@ -724,15 +720,14 @@ func authLogin(w http.ResponseWriter, r *http.Request) {
 	clearFailedAttempts("ip:" + ip)
 	clearFailedAttempts("user:" + username)
 
-	role, _ := user["role"].(string)
 	token, _ := generateToken()
 	hToken := sha256Hex(token)
-	dbSessionCreate(hToken, username, role, ip)
+	dbSessionCreate(hToken, username, user.Role, ip)
 
 	jsonOk(w, map[string]interface{}{
 		"ok":    true,
 		"token": token,
-		"user":  map[string]string{"username": username, "role": role},
+		"user":  map[string]string{"username": username, "role": user.Role},
 	})
 }
 
@@ -866,19 +861,18 @@ func auth2faVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := session.Username
-	user, err := dbUsersGet(username)
+	user, err := dbUsersGetRaw(username)
 	if err != nil {
 		jsonError(w, 400, "User not found")
 		return
 	}
 
-	totpSecret, _ := user["totpSecret"].(string)
-	if totpSecret == "" {
+	if user.TotpSecret == "" {
 		jsonError(w, 400, "No 2FA setup in progress")
 		return
 	}
 
-	decrypted, err := decryptSecret(totpSecret)
+	decrypted, err := decryptSecret(user.TotpSecret)
 	if err != nil {
 		jsonError(w, 500, "Decryption failed")
 		return
@@ -944,10 +938,10 @@ func auth2faStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := session.Username
-	user, _ := dbUsersGet(username)
+	user, _ := dbUsersGetRaw(username)
 	enabled := false
 	if user != nil {
-		enabled, _ = user["totpEnabled"].(bool)
+		enabled = user.TotpEnabled
 	}
 	jsonOk(w, map[string]interface{}{"enabled": enabled})
 }

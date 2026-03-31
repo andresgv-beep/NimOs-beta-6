@@ -298,7 +298,8 @@ func dbUsersList() ([]map[string]interface{}, error) {
 	return users, nil
 }
 
-func dbUsersGet(username string) (map[string]interface{}, error) {
+// dbUsersGetRaw returns a typed DBUser struct.
+func dbUsersGetRaw(username string) (*DBUser, error) {
 	var u DBUser
 	u.Username = username
 	var totpEnabled int
@@ -319,6 +320,15 @@ func dbUsersGet(username string) (map[string]interface{}, error) {
 		}
 	}
 
+	return &u, nil
+}
+
+// dbUsersGet returns a user as map for backward compatibility.
+func dbUsersGet(username string) (map[string]interface{}, error) {
+	u, err := dbUsersGetRaw(username)
+	if err != nil {
+		return nil, err
+	}
 	return u.ToMap(), nil
 }
 

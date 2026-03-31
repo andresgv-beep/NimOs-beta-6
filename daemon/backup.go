@@ -2284,36 +2284,32 @@ func getPublicShares(r *http.Request) map[string]interface{} {
 		return map[string]interface{}{"error": "not a paired device"}
 	}
 
-	shares, err := dbSharesList()
+	dbShares, err := dbSharesListRaw()
 	if err != nil {
 		return map[string]interface{}{"error": err.Error()}
 	}
 
-	// Enrich shares with real quota data (ZFS/Btrfs)
-	enrichSharesWithQuota(shares)
+	// Build enriched views with quota data (ZFS/Btrfs)
+	views := buildShareViews(dbShares)
 
 	// Return simplified share info with disk usage
 	var result []map[string]interface{}
-	for _, s := range shares {
-		path, _ := s["path"].(string)
+	for _, v := range views {
 		entry := map[string]interface{}{
-			"name":        s["name"],
-			"displayName": s["displayName"],
-			"description": s["description"],
-			"path":        path,
-			"pool":        s["pool"],
+			"name":        v.Name,
+			"displayName": v.DisplayName,
+			"description": v.Description,
+			"path":        v.Path,
+			"pool":        v.Pool,
 		}
 		// Quota = total capacity for this share, used = actual usage
-		if q, ok := s["quota"].(int64); ok && q > 0 {
-			entry["total"] = q
-		} else if a, ok := s["available"].(int64); ok {
-			// No quota set — use used + available as total
-			if u, ok2 := s["used"].(int64); ok2 {
-				entry["total"] = u + a
-			}
+		if v.Quota > 0 {
+			entry["total"] = v.Quota
+		} else if v.Available > 0 {
+			entry["total"] = v.Used + v.Available
 		}
-		if u, ok := s["used"].(int64); ok {
-			entry["used"] = u
+		if v.Used > 0 {
+			entry["used"] = v.Used
 		}
 		result = append(result, entry)
 	}

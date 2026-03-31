@@ -539,33 +539,6 @@ func buildShareViews(dbShares []DBShare) []ShareView {
 	return views
 }
 
-// enrichSharesWithQuota is the legacy wrapper for backward compatibility.
-// Callers should migrate to buildShareViews().
-func enrichSharesWithQuota(shares []map[string]interface{}) {
-	dbShares, err := dbSharesListRaw()
-	if err != nil {
-		return
-	}
-	views := buildShareViews(dbShares)
-
-	// Merge enriched data back into the maps by name
-	viewByName := map[string]ShareView{}
-	for _, v := range views {
-		viewByName[v.Name] = v
-	}
-	for i, s := range shares {
-		name, _ := s["name"].(string)
-		if v, ok := viewByName[name]; ok {
-			shares[i]["poolType"] = v.PoolType
-			shares[i]["mountPoint"] = v.MountPoint
-			shares[i]["quota"] = v.Quota
-			shares[i]["used"] = v.Used
-			shares[i]["available"] = v.Available
-			shares[i]["fileStats"] = v.FileStats
-		}
-	}
-}
-
 // getFileStatsByCategory scans a directory and returns bytes used per file category
 func getFileStatsByCategory(dirPath string) map[string]int64 {
 	stats := map[string]int64{

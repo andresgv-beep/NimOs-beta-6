@@ -642,7 +642,7 @@ func main() {
 	// Start backup scheduler
 	startBackupScheduler()
 	startAutoDiscovery()
-	startWGTunnel()
+	//startWGTunnel()
 	remountAllOnStartup()
 
 	// Clean up stale socket

@@ -281,16 +281,11 @@ func dbUsersList() ([]map[string]interface{}, error) {
 
 	var users []map[string]interface{}
 	for rows.Next() {
-		var username, role, desc, created string
+		var u DBUserSummary
 		var totpEnabled int
-		rows.Scan(&username, &role, &desc, &totpEnabled, &created)
-		users = append(users, map[string]interface{}{
-			"username":    username,
-			"role":        role,
-			"description": desc,
-			"totpEnabled": totpEnabled == 1,
-			"created":     created,
-		})
+		rows.Scan(&u.Username, &u.Role, &u.Description, &totpEnabled, &u.CreatedAt)
+		u.TotpEnabled = totpEnabled == 1
+		users = append(users, u.ToMap())
 	}
 	if users == nil {
 		users = []map[string]interface{}{}
@@ -299,35 +294,27 @@ func dbUsersList() ([]map[string]interface{}, error) {
 }
 
 func dbUsersGet(username string) (map[string]interface{}, error) {
-	var pwd, role, desc, totpSecret, created string
-	var backupCodesJSON string
+	var u DBUser
+	u.Username = username
 	var totpEnabled int
+	var backupCodesJSON string
 	var updatedAt sql.NullString
 	err := db.QueryRow(`SELECT password, role, description, totp_secret, totp_enabled, backup_codes, created_at, updated_at FROM users WHERE username = ?`, username).
-		Scan(&pwd, &role, &desc, &totpSecret, &totpEnabled, &backupCodesJSON, &created, &updatedAt)
+		Scan(&u.Password, &u.Role, &u.Description, &u.TotpSecret, &totpEnabled, &backupCodesJSON, &u.CreatedAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %s", username)
 	}
-
-	result := map[string]interface{}{
-		"username":    username,
-		"password":    pwd,
-		"role":        role,
-		"description": desc,
-		"totpSecret":  totpSecret,
-		"totpEnabled": totpEnabled == 1,
-		"created":     created,
-	}
+	u.TotpEnabled = totpEnabled == 1
 
 	// Parse backup codes JSON array
 	if backupCodesJSON != "" {
 		var codes []interface{}
 		if json.Unmarshal([]byte(backupCodesJSON), &codes) == nil {
-			result["backupCodes"] = codes
+			u.BackupCodes = codes
 		}
 	}
 
-	return result, nil
+	return u.ToMap(), nil
 }
 
 func dbUsersCreate(username, password, role, description string) error {
@@ -409,24 +396,17 @@ func dbSessionCreate(token, username, role, ip string) error {
 }
 
 func dbSessionGet(token string) (map[string]interface{}, error) {
-	var username, role, ip string
-	var createdAt, expiresAt int64
+	var s DBSession
 	err := db.QueryRow(`SELECT username, role, created_at, expires_at, ip FROM sessions WHERE token = ?`, token).
-		Scan(&username, &role, &createdAt, &expiresAt, &ip)
+		Scan(&s.Username, &s.Role, &s.CreatedAt, &s.ExpiresAt, &s.IP)
 	if err != nil {
 		return nil, fmt.Errorf("session not found")
 	}
-	if time.Now().UnixMilli() > expiresAt {
+	if time.Now().UnixMilli() > s.ExpiresAt {
 		db.Exec(`DELETE FROM sessions WHERE token = ?`, token)
 		return nil, fmt.Errorf("session expired")
 	}
-	return map[string]interface{}{
-		"username": username,
-		"role":     role,
-		"created":  createdAt,
-		"expires":  expiresAt,
-		"ip":       ip,
-	}, nil
+	return s.ToMap(), nil
 }
 
 func dbSessionDelete(token string) error {
@@ -451,61 +431,50 @@ func dbSharesList() ([]map[string]interface{}, error) {
 		return nil, err
 	}
 
-	// Collect all share names first, then close rows before subqueries
+	// Collect all share rows first, then close before subqueries
 	type shareRow struct {
-		name, displayName, desc, path, volume, pool, createdBy, created string
-		recycleBin int
+		DBShare
+		recycleBinInt int
 	}
 	var shareRows []shareRow
 	for rows.Next() {
 		var s shareRow
-		rows.Scan(&s.name, &s.displayName, &s.desc, &s.path, &s.volume, &s.pool, &s.recycleBin, &s.createdBy, &s.created)
+		rows.Scan(&s.Name, &s.DisplayName, &s.Description, &s.Path, &s.Volume, &s.Pool, &s.recycleBinInt, &s.CreatedBy, &s.CreatedAt)
+		s.RecycleBin = s.recycleBinInt == 1
 		shareRows = append(shareRows, s)
 	}
 	rows.Close()
 
 	// Now build results with subqueries (rows are closed, no deadlock)
 	var shares []map[string]interface{}
-	for _, s := range shareRows {
-		perms := map[string]string{}
-		prows, _ := db.Query(`SELECT username, permission FROM share_permissions WHERE share_name = ?`, s.name)
+	for _, sr := range shareRows {
+		s := sr.DBShare
+		s.Permissions = map[string]string{}
+
+		prows, _ := db.Query(`SELECT username, permission FROM share_permissions WHERE share_name = ?`, s.Name)
 		if prows != nil {
 			for prows.Next() {
 				var u, p string
 				prows.Scan(&u, &p)
-				perms[u] = p
+				s.Permissions[u] = p
 			}
 			prows.Close()
 		}
 
-		var appPerms []map[string]interface{}
-		arows, _ := db.Query(`SELECT app_id, uid, permission FROM app_permissions WHERE share_name = ?`, s.name)
+		arows, _ := db.Query(`SELECT app_id, uid, permission FROM app_permissions WHERE share_name = ?`, s.Name)
 		if arows != nil {
 			for arows.Next() {
-				var appId, perm string
-				var uid int
-				arows.Scan(&appId, &uid, &perm)
-				appPerms = append(appPerms, map[string]interface{}{"appId": appId, "uid": uid, "permission": perm})
+				var ap AppPermission
+				arows.Scan(&ap.AppId, &ap.Uid, &ap.Permission)
+				s.AppPermissions = append(s.AppPermissions, ap)
 			}
 			arows.Close()
 		}
-		if appPerms == nil {
-			appPerms = []map[string]interface{}{}
+		if s.AppPermissions == nil {
+			s.AppPermissions = []AppPermission{}
 		}
 
-		shares = append(shares, map[string]interface{}{
-			"name":           s.name,
-			"displayName":    s.displayName,
-			"description":    s.desc,
-			"path":           s.path,
-			"volume":         s.volume,
-			"pool":           s.pool,
-			"recycleBin":     s.recycleBin == 1,
-			"createdBy":      s.createdBy,
-			"created":        s.created,
-			"permissions":    perms,
-			"appPermissions": appPerms,
-		})
+		shares = append(shares, s.ToMap())
 	}
 	if shares == nil {
 		shares = []map[string]interface{}{}
@@ -686,14 +655,9 @@ func dbUserListAppAccess(username string) ([]map[string]interface{}, error) {
 	defer rows.Close()
 	var result []map[string]interface{}
 	for rows.Next() {
-		var appId, perm, grantedBy, grantedAt string
-		rows.Scan(&appId, &perm, &grantedBy, &grantedAt)
-		result = append(result, map[string]interface{}{
-			"appId":     appId,
-			"permission": perm,
-			"grantedBy": grantedBy,
-			"grantedAt": grantedAt,
-		})
+		g := DBAppGrant{Username: username}
+		rows.Scan(&g.AppId, &g.Permission, &g.GrantedBy, &g.GrantedAt)
+		result = append(result, g.ToMap())
 	}
 	if result == nil {
 		result = []map[string]interface{}{}
@@ -710,15 +674,9 @@ func dbAppAccessListAll() ([]map[string]interface{}, error) {
 	defer rows.Close()
 	var result []map[string]interface{}
 	for rows.Next() {
-		var username, appId, perm, grantedBy, grantedAt string
-		rows.Scan(&username, &appId, &perm, &grantedBy, &grantedAt)
-		result = append(result, map[string]interface{}{
-			"username":   username,
-			"appId":      appId,
-			"permission": perm,
-			"grantedBy":  grantedBy,
-			"grantedAt":  grantedAt,
-		})
+		var g DBAppGrant
+		rows.Scan(&g.Username, &g.AppId, &g.Permission, &g.GrantedBy, &g.GrantedAt)
+		result = append(result, g.ToMap())
 	}
 	if result == nil {
 		result = []map[string]interface{}{}

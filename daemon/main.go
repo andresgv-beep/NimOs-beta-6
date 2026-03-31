@@ -643,7 +643,9 @@ func main() {
 	startBackupScheduler()
 	startAutoDiscovery()
 	//startWGTunnel()
-	remountAllOnStartup()
+	// Remount remote NFS shares in background — don't block daemon startup
+	// If a remote host is unreachable, NFS mount can take minutes to timeout
+	go remountAllOnStartup()
 
 	// Clean up stale socket
 	os.Remove(socketPath)

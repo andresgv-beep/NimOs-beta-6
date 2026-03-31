@@ -1202,8 +1202,9 @@ func runDiscoveryScan() {
 		logMsg("discovery: found %d NimOS device(s): %s", len(filtered), strings.Join(names, ", "))
 	}
 
-	// Also refresh status of all paired devices
-	refreshPairedDeviceStatus()
+	// Refresh paired device status in a separate goroutine so it doesn't
+	// block the discovery cycle or hold DB connections during network timeouts
+	go refreshPairedDeviceStatus()
 }
 
 func getDiscoveredDevices() []DiscoveredDevice {

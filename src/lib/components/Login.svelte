@@ -1,5 +1,6 @@
 <script>
   import { login as doLogin, user } from '$lib/stores/auth.js';
+  import { onMount } from 'svelte';
 
   let username = $user?.username || '';
   let password = '';
@@ -8,9 +9,41 @@
   let error = '';
   let loading = false;
 
+  // Typewriter
+  let typed = '';
+  const greeting = 'Hola de nuevo';
+  let showAvatar = false;
+  let showFields = false;
+  let hasTyped = false;
+
+  onMount(() => {
+    // animate greeting
+    let i = 0;
+    const t = setInterval(() => {
+      typed = greeting.slice(0, ++i);
+      if (i >= greeting.length) clearInterval(t);
+    }, 55);
+    // show fields
+    setTimeout(() => showFields = true, 700);
+    return () => clearInterval(t);
+  });
+
+  $: greetingHidden = hasTyped;
+  $: avatarLetter = username ? username[0].toUpperCase() : '?';
+
+  function onUsernameInput() {
+    if (username.trim() && !hasTyped) {
+      hasTyped = true;
+      setTimeout(() => showAvatar = true, 80);
+    } else if (!username.trim() && hasTyped) {
+      hasTyped = false;
+      showAvatar = false;
+    }
+  }
+
   async function handleSubmit() {
-    if (!username.trim() || !password) { error = 'Enter username and password'; return; }
-    if (needs2FA && !totpCode) { error = 'Enter the 6-digit code'; return; }
+    if (!username.trim() || !password) { error = 'Introduce usuario y contraseña'; return; }
+    if (needs2FA && !totpCode) { error = 'Introduce el código de 6 dígitos'; return; }
 
     error = '';
     loading = true;
@@ -22,7 +55,7 @@
         return;
       }
     } catch (err) {
-      error = err.message || 'Login failed';
+      error = err.message || 'Error al iniciar sesión';
       if (needs2FA) totpCode = '';
       loading = false;
     }
@@ -35,49 +68,83 @@
 </script>
 
 <div class="overlay">
-  <div class="container">
-    <div class="avatar">
-      {username ? username[0].toUpperCase() : '?'}
-    </div>
+  <div class="card">
 
     {#if !needs2FA}
-      <input
-        class="input"
-        type="text"
-        placeholder="Username"
-        bind:value={username}
-        on:keydown={onKey}
-      />
-      <input
-        class="input"
-        type="password"
-        placeholder="Password"
-        bind:value={password}
-        on:keydown={onKey}
-      />
-    {:else}
-      <div class="totp-label">Enter the 6-digit code from your authenticator app</div>
-      <input
-        class="input totp"
-        type="text"
-        placeholder="000000"
-        maxlength="6"
-        bind:value={totpCode}
-        on:keydown={onKey}
-        on:input={() => totpCode = totpCode.replace(/\D/g, '')}
-      />
-      <button class="back-link" on:click={() => { needs2FA = false; totpCode = ''; error = ''; }}>
-        Back to login
+      <!-- ── TOP AREA ── -->
+      <div class="top-area">
+        <!-- Greeting -->
+        <div class="greeting" class:hidden={greetingHidden}>
+          {#each typed.split('') as ch, i}
+            <span style="animation-delay:{i * 55}ms">{ch === ' ' ? '\u00a0' : ch}</span>
+          {/each}
+        </div>
+        <!-- Avatar -->
+        <div class="avatar" class:show={showAvatar}>{avatarLetter}</div>
+        <!-- Sub -->
+        <div class="login-sub" class:show={showAvatar}>Introduce tus credenciales</div>
+      </div>
+
+      <!-- ── FIELDS ── -->
+      <div class="fields" class:show={showFields}>
+        <input
+          class="inp"
+          type="text"
+          placeholder="Usuario"
+          bind:value={username}
+          on:input={onUsernameInput}
+          on:keydown={onKey}
+        />
+        <input
+          class="inp"
+          type="password"
+          placeholder="Contraseña"
+          bind:value={password}
+          on:keydown={onKey}
+        />
+      </div>
+
+      {#if error}
+        <div class="error">{error}</div>
+      {/if}
+
+      <button class="login-btn" on:click={handleSubmit} disabled={loading}>
+        {loading ? 'Iniciando...' : 'Iniciar sesión'}
       </button>
-    {/if}
 
-    {#if error}
-      <div class="error">{error}</div>
-    {/if}
+    {:else}
+      <!-- ── 2FA VIEW ── -->
+      <div class="tfa-wrap">
+        <div class="shield">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <div class="tfa-title">Verificación 2FA</div>
+        <div class="tfa-sub">Introduce el código de 6 dígitos<br>de tu app de autenticación</div>
 
-    <button class="login-btn" on:click={handleSubmit} disabled={loading}>
-      {loading ? 'Signing in...' : needs2FA ? 'Verify' : 'Sign In'}
-    </button>
+        <input
+          class="inp totp"
+          type="text"
+          placeholder="000000"
+          maxlength="6"
+          bind:value={totpCode}
+          on:keydown={onKey}
+          on:input={() => { totpCode = totpCode.replace(/\D/g, ''); if (error) error = ''; }}
+        />
+
+        {#if error}
+          <div class="error">{error}</div>
+        {/if}
+
+        <button class="login-btn tfa-btn" on:click={handleSubmit} disabled={loading}>
+          {loading ? 'Verificando...' : 'Verificar'}
+        </button>
+        <button class="back-link" on:click={() => { needs2FA = false; totpCode = ''; error = ''; }}>
+          ← Volver al inicio
+        </button>
+      </div>
+    {/if}
 
     <div class="footer">NimOS</div>
   </div>
@@ -93,63 +160,132 @@
       linear-gradient(140deg, #1a1030 0%, #0d0d1a 100%);
   }
 
-  .container {
+  .card {
+    width: 340px;
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(28px) saturate(1.5);
+    -webkit-backdrop-filter: blur(28px) saturate(1.5);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 22px;
+    padding: 36px 28px 28px;
     display: flex; flex-direction: column; align-items: center;
-    gap: 12px; width: 320px; padding: 40px 30px 30px;
   }
+
+  /* ── TOP AREA ── */
+  .top-area {
+    width: 100%; display: flex; flex-direction: column; align-items: center;
+    min-height: 96px; margin-bottom: 20px; position: relative;
+  }
+
+  .greeting {
+    font-size: 24px; font-weight: 700; color: rgba(255,255,255,0.92);
+    letter-spacing: -0.3px;
+    display: flex; flex-wrap: wrap; justify-content: center;
+    position: absolute; top: 0;
+    transition: opacity .3s ease, transform .3s ease;
+  }
+  .greeting.hidden { opacity: 0; transform: scale(0.9) translateY(-6px); pointer-events: none; }
+  .greeting span {
+    display: inline-block; opacity: 0; filter: blur(8px);
+    animation: fadeIn .5s ease forwards;
+  }
+  @keyframes fadeIn { to { opacity: 1; filter: blur(0); } }
 
   .avatar {
-    width: 72px; height: 72px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent, #E95420), #c040d0);
+    width: 68px; height: 68px; border-radius: 50%;
+    background: linear-gradient(135deg, #e95420, #c040d0);
     display: flex; align-items: center; justify-content: center;
-    font-size: 28px; font-weight: 600; color: white;
-    margin-bottom: 8px;
-    box-shadow: 0 4px 20px rgba(233,84,32,0.3);
+    font-size: 26px; font-weight: 700; color: #fff;
+    opacity: 0; transform: scale(0.5);
+    transition: opacity .35s cubic-bezier(0.16,1,0.3,1), transform .35s cubic-bezier(0.16,1,0.3,1);
+    position: absolute; top: 14px;
   }
+  .avatar.show { opacity: 1; transform: scale(1); }
 
-  .input {
-    width: 100%; padding: 12px 16px;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 10px; color: white;
-    font-size: 14px; font-family: inherit;
-    outline: none; transition: border-color 0.2s;
+  .login-sub {
+    font-size: 12px; color: rgba(255,255,255,0.28);
+    position: absolute; top: 74px;
+    opacity: 0; transition: opacity .3s ease .1s;
+    white-space: nowrap;
   }
-  .input:focus { border-color: var(--accent, #E95420); }
-  .input::placeholder { color: rgba(255,255,255,0.3); }
-  .input.totp {
-    text-align: center; font-size: 1.4em;
-    letter-spacing: 6px; font-family: 'DM Mono', monospace;
-  }
+  .login-sub.show { opacity: 1; }
 
-  .totp-label {
-    font-size: 12px; color: rgba(255,255,255,0.5);
-    text-align: center;
+  /* ── FIELDS ── */
+  .fields {
+    width: 100%; display: flex; flex-direction: column; gap: 10px;
+    margin-bottom: 14px;
+    opacity: 0; transform: translateY(10px);
+    transition: opacity .4s ease, transform .4s ease;
   }
+  .fields.show { opacity: 1; transform: translateY(0); }
+
+  .inp {
+    width: 100%; padding: 11px 14px;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px; color: rgba(255,255,255,0.9);
+    font-size: 13px; font-family: inherit; outline: none;
+    transition: border-color .2s, background .2s;
+  }
+  .inp:focus { border-color: #e95420; background: rgba(255,255,255,0.10); }
+  .inp::placeholder { color: rgba(255,255,255,0.22); }
+  .inp.totp {
+    text-align: center; font-size: 26px; letter-spacing: 10px;
+    font-family: 'DM Mono', monospace; font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .inp.totp:focus { border-color: #7c6fff; background: rgba(124,111,255,0.08); }
+
+  /* ── 2FA ── */
+  .tfa-wrap {
+    width: 100%; display: flex; flex-direction: column; align-items: center; gap: 0;
+    animation: fadeIn .4s ease;
+  }
+  .shield {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: rgba(124,111,255,0.12);
+    border: 1px solid rgba(124,111,255,0.25);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 16px;
+    animation: fadeIn .5s ease .05s both;
+  }
+  .shield svg { width: 30px; height: 30px; stroke: #7c6fff; }
+  .tfa-title {
+    font-size: 20px; font-weight: 700; color: rgba(255,255,255,0.92);
+    margin-bottom: 6px;
+    animation: fadeIn .4s ease .15s both;
+  }
+  .tfa-sub {
+    font-size: 12px; color: rgba(255,255,255,0.28);
+    text-align: center; line-height: 1.5; margin-bottom: 20px;
+    animation: fadeIn .4s ease .2s both;
+  }
+  .tfa-wrap .inp { animation: fadeIn .4s ease .3s both; width: 100%; margin-bottom: 12px; }
+  .tfa-btn { background: #7c6fff !important; animation: fadeIn .4s ease .4s both; }
+
+  /* ── SHARED ── */
+  .login-btn {
+    width: 100%; padding: 12px;
+    background: #e95420; border: none; border-radius: 10px;
+    color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+    transition: opacity .15s; margin-bottom: 4px;
+  }
+  .login-btn:hover { opacity: .88; }
+  .login-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .error { color: #f87171; font-size: 12px; text-align: center; margin-bottom: 8px; }
 
   .back-link {
-    background: none; border: none; color: rgba(255,255,255,0.4);
+    background: none; border: none; color: rgba(255,255,255,0.3);
     font-size: 12px; cursor: pointer; font-family: inherit;
+    transition: color .15s; margin-top: 8px;
+    animation: fadeIn .4s ease .5s both;
   }
   .back-link:hover { color: rgba(255,255,255,0.7); }
 
-  .error {
-    color: #f87171; font-size: 12px; text-align: center;
-  }
-
-  .login-btn {
-    width: 100%; padding: 12px;
-    background: var(--accent, #E95420);
-    border: none; border-radius: 10px;
-    color: white; font-size: 14px; font-weight: 600;
-    cursor: pointer; font-family: inherit;
-    transition: opacity 0.15s;
-  }
-  .login-btn:hover { opacity: 0.9; }
-  .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
   .footer {
-    margin-top: 16px; font-size: 11px;
-    color: rgba(255,255,255,0.2);
+    margin-top: 18px; font-size: 10px;
+    color: rgba(255,255,255,0.12); letter-spacing: .1em;
   }
 </style>

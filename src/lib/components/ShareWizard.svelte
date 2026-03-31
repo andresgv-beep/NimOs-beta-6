@@ -5,6 +5,7 @@
   export let pools = [];
   export let users = [];
   export let editingShare = null;
+  export let saving = false;
 
   const dispatch = createEventDispatcher();
   const hdrs = () => ({ 'Authorization': `Bearer ${getToken()}` });
@@ -166,8 +167,8 @@
     {#if isNew && wizardStep < totalSteps}
       <button class="btn-accent" on:click={nextStep}>Siguiente →</button>
     {:else}
-      <button class="btn-accent" on:click={save} disabled={savingShare}>
-        {savingShare ? 'Guardando...' : isNew ? 'Crear carpeta' : 'Guardar cambios'}
+      <button class="btn-accent" on:click={save} disabled={saving || savingShare}>
+        {saving || savingShare ? 'Guardando...' : isNew ? 'Crear carpeta' : 'Guardar cambios'}
       </button>
     {/if}
   </div>

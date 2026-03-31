@@ -92,7 +92,7 @@ func handleDdnsRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if path == "/api/ddns/config" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" {
+		if session.Role != "admin" {
 			jsonError(w, 403, "Admin required"); return
 		}
 		body, _ := readBody(r)
@@ -102,7 +102,7 @@ func handleDdnsRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if path == "/api/ddns/test" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" {
+		if session.Role != "admin" {
 			jsonError(w, 403, "Admin required"); return
 		}
 		body, _ := readBody(r)
@@ -173,7 +173,7 @@ func handleRemoteAccessRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/remote-access/configure" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" {
+		if session.Role != "admin" {
 			jsonError(w, 403, "Admin required"); return
 		}
 		body, _ := readBody(r)
@@ -202,7 +202,7 @@ func handleRemoteAccessRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/remote-access/test-ddns" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" {
+		if session.Role != "admin" {
 			jsonError(w, 403, "Admin required"); return
 		}
 		body, _ := readBody(r)
@@ -211,7 +211,7 @@ func handleRemoteAccessRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/remote-access/request-ssl" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" {
+		if session.Role != "admin" {
 			jsonError(w, 403, "Admin required"); return
 		}
 		body, _ := readBody(r)
@@ -258,7 +258,7 @@ func handleRemoteAccessRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/remote-access/enable-https" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" {
+		if session.Role != "admin" {
 			jsonError(w, 403, "Admin required"); return
 		}
 		body, _ := readBody(r)
@@ -513,7 +513,7 @@ func handleCertsRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/certs/request" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		body, _ := readBody(r)
 		domain := bodyStr(body, "domain")
 		email := bodyStr(body, "email")
@@ -530,7 +530,7 @@ func handleCertsRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/certs/renew" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		body, _ := readBody(r)
 		domain := bodyStr(body, "domain")
 		log, _ := run(fmt.Sprintf(`sudo certbot renew --cert-name "%s" --force-renewal 2>&1`, domain))
@@ -539,7 +539,7 @@ func handleCertsRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/certs/delete" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		body, _ := readBody(r)
 		domain := bodyStr(body, "domain")
 		run(fmt.Sprintf(`sudo certbot delete --cert-name "%s" --non-interactive 2>/dev/null`, domain))
@@ -572,7 +572,7 @@ func handleProxyRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/proxy/rules" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		body, _ := readBody(r)
 		rules, _ := body["rules"].([]interface{})
 		writeJSONConfig(proxyConfigFile, rules)
@@ -596,7 +596,7 @@ func handlePortalRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/api/portal/config" && r.Method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		body, _ := readBody(r)
 		_ = body
 		jsonOk(w, map[string]interface{}{"ok": true, "needsRestart": true})
@@ -656,7 +656,7 @@ func handleSmbRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/smb/config" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		body, _ := readBody(r)
 		current := readJSONConfig(smbConfigFile, map[string]interface{}{})
 		for k, v := range body { current[k] = v }
@@ -665,31 +665,31 @@ func handleSmbRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if urlPath == "/api/smb/start" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		run("sudo systemctl enable smbd nmbd 2>/dev/null; sudo systemctl start smbd nmbd 2>/dev/null")
 		jsonOk(w, map[string]interface{}{"ok": true}); return
 	}
 
 	if urlPath == "/api/smb/stop" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		run("sudo systemctl stop smbd nmbd 2>/dev/null; sudo systemctl disable smbd nmbd 2>/dev/null")
 		jsonOk(w, map[string]interface{}{"ok": true}); return
 	}
 
 	if urlPath == "/api/smb/restart" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		run("sudo systemctl restart smbd nmbd 2>/dev/null")
 		jsonOk(w, map[string]interface{}{"ok": true}); return
 	}
 
 	if urlPath == "/api/smb/apply" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		run("sudo smbcontrol all reload-config 2>/dev/null")
 		jsonOk(w, map[string]interface{}{"ok": true}); return
 	}
 
 	if urlPath == "/api/smb/set-password" && method == "POST" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		body, _ := readBody(r)
 		username := bodyStr(body, "username")
 		password := bodyStr(body, "password")
@@ -701,7 +701,7 @@ func handleSmbRoutes(w http.ResponseWriter, r *http.Request) {
 	// PUT /api/smb/share/:name
 	reSmbShare := regexp.MustCompile(`^/api/smb/share/([a-zA-Z0-9_-]+)$`)
 	if m := reSmbShare.FindStringSubmatch(urlPath); m != nil && method == "PUT" {
-		if role, _ := session["role"].(string); role != "admin" { jsonError(w, 403, "Admin required"); return }
+		if session.Role != "admin" { jsonError(w, 403, "Admin required"); return }
 		// Toggle SMB on share — simplified, would need share update
 		jsonOk(w, map[string]interface{}{"ok": true, "name": m[1]}); return
 	}

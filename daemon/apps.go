@@ -501,7 +501,7 @@ func handleInstalledAppsRoutes(w http.ResponseWriter, r *http.Request) {
 			"color":       bodyStr(body, "color"),
 			"external":    body["external"],
 			"installedAt": fmt.Sprintf("%v", os.Getpid()),
-			"installedBy": session["username"],
+			"installedBy": session.Username,
 		})
 		saveInstalledApps(filtered)
 		jsonOk(w, map[string]interface{}{"ok": true})

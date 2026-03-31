@@ -997,7 +997,7 @@ func handleHardwareRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSystemPost(w http.ResponseWriter, r *http.Request, session map[string]interface{}) {
-	if role, _ := session["role"].(string); role != "admin" {
+	if session.Role != "admin" {
 		jsonError(w, 403, "Unauthorized")
 		return
 	}

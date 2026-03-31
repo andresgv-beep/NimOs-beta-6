@@ -63,15 +63,15 @@ func handleFilesRoutes(w http.ResponseWriter, r *http.Request) {
 func getSharePermission(session map[string]interface{}, share map[string]interface{}) string {
 	// Remote shares: admin gets rw (NFS mount is already authenticated)
 	if isRemote, _ := share["_remote"].(bool); isRemote {
-		if role, _ := session["role"].(string); role == "admin" {
+		if session.Role == "admin" {
 			return "rw"
 		}
 		return "ro"
 	}
-	if role, _ := session["role"].(string); role == "admin" {
+	if session.Role == "admin" {
 		return "rw"
 	}
-	username, _ := session["username"].(string)
+	username := session.Username
 	if perms, ok := share["permissions"].(map[string]string); ok {
 		if p, ok := perms[username]; ok {
 			return p
@@ -205,8 +205,8 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session map[string]inte
 	if shareName == "" {
 		// Return list of accessible shares (local + remote)
 		shares, _ := dbSharesList()
-		username, _ := session["username"].(string)
-		role, _ := session["role"].(string)
+		username := session.Username
+		role := session.Role
 		var accessible []map[string]interface{}
 		for _, s := range shares {
 			perm := "none"

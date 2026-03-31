@@ -395,7 +395,7 @@ func dbSessionCreate(token, username, role, ip string) error {
 	return err
 }
 
-func dbSessionGet(token string) (map[string]interface{}, error) {
+func dbSessionGet(token string) (*DBSession, error) {
 	var s DBSession
 	err := db.QueryRow(`SELECT username, role, created_at, expires_at, ip FROM sessions WHERE token = ?`, token).
 		Scan(&s.Username, &s.Role, &s.CreatedAt, &s.ExpiresAt, &s.IP)
@@ -406,7 +406,7 @@ func dbSessionGet(token string) (map[string]interface{}, error) {
 		db.Exec(`DELETE FROM sessions WHERE token = ?`, token)
 		return nil, fmt.Errorf("session expired")
 	}
-	return s.ToMap(), nil
+	return &s, nil
 }
 
 func dbSessionDelete(token string) error {

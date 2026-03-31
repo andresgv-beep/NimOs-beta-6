@@ -135,10 +135,10 @@ func sanitizeDockerNameGo(name string) string {
 }
 
 func hasDockerPermission(session map[string]interface{}) bool {
-	if role, _ := session["role"].(string); role == "admin" {
+	if session.Role == "admin" {
 		return true
 	}
-	username, _ := session["username"].(string)
+	username := session.Username
 	conf := getDockerConfigGo()
 	perms, _ := conf["permissions"].([]interface{})
 	for _, p := range perms {
@@ -324,7 +324,7 @@ func dockerStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Allow admin or users with Docker permission
-	role, _ := session["role"].(string)
+	role := session.Role
 	hasPerm := hasDockerPermission(session)
 	if role != "admin" && !hasPerm {
 		jsonError(w, 403, "No permission")
@@ -479,14 +479,14 @@ func dockerAppAccess(w http.ResponseWriter, r *http.Request, appId string) {
 	if session == nil {
 		return
 	}
-	if role, _ := session["role"].(string); role == "admin" {
+	if session.Role == "admin" {
 		jsonOk(w, map[string]interface{}{"hasAccess": true, "appId": appId})
 		return
 	}
 	conf := getDockerConfigGo()
 	appPerms, _ := conf["appPermissions"].(map[string]interface{})
 	users, _ := appPerms[appId].([]interface{})
-	username, _ := session["username"].(string)
+	username := session.Username
 	hasAccess := false
 	for _, u := range users {
 		if us, _ := u.(string); us == username {
@@ -972,7 +972,7 @@ func dockerContainerCreate(w http.ResponseWriter, r *http.Request) {
 	filtered = append(filtered, map[string]interface{}{
 		"id": id, "name": name, "icon": bodyStr(body, "icon"), "port": appPort,
 		"image": image, "type": "container", "color": bodyStr(body, "color"),
-		"installedBy": session["username"],
+		"installedBy": session.Username,
 	})
 	saveInstalledApps(filtered)
 
@@ -1064,7 +1064,7 @@ func dockerStackDeploy(w http.ResponseWriter, r *http.Request) {
 		"id": id, "name": bodyStr(body, "name"), "icon": bodyStr(body, "icon"),
 		"port": body["port"], "image": "stack", "type": "stack",
 		"color": bodyStr(body, "color"), "external": body["external"],
-		"installedBy": session["username"],
+		"installedBy": session.Username,
 	})
 	saveInstalledApps(filtered)
 

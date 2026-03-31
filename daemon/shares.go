@@ -67,8 +67,8 @@ func sharesListHTTP(w http.ResponseWriter, r *http.Request) {
 	// Enrich shares with real quota from filesystem
 	enrichSharesWithQuota(shares)
 
-	role, _ := session["role"].(string)
-	username, _ := session["username"].(string)
+	role := session.Role
+	username := session.Username
 
 	if role != "admin" {
 		// Filter: only shares where this user has permission
@@ -226,7 +226,7 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 	runCmd("setfacl", []string{"-d", "-m", "u:nimbus:rwx", folderPath}, CmdOptions{Timeout: 5 * time.Second})
 
 	// Register in DB
-	username := session["username"].(string)
+	username := session.Username
 	if err := dbSharesCreate(safeName, name, description, folderPath, volumeName, volumeName, username); err != nil {
 		logMsg("ERROR dbSharesCreate '%s': %s", safeName, err)
 		jsonError(w, 500, err.Error())

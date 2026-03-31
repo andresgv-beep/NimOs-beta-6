@@ -753,8 +753,8 @@ func authMe(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOk(w, map[string]interface{}{
 		"user": map[string]string{
-			"username": session["username"].(string),
-			"role":     session["role"].(string),
+			"username": session.Username,
+			"role":     session.Role,
 		},
 	})
 }
@@ -785,8 +785,8 @@ func authChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionUser := session["username"].(string)
-	sessionRole := session["role"].(string)
+	sessionUser := session.Username
+	sessionRole := session.Role
 
 	editUser := sessionUser
 	if targetUser != "" && sessionRole == "admin" {
@@ -837,7 +837,7 @@ func auth2faSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := session["username"].(string)
+	username := session.Username
 	dbUsersUpdate(username, map[string]interface{}{
 		"totpSecret":  encrypted,
 		"totpEnabled": false,
@@ -865,7 +865,7 @@ func auth2faVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := session["username"].(string)
+	username := session.Username
 	user, err := dbUsersGet(username)
 	if err != nil {
 		jsonError(w, 400, "User not found")
@@ -921,7 +921,7 @@ func auth2faDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := session["username"].(string)
+	username := session.Username
 	stored, err := dbUsersVerifyPassword(username)
 	if err != nil || !verifyPassword(password, stored) {
 		jsonError(w, 400, "Invalid password")
@@ -943,7 +943,7 @@ func auth2faStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := session["username"].(string)
+	username := session.Username
 	user, _ := dbUsersGet(username)
 	enabled := false
 	if user != nil {
@@ -989,7 +989,7 @@ func handleUserRoutes(w http.ResponseWriter, r *http.Request) {
 		if session == nil {
 			return
 		}
-		prefs := getUserPreferences(session["username"].(string))
+		prefs := getUserPreferences(session.Username)
 		jsonOk(w, map[string]interface{}{"preferences": prefs})
 
 	// PUT /api/user/preferences
@@ -999,14 +999,14 @@ func handleUserRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		body, _ := readBody(r)
-		current := getUserPreferences(session["username"].(string))
+		current := getUserPreferences(session.Username)
 		for k, v := range body {
 			if k != "playlist" {
 				current[k] = v
 			}
 		}
 		delete(current, "playlist")
-		if err := saveUserPreferences(session["username"].(string), current); err != nil {
+		if err := saveUserPreferences(session.Username, current); err != nil {
 			jsonError(w, 500, "Failed to save preferences")
 			return
 		}
@@ -1019,14 +1019,14 @@ func handleUserRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		body, _ := readBody(r)
-		current := getUserPreferences(session["username"].(string))
+		current := getUserPreferences(session.Username)
 		for k, v := range body {
 			if k != "playlist" {
 				current[k] = v
 			}
 		}
 		delete(current, "playlist")
-		saveUserPreferences(session["username"].(string), current)
+		saveUserPreferences(session.Username, current)
 		jsonOk(w, map[string]interface{}{"ok": true})
 
 	// POST /api/user/wallpaper — upload wallpaper (base64)
@@ -1043,7 +1043,7 @@ func handleUserRoutes(w http.ResponseWriter, r *http.Request) {
 		if session == nil {
 			return
 		}
-		jsonOk(w, map[string]interface{}{"playlist": getUserPlaylist(session["username"].(string))})
+		jsonOk(w, map[string]interface{}{"playlist": getUserPlaylist(session.Username)})
 
 	// PUT /api/user/playlist
 	case path == "/api/user/playlist" && method == "PUT":
@@ -1098,7 +1098,7 @@ func userWallpaperUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := session["username"].(string)
+	username := session.Username
 	userPath := ensureUserDataDir(username)
 	wallpaperFile := fmt.Sprintf("wallpaper.%s", ext)
 	fullPath := filepath.Join(userPath, wallpaperFile)
@@ -1155,7 +1155,7 @@ func userPlaylistSave(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 400, "Playlist must be an array")
 		return
 	}
-	if err := saveUserPlaylist(session["username"].(string), playlist); err != nil {
+	if err := saveUserPlaylist(session.Username, playlist); err != nil {
 		jsonError(w, 500, "Failed to save playlist")
 		return
 	}
@@ -1174,7 +1174,7 @@ func userPlaylistAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := session["username"].(string)
+	username := session.Username
 	playlist := getUserPlaylist(username)
 
 	// Check duplicates
@@ -1224,7 +1224,7 @@ func userPlaylistRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := session["username"].(string)
+	username := session.Username
 	playlist := getUserPlaylist(username)
 	if index < 0 || index >= len(playlist) {
 		jsonError(w, 400, "Invalid index")
@@ -1333,7 +1333,7 @@ func usersDelete(w http.ResponseWriter, r *http.Request, target string) {
 		return
 	}
 
-	if target == session["username"].(string) {
+	if target == session.Username {
 		jsonError(w, 400, "Cannot delete yourself")
 		return
 	}

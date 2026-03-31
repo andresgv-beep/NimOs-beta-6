@@ -85,7 +85,7 @@ func getBearerToken(r *http.Request) string {
 }
 
 // Authenticate request — returns session data or nil
-func authenticate(r *http.Request) map[string]interface{} {
+func authenticate(r *http.Request) *DBSession {
 	token := getBearerToken(r)
 	if token == "" {
 		return nil
@@ -99,7 +99,7 @@ func authenticate(r *http.Request) map[string]interface{} {
 }
 
 // Require authentication middleware helper — returns session or sends 401
-func requireAuth(w http.ResponseWriter, r *http.Request) map[string]interface{} {
+func requireAuth(w http.ResponseWriter, r *http.Request) *DBSession {
 	session := authenticate(r)
 	if session == nil {
 		jsonError(w, 401, "Not authenticated")
@@ -109,12 +109,12 @@ func requireAuth(w http.ResponseWriter, r *http.Request) map[string]interface{} 
 }
 
 // Require admin role — returns session or sends error
-func requireAdmin(w http.ResponseWriter, r *http.Request) map[string]interface{} {
+func requireAdmin(w http.ResponseWriter, r *http.Request) *DBSession {
 	session := requireAuth(w, r)
 	if session == nil {
 		return nil
 	}
-	if role, _ := session["role"].(string); role != "admin" {
+	if session.Role != "admin" {
 		jsonError(w, 403, "Unauthorized")
 		return nil
 	}
@@ -123,14 +123,12 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) map[string]interface{}
 
 // Require app access — checks if user has permission to use a specific app
 // Admin always passes. Non-admin users need explicit grant in user_app_access.
-func requireAppAccess(w http.ResponseWriter, r *http.Request, appId string) map[string]interface{} {
+func requireAppAccess(w http.ResponseWriter, r *http.Request, appId string) *DBSession {
 	session := requireAuth(w, r)
 	if session == nil {
 		return nil
 	}
-	username, _ := session["username"].(string)
-	role, _ := session["role"].(string)
-	if !dbUserHasAppAccess(username, role, appId) {
+	if !dbUserHasAppAccess(session.Username, session.Role, appId) {
 		jsonError(w, 403, "No tienes acceso a esta aplicación")
 		return nil
 	}
@@ -540,7 +538,7 @@ func handleAppAccessRoutes(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 400, "This app cannot be delegated to non-admin users")
 			return
 		}
-		adminUser, _ := session["username"].(string)
+		adminUser, _ := session.Username
 		err := dbAppAccessGrant(username, appId, permission, adminUser)
 		if err != nil {
 			jsonError(w, 500, err.Error())
@@ -581,8 +579,8 @@ func handleMyAppsRoute(w http.ResponseWriter, r *http.Request) {
 	if session == nil {
 		return
 	}
-	username, _ := session["username"].(string)
-	role, _ := session["role"].(string)
+	username := session.Username
+	role := session.Role
 
 	if role == "admin" {
 		// Admin has access to everything

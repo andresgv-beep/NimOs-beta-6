@@ -31,7 +31,9 @@ func openDB() error {
 		return fmt.Errorf("cannot open database: %v", err)
 	}
 
-	// Allow multiple readers, WAL handles concurrency
+	// SQLite only supports one writer at a time. Using a single connection
+	// serializes all DB operations through Go's connection pool, preventing
+	// "database is locked" errors entirely.
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(2)
 
@@ -128,6 +130,11 @@ func createTables() error {
 	// Migration: create backup tables
 	if err := createBackupTables(); err != nil {
 		return fmt.Errorf("backup tables: %v", err)
+	}
+
+	// Create notification table
+	if err := createNotificationTable(); err != nil {
+		return fmt.Errorf("notification table: %v", err)
 	}
 
 	return nil

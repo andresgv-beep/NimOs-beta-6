@@ -26,7 +26,7 @@ func openDB() error {
 	}
 
 	var err error
-	db, err = sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=30000&_foreign_keys=ON")
+	db, err = sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON")
 	if err != nil {
 		return fmt.Errorf("cannot open database: %v", err)
 	}
@@ -34,8 +34,8 @@ func openDB() error {
 	// SQLite only supports one writer at a time. Using a single connection
 	// serializes all DB operations through Go's connection pool, preventing
 	// "database is locked" errors entirely.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 
 	if err := createTables(); err != nil {
 		return fmt.Errorf("cannot create tables: %v", err)

@@ -538,7 +538,7 @@ func handleAppAccessRoutes(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 400, "This app cannot be delegated to non-admin users")
 			return
 		}
-		adminUser, _ := session.Username
+		adminUser := session.Username
 		err := dbAppAccessGrant(username, appId, permission, adminUser)
 		if err != nil {
 			jsonError(w, 500, err.Error())

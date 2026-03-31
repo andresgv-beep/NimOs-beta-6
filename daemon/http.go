@@ -455,20 +455,11 @@ func handleAppAccessRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if urlPath == "/api/app-access/apps" {
-			// Return list of system apps that can have permissions assigned
-			apps := []map[string]interface{}{
-				{"id": "nimsettings", "name": "NimSettings", "category": "system", "adminOnly": false},
-				{"id": "storage", "name": "Storage", "category": "system", "adminOnly": true},
-				{"id": "network", "name": "Network", "category": "system", "adminOnly": true},
-				{"id": "nimtorrent", "name": "NimTorrent", "category": "app", "adminOnly": false},
-				{"id": "appstore", "name": "App Store", "category": "system", "adminOnly": false},
-				{"id": "files", "name": "Files", "category": "app", "adminOnly": false, "public": true},
-				{"id": "mediaplayer", "name": "Media Player", "category": "app", "adminOnly": false, "public": true},
-				{"id": "terminal", "name": "Terminal", "category": "system", "adminOnly": false},
-				{"id": "containers", "name": "Containers", "category": "system", "adminOnly": false},
-				{"id": "monitor", "name": "System Monitor", "category": "system", "adminOnly": false},
-				{"id": "vms", "name": "Virtual Machines", "category": "system", "adminOnly": false},
-				{"id": "texteditor", "name": "Text Editor", "category": "app", "adminOnly": false},
+			// Return list of registered apps from DB
+			apps, err := dbListAppRegistry()
+			if err != nil {
+				jsonError(w, 500, err.Error())
+				return
 			}
 			jsonOk(w, map[string]interface{}{"apps": apps})
 			return
@@ -534,7 +525,7 @@ func handleAppAccessRoutes(w http.ResponseWriter, r *http.Request) {
 		if permission == "" {
 			permission = "use"
 		}
-		if adminOnlyApps[appId] {
+		if isAdminOnlyApp(appId) {
 			jsonError(w, 400, "This app cannot be delegated to non-admin users")
 			return
 		}
@@ -590,9 +581,15 @@ func handleMyAppsRoute(w http.ResponseWriter, r *http.Request) {
 
 	grants, _ := dbUserListAppAccess(username)
 	appIds := []string{}
-	// Always include public apps
-	for appId := range publicApps {
-		appIds = append(appIds, appId)
+	// Always include public apps from DB
+	publicRows, _ := db.Query(`SELECT id FROM app_registry WHERE public = 1`)
+	if publicRows != nil {
+		for publicRows.Next() {
+			var id string
+			publicRows.Scan(&id)
+			appIds = append(appIds, id)
+		}
+		publicRows.Close()
 	}
 	for _, g := range grants {
 		if id, ok := g["appId"].(string); ok {

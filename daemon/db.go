@@ -138,6 +138,11 @@ func createTables() error {
 		return fmt.Errorf("notification table: %v", err)
 	}
 
+	// Create app registry table
+	if err := createAppRegistryTable(); err != nil {
+		return fmt.Errorf("app registry table: %v", err)
+	}
+
 	return nil
 }
 
@@ -591,19 +596,98 @@ func dbPrefsDelete(username, key string) error {
 }
 
 // ═══════════════════════════════════
-// User App Access
+// App Registry — stored in DB, not hardcoded
 // ═══════════════════════════════════
 
-// Apps that are always available to all authenticated users (no permission needed)
-var publicApps = map[string]bool{
-	"files":       true,
-	"mediaplayer": true,
+func createAppRegistryTable() error {
+	_, err := db.Exec(`
+	CREATE TABLE IF NOT EXISTS app_registry (
+		id          TEXT PRIMARY KEY,
+		name        TEXT NOT NULL,
+		category    TEXT NOT NULL DEFAULT 'app',
+		admin_only  INTEGER DEFAULT 0,
+		public      INTEGER DEFAULT 0
+	);`)
+	if err != nil {
+		return err
+	}
+
+	// Seed default apps if table is empty
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM app_registry").Scan(&count)
+	if count == 0 {
+		tx, _ := db.Begin()
+		seedApps := []struct {
+			id, name, category string
+			adminOnly, public  int
+		}{
+			{"nimsettings", "NimSettings", "system", 0, 0},
+			{"storage", "Storage", "system", 1, 0},
+			{"network", "Network", "system", 1, 0},
+			{"nimtorrent", "NimTorrent", "app", 0, 0},
+			{"appstore", "App Store", "system", 0, 0},
+			{"files", "Files", "app", 0, 1},
+			{"mediaplayer", "Media Player", "app", 0, 1},
+			{"terminal", "Terminal", "system", 0, 0},
+			{"containers", "Containers", "system", 0, 0},
+			{"monitor", "System Monitor", "system", 0, 0},
+			{"vms", "Virtual Machines", "system", 0, 0},
+			{"texteditor", "Text Editor", "app", 0, 0},
+		}
+		for _, a := range seedApps {
+			tx.Exec(`INSERT OR IGNORE INTO app_registry (id, name, category, admin_only, public) VALUES (?, ?, ?, ?, ?)`,
+				a.id, a.name, a.category, a.adminOnly, a.public)
+		}
+		tx.Commit()
+		logMsg("app_registry: seeded %d default apps", len(seedApps))
+	}
+	return nil
 }
 
-// Apps that are ALWAYS admin-only (cannot be delegated)
-var adminOnlyApps = map[string]bool{
-	"storage": true,
-	"network": true,
+// isPublicApp checks if an app is accessible to all authenticated users
+func isPublicApp(appId string) bool {
+	var pub int
+	err := db.QueryRow(`SELECT public FROM app_registry WHERE id = ?`, appId).Scan(&pub)
+	if err != nil {
+		return false
+	}
+	return pub == 1
+}
+
+// isAdminOnlyApp checks if an app is restricted to admin users
+func isAdminOnlyApp(appId string) bool {
+	var adminOnly int
+	err := db.QueryRow(`SELECT admin_only FROM app_registry WHERE id = ?`, appId).Scan(&adminOnly)
+	if err != nil {
+		return false
+	}
+	return adminOnly == 1
+}
+
+// dbListAppRegistry returns all registered apps for the admin panel
+func dbListAppRegistry() ([]map[string]interface{}, error) {
+	rows, err := db.Query(`SELECT id, name, category, admin_only, public FROM app_registry ORDER BY category, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []map[string]interface{}
+	for rows.Next() {
+		var id, name, category string
+		var adminOnly, public int
+		rows.Scan(&id, &name, &category, &adminOnly, &public)
+		result = append(result, map[string]interface{}{
+			"id":        id,
+			"name":      name,
+			"category":  category,
+			"adminOnly": adminOnly == 1,
+			"public":    public == 1,
+		})
+	}
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
+	return result, nil
 }
 
 // Check if a user has access to an app
@@ -613,10 +697,10 @@ func dbUserHasAppAccess(username, role, appId string) bool {
 	if role == "admin" {
 		return true
 	}
-	if publicApps[appId] {
+	if isPublicApp(appId) {
 		return true
 	}
-	if adminOnlyApps[appId] {
+	if isAdminOnlyApp(appId) {
 		return false
 	}
 	var count int
@@ -632,10 +716,10 @@ func dbUserGetAppPermission(username, role, appId string) string {
 	if role == "admin" {
 		return "manage"
 	}
-	if publicApps[appId] {
+	if isPublicApp(appId) {
 		return "use"
 	}
-	if adminOnlyApps[appId] {
+	if isAdminOnlyApp(appId) {
 		return ""
 	}
 	var perm string

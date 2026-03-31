@@ -58,26 +58,23 @@ func sharesListHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shares, err := dbSharesList()
+	dbShares, err := dbSharesListRaw()
 	if err != nil {
 		jsonError(w, 500, err.Error())
 		return
 	}
 
-	// Enrich shares with real quota from filesystem
-	enrichSharesWithQuota(shares)
+	// Build enriched views with quota/stats from filesystem
+	views := buildShareViews(dbShares)
 
-	role := session.Role
-	username := session.Username
-
-	if role != "admin" {
+	if session.Role != "admin" {
 		// Filter: only shares where this user has permission
 		var filtered []map[string]interface{}
-		for _, s := range shares {
-			perms, _ := s["permissions"].(map[string]string)
-			if perm, ok := perms[username]; ok && (perm == "rw" || perm == "ro") {
-				s["myPermission"] = perm
-				filtered = append(filtered, s)
+		for _, v := range views {
+			if perm, ok := v.Permissions[session.Username]; ok && (perm == "rw" || perm == "ro") {
+				m := v.ToMap()
+				m["myPermission"] = perm
+				filtered = append(filtered, m)
 			}
 		}
 		if filtered == nil {
@@ -87,7 +84,12 @@ func sharesListHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonOk(w, shares)
+	// Admin: return all shares
+	result := make([]map[string]interface{}, len(views))
+	for i, v := range views {
+		result[i] = v.ToMap()
+	}
+	jsonOk(w, result)
 }
 
 // POST /api/shares
@@ -446,22 +448,27 @@ func sharesDeleteHTTP(w http.ResponseWriter, r *http.Request, target string) {
 	jsonOk(w, map[string]interface{}{"ok": true})
 }
 
-// enrichSharesWithQuota reads the real quota from ZFS datasets or BTRFS subvolumes
-// and adds it to each share object so the UI can display it.
-func enrichSharesWithQuota(shares []map[string]interface{}) {
+// buildShareViews enriches DB shares with runtime filesystem data (quota, used, available, file stats).
+// Returns ShareView structs — no mutation, pure construction.
+func buildShareViews(dbShares []DBShare) []ShareView {
 	opts := CmdOptions{Timeout: 5 * time.Second}
-	for i, s := range shares {
-		sharPool, _ := s["pool"].(string)
+	views := make([]ShareView, 0, len(dbShares))
+
+	for _, s := range dbShares {
+		v := ShareView{DBShare: s}
+
+		sharPool := s.Pool
 		if sharPool == "" {
-			sharPool, _ = s["volume"].(string)
+			sharPool = s.Volume
 		}
-		sharName, _ := s["name"].(string)
-		if sharPool == "" || sharName == "" {
+		if sharPool == "" || s.Name == "" {
+			views = append(views, v)
 			continue
 		}
 
 		targetPool := findTargetPool(sharPool)
 		if targetPool == nil {
+			views = append(views, v)
 			continue
 		}
 
@@ -469,41 +476,32 @@ func enrichSharesWithQuota(shares []map[string]interface{}) {
 		zpoolName, _ := targetPool["zpoolName"].(string)
 		mountPoint, _ := targetPool["mountPoint"].(string)
 
-		shares[i]["poolType"] = poolType
-		sharePath := filepath.Join(mountPoint, "shares", sharName)
-		shares[i]["mountPoint"] = sharePath
+		v.PoolType = poolType
+		v.MountPoint = filepath.Join(mountPoint, "shares", s.Name)
 
 		if poolType == "zfs" && zpoolName != "" {
-			datasetName := zpoolName + "/shares/" + sharName
+			datasetName := zpoolName + "/shares/" + s.Name
 			// Get quota
 			res, err := runCmd("zfs", []string{"get", "-Hp", "-o", "value", "quota", datasetName}, opts)
 			if err == nil {
 				val := strings.TrimSpace(res.Stdout)
 				if val != "" && val != "0" && val != "none" {
-					var q int64
-					fmt.Sscanf(val, "%d", &q)
-					shares[i]["quota"] = q
-				} else {
-					shares[i]["quota"] = int64(0)
+					fmt.Sscanf(val, "%d", &v.Quota)
 				}
 			}
 			// Get used
 			res, err = runCmd("zfs", []string{"get", "-Hp", "-o", "value", "used", datasetName}, opts)
 			if err == nil {
-				var u int64
-				fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d", &u)
-				shares[i]["used"] = u
+				fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d", &v.Used)
 			}
 			// Get available
 			res, err = runCmd("zfs", []string{"get", "-Hp", "-o", "value", "available", datasetName}, opts)
 			if err == nil {
-				var a int64
-				fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d", &a)
-				shares[i]["available"] = a
+				fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d", &v.Available)
 			}
 
 		} else if poolType == "btrfs" && mountPoint != "" {
-			subvolPath := filepath.Join(mountPoint, "shares", sharName)
+			subvolPath := filepath.Join(mountPoint, "shares", s.Name)
 			// Get quota from subvolume show
 			res, err := runCmd("btrfs", []string{"subvolume", "show", subvolPath}, opts)
 			if err == nil {
@@ -513,14 +511,12 @@ func enrichSharesWithQuota(shares []map[string]interface{}) {
 						valStr := strings.TrimPrefix(line, "Limit referenced:")
 						valStr = strings.TrimSpace(valStr)
 						if valStr != "-" && valStr != "none" {
-							shares[i]["quota"] = parseHumanBytes(valStr)
-						} else {
-							shares[i]["quota"] = int64(0)
+							v.Quota = parseHumanBytes(valStr)
 						}
 					}
 					if strings.HasPrefix(line, "Usage referenced:") {
 						valStr := strings.TrimPrefix(line, "Usage referenced:")
-						shares[i]["used"] = parseHumanBytes(strings.TrimSpace(valStr))
+						v.Used = parseHumanBytes(strings.TrimSpace(valStr))
 					}
 				}
 			}
@@ -529,15 +525,44 @@ func enrichSharesWithQuota(shares []map[string]interface{}) {
 			if err == nil {
 				lines := strings.Split(strings.TrimSpace(dfRes.Stdout), "\n")
 				if len(lines) > 1 {
-					var a int64
-					fmt.Sscanf(strings.TrimSpace(lines[1]), "%d", &a)
-					shares[i]["available"] = a
+					fmt.Sscanf(strings.TrimSpace(lines[1]), "%d", &v.Available)
 				}
 			}
 		}
 
-		// File stats by category — scan the share directory
-		shares[i]["fileStats"] = getFileStatsByCategory(sharePath)
+		// File stats by category
+		v.FileStats = getFileStatsByCategory(v.MountPoint)
+
+		views = append(views, v)
+	}
+
+	return views
+}
+
+// enrichSharesWithQuota is the legacy wrapper for backward compatibility.
+// Callers should migrate to buildShareViews().
+func enrichSharesWithQuota(shares []map[string]interface{}) {
+	dbShares, err := dbSharesListRaw()
+	if err != nil {
+		return
+	}
+	views := buildShareViews(dbShares)
+
+	// Merge enriched data back into the maps by name
+	viewByName := map[string]ShareView{}
+	for _, v := range views {
+		viewByName[v.Name] = v
+	}
+	for i, s := range shares {
+		name, _ := s["name"].(string)
+		if v, ok := viewByName[name]; ok {
+			shares[i]["poolType"] = v.PoolType
+			shares[i]["mountPoint"] = v.MountPoint
+			shares[i]["quota"] = v.Quota
+			shares[i]["used"] = v.Used
+			shares[i]["available"] = v.Available
+			shares[i]["fileStats"] = v.FileStats
+		}
 	}
 }
 

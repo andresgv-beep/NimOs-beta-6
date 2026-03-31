@@ -124,6 +124,29 @@ func (s DBShare) ToMap() map[string]interface{} {
 	}
 }
 
+// ShareView is the enriched version of DBShare with runtime data from the filesystem.
+// Built by buildShareViews() — never mutated after construction.
+type ShareView struct {
+	DBShare
+	PoolType   string
+	MountPoint string
+	Quota      int64
+	Used       int64
+	Available  int64
+	FileStats  map[string]int64
+}
+
+func (v ShareView) ToMap() map[string]interface{} {
+	m := v.DBShare.ToMap()
+	m["poolType"] = v.PoolType
+	m["mountPoint"] = v.MountPoint
+	m["quota"] = v.Quota
+	m["used"] = v.Used
+	m["available"] = v.Available
+	m["fileStats"] = v.FileStats
+	return m
+}
+
 // ─── App Access Grant ────────────────────────────────────────────────────────
 
 type DBAppGrant struct {

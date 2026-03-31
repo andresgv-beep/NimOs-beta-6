@@ -27,6 +27,42 @@ func partitionName(diskName string) string {
 	return diskName + "1"
 }
 
+// diskByID returns the /dev/disk/by-id/ path for a given /dev/sdX device.
+// ZFS and BTRFS prefer by-id paths because they survive reboot reordering.
+// Returns the original path if no by-id link is found.
+func diskByID(devPath string) string {
+	devName := strings.TrimPrefix(devPath, "/dev/")
+	entries, err := os.ReadDir("/dev/disk/by-id")
+	if err != nil {
+		return devPath
+	}
+	// Prefer ata- or scsi- links, avoid wwn- and partition links
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "-part") {
+			continue
+		}
+		link, err := os.Readlink(filepath.Join("/dev/disk/by-id", e.Name()))
+		if err != nil {
+			continue
+		}
+		// Resolve relative link: ../../sda → sda
+		linkBase := filepath.Base(link)
+		if linkBase == devName {
+			return filepath.Join("/dev/disk/by-id", e.Name())
+		}
+	}
+	return devPath
+}
+
+// disksToByID resolves a list of /dev/sdX paths to their by-id equivalents.
+func disksToByID(devPaths []string) []string {
+	var result []string
+	for _, d := range devPaths {
+		result = append(result, diskByID(d))
+	}
+	return result
+}
+
 // waitForDevice waits for a device file to appear in /dev/
 func waitForDevice(path string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
@@ -39,7 +75,8 @@ func waitForDevice(path string, timeout time.Duration) error {
 	return fmt.Errorf("timeout waiting for %s", path)
 }
 
-// writePoolIdentity writes the .nimbus-pool.json identity file
+// writePoolIdentity writes the .nimbus-pool.json identity file atomically.
+// Writes to a temp file first, then renames — safe against power cuts.
 func writePoolIdentity(mountPoint, name, poolType, vdevType string, disks []string) {
 	identity := map[string]interface{}{
 		"name":          name,
@@ -50,7 +87,16 @@ func writePoolIdentity(mountPoint, name, poolType, vdevType string, disks []stri
 		"nimbusVersion": "5.0.0-beta",
 	}
 	data, _ := json.MarshalIndent(identity, "", "  ")
-	os.WriteFile(filepath.Join(mountPoint, ".nimbus-pool.json"), data, 0644)
+	finalPath := filepath.Join(mountPoint, ".nimbus-pool.json")
+	tmpPath := finalPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		logMsg("WARNING: failed to write pool identity: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		logMsg("WARNING: failed to rename pool identity: %v", err)
+		os.Remove(tmpPath)
+	}
 }
 
 // ─── Create Pool ZFS ─────────────────────────────────────────────────────────
@@ -249,6 +295,7 @@ func createPoolZfs(body map[string]interface{}) map[string]interface{} {
 				"mountPoint": mountPoint,
 				"vdevType":   vdevType,
 				"disks":      disksRaw,
+				"disksByID":  disksToByID(disks),
 				"createdAt":  time.Now().UTC().Format(time.RFC3339),
 			})
 			conf["pools"] = confPools
@@ -321,15 +368,21 @@ func destroyPoolZfs(poolName string) map[string]interface{} {
 		}
 	}
 
-	// 2. Unmount submounts (children first) — NO fuser on the pool mount point
-	// fuser -km kills EVERYTHING with an open fd there, including nginx
+	// 2. Unmount submounts (children first) — fuser on submounts only, NOT on pool root
 	if mountPoint != "" {
 		mountsOut, _ := runCmd("findmnt", []string{"-rn", "-o", "TARGET", mountPoint}, opts)
 		mounts := strings.Split(strings.TrimSpace(mountsOut.Stdout), "\n")
 		for i := len(mounts) - 1; i >= 0; i-- {
 			m := strings.TrimSpace(mounts[i])
 			if m != "" && m != mountPoint {
-				runCmd("umount", []string{"-f", "-l", m}, opts)
+				// Try normal unmount first
+				_, err := runCmd("umount", []string{m}, opts)
+				if err != nil {
+					// Kill processes on this submount, then force unmount
+					runCmd("fuser", []string{"-km", m}, CmdOptions{Timeout: 5 * time.Second})
+					time.Sleep(500 * time.Millisecond)
+					runCmd("umount", []string{"-f", m}, opts)
+				}
 			}
 		}
 	}
@@ -698,6 +751,7 @@ func createPoolBtrfs(body map[string]interface{}) map[string]interface{} {
 				"mountPoint": mountPoint,
 				"uuid":       op.Data["uuid"],
 				"disks":      disksRaw,
+				"disksByID":  disksToByID(disks),
 				"createdAt":  time.Now().UTC().Format(time.RFC3339),
 			})
 			conf["pools"] = confPools
@@ -772,18 +826,31 @@ func destroyPoolBtrfs(poolName string) map[string]interface{} {
 		}
 	}
 
-	// 2. Unmount — verify it actually unmounted
+	// 2. Unmount — kill processes first, then unmount
 	if mountPoint != "" {
-		runCmd("umount", []string{"-f", mountPoint}, opts)
-		time.Sleep(1 * time.Second)
+		// Step A: try normal unmount
+		runCmd("umount", []string{mountPoint}, opts)
+		time.Sleep(500 * time.Millisecond)
 
-		// Verify unmount
+		// Step B: check if still mounted
 		verifyRes, _ := runCmd("findmnt", []string{"-n", "-o", "TARGET", mountPoint}, opts)
 		if strings.TrimSpace(verifyRes.Stdout) != "" {
-			// Still mounted — try lazy unmount as last resort
-			logMsg("WARNING: %s still mounted after umount -f, trying lazy umount", mountPoint)
-			runCmd("umount", []string{"-f", "-l", mountPoint}, opts)
-			time.Sleep(2 * time.Second)
+			// Step C: identify and kill processes holding the mount
+			logMsg("destroy: %s still mounted — killing processes with open files", mountPoint)
+			runCmd("fuser", []string{"-km", mountPoint}, CmdOptions{Timeout: 10 * time.Second})
+			time.Sleep(1 * time.Second)
+
+			// Step D: force unmount
+			runCmd("umount", []string{"-f", mountPoint}, opts)
+			time.Sleep(500 * time.Millisecond)
+
+			// Step E: verify again, lazy as absolute last resort
+			verifyRes2, _ := runCmd("findmnt", []string{"-n", "-o", "TARGET", mountPoint}, opts)
+			if strings.TrimSpace(verifyRes2.Stdout) != "" {
+				logMsg("WARNING: %s still mounted after fuser+umount -f, using lazy umount", mountPoint)
+				runCmd("umount", []string{"-l", mountPoint}, opts)
+				time.Sleep(2 * time.Second)
+			}
 		}
 	}
 

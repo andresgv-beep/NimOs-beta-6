@@ -1299,7 +1299,7 @@ func usersCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if user exists
-	if _, err := dbUsersGet(username); err == nil {
+	if _, err := dbUsersGetRaw(username); err == nil {
 		jsonError(w, 400, "User already exists")
 		return
 	}
@@ -1332,7 +1332,7 @@ func usersDelete(w http.ResponseWriter, r *http.Request, target string) {
 		return
 	}
 
-	if _, err := dbUsersGet(target); err != nil {
+	if _, err := dbUsersGetRaw(target); err != nil {
 		jsonError(w, 404, "User not found")
 		return
 	}
@@ -1349,7 +1349,7 @@ func usersUpdate(w http.ResponseWriter, r *http.Request, target string) {
 		return
 	}
 
-	if _, err := dbUsersGet(target); err != nil {
+	if _, err := dbUsersGetRaw(target); err != nil {
 		jsonError(w, 404, "User not found")
 		return
 	}

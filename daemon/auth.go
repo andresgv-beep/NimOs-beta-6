@@ -702,7 +702,7 @@ func authLogin(w http.ResponseWriter, r *http.Request) {
 					if cs, ok := c.(string); ok && cs == inputHash {
 						// Remove used backup code
 						codes := append(user.BackupCodes[:i], user.BackupCodes[i+1:]...)
-						dbUsersUpdate(username, map[string]interface{}{"backupCodes": codes})
+						dbUsersUpdate(username, UserUpdate{BackupCodes: codes})
 						backupValid = true
 						break
 					}
@@ -802,7 +802,7 @@ func authChangePassword(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 500, "Failed to hash password")
 		return
 	}
-	dbUsersUpdate(editUser, map[string]interface{}{"password": hashed})
+	dbUsersUpdate(editUser, UserUpdate{Password: strPtr(hashed)})
 
 	// Invalidate all sessions for this user
 	dbSessionsDeleteByUsername(editUser)
@@ -833,9 +833,9 @@ func auth2faSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := session.Username
-	dbUsersUpdate(username, map[string]interface{}{
-		"totpSecret":  encrypted,
-		"totpEnabled": false,
+	dbUsersUpdate(username, UserUpdate{
+		TotpSecret:  strPtr(encrypted),
+		TotpEnabled: boolPtr(false),
 	})
 
 	uri := getTotpUri(username, secret)
@@ -889,9 +889,9 @@ func auth2faVerify(w http.ResponseWriter, r *http.Request) {
 		hashedCodes[i] = sha256Hex(c)
 	}
 
-	dbUsersUpdate(username, map[string]interface{}{
-		"totpEnabled": true,
-		"backupCodes": hashedCodes,
+	dbUsersUpdate(username, UserUpdate{
+		TotpEnabled: boolPtr(true),
+		BackupCodes: hashedCodes,
 	})
 
 	jsonOk(w, map[string]interface{}{
@@ -922,9 +922,9 @@ func auth2faDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbUsersUpdate(username, map[string]interface{}{
-		"totpSecret":  "",
-		"totpEnabled": false,
+	dbUsersUpdate(username, UserUpdate{
+		TotpSecret:  strPtr(""),
+		TotpEnabled: boolPtr(false),
 	})
 
 	jsonOk(w, map[string]interface{}{"ok": true})
@@ -1359,7 +1359,8 @@ func usersUpdate(w http.ResponseWriter, r *http.Request, target string) {
 	}
 
 	body, _ := readBody(r)
-	updates := map[string]interface{}{}
+	var u UserUpdate
+	hasUpdates := false
 
 	if pw := bodyStr(body, "password"); pw != "" {
 		if msg := validatePasswordStrength(pw); msg != "" {
@@ -1367,18 +1368,21 @@ func usersUpdate(w http.ResponseWriter, r *http.Request, target string) {
 			return
 		}
 		hashed, _ := hashPassword(pw)
-		updates["password"] = hashed
+		u.Password = strPtr(hashed)
+		hasUpdates = true
 		handleOp(Request{Op: "user.set_smb_password", Username: target, Password: pw})
 	}
 	if role := bodyStr(body, "role"); role != "" {
-		updates["role"] = role
+		u.Role = strPtr(role)
+		hasUpdates = true
 	}
-	if desc, ok := body["description"]; ok {
-		updates["description"] = desc
+	if desc := bodyStr(body, "description"); desc != "" {
+		u.Description = strPtr(desc)
+		hasUpdates = true
 	}
 
-	if len(updates) > 0 {
-		dbUsersUpdate(target, updates)
+	if hasUpdates {
+		dbUsersUpdate(target, u)
 	}
 	jsonOk(w, map[string]interface{}{"ok": true})
 }

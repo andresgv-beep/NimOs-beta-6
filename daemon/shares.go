@@ -262,15 +262,18 @@ func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
 	body, _ := readBody(r)
 
 	// Update simple fields
-	updates := map[string]interface{}{}
-	if desc, ok := body["description"]; ok {
-		updates["description"] = desc
+	var su ShareUpdate
+	hasUpdates := false
+	if desc, ok := body["description"].(string); ok {
+		su.Description = strPtr(desc)
+		hasUpdates = true
 	}
-	if rb, ok := body["recycleBin"]; ok {
-		updates["recycleBin"] = rb
+	if rb, ok := body["recycleBin"].(bool); ok {
+		su.RecycleBin = boolPtr(rb)
+		hasUpdates = true
 	}
-	if len(updates) > 0 {
-		dbSharesUpdate(target, updates)
+	if hasUpdates {
+		dbSharesUpdate(target, su)
 	}
 
 	// Handle quota change (ZFS and BTRFS)

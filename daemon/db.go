@@ -330,33 +330,37 @@ func dbUsersCreate(username, password, role, description string) error {
 	return err
 }
 
-func dbUsersUpdate(username string, fields map[string]interface{}) error {
-	// Build dynamic update
+func dbUsersUpdate(username string, u UserUpdate) error {
 	sets := []string{}
 	args := []interface{}{}
-	for k, v := range fields {
-		col := ""
-		switch k {
-		case "password":
-			col = "password"
-		case "role":
-			col = "role"
-		case "description":
-			col = "description"
-		case "totpSecret":
-			col = "totp_secret"
-		case "totpEnabled":
-			col = "totp_enabled"
-		case "backupCodes":
-			col = "backup_codes"
-			// Serialize as JSON
-			jsonData, _ := json.Marshal(v)
-			v = string(jsonData)
-		default:
-			continue
+	if u.Password != nil {
+		sets = append(sets, "password = ?")
+		args = append(args, *u.Password)
+	}
+	if u.Role != nil {
+		sets = append(sets, "role = ?")
+		args = append(args, *u.Role)
+	}
+	if u.Description != nil {
+		sets = append(sets, "description = ?")
+		args = append(args, *u.Description)
+	}
+	if u.TotpSecret != nil {
+		sets = append(sets, "totp_secret = ?")
+		args = append(args, *u.TotpSecret)
+	}
+	if u.TotpEnabled != nil {
+		sets = append(sets, "totp_enabled = ?")
+		if *u.TotpEnabled {
+			args = append(args, 1)
+		} else {
+			args = append(args, 0)
 		}
-		sets = append(sets, col+" = ?")
-		args = append(args, v)
+	}
+	if u.BackupCodes != nil {
+		sets = append(sets, "backup_codes = ?")
+		jsonData, _ := json.Marshal(u.BackupCodes)
+		args = append(args, string(jsonData))
 	}
 	if len(sets) == 0 {
 		return nil
@@ -511,21 +515,20 @@ func dbSharesCreate(name, displayName, desc, path, volume, pool, createdBy strin
 	return err
 }
 
-func dbSharesUpdate(name string, fields map[string]interface{}) error {
+func dbSharesUpdate(name string, u ShareUpdate) error {
 	sets := []string{}
 	args := []interface{}{}
-	for k, v := range fields {
-		col := ""
-		switch k {
-		case "description":
-			col = "description"
-		case "recycleBin":
-			col = "recycle_bin"
-		default:
-			continue
+	if u.Description != nil {
+		sets = append(sets, "description = ?")
+		args = append(args, *u.Description)
+	}
+	if u.RecycleBin != nil {
+		sets = append(sets, "recycle_bin = ?")
+		if *u.RecycleBin {
+			args = append(args, 1)
+		} else {
+			args = append(args, 0)
 		}
-		sets = append(sets, col+" = ?")
-		args = append(args, v)
 	}
 	if len(sets) == 0 {
 		return nil

@@ -186,3 +186,28 @@ func (a DBAppRegistryEntry) ToMap() map[string]interface{} {
 		"public":    a.Public,
 	}
 }
+
+// ─── Update Params (optional fields via pointers) ────────────────────────────
+
+// UserUpdate holds optional fields for updating a user.
+// nil fields are not updated.
+type UserUpdate struct {
+	Password    *string
+	Role        *string
+	Description *string
+	TotpSecret  *string
+	TotpEnabled *bool
+	BackupCodes interface{} // []interface{} or nil — serialized as JSON
+}
+
+// ShareUpdate holds optional fields for updating a share.
+type ShareUpdate struct {
+	Description *string
+	RecycleBin  *bool
+}
+
+// strPtr returns a pointer to a string (helper for building updates)
+func strPtr(s string) *string { return &s }
+
+// boolPtr returns a pointer to a bool
+func boolPtr(b bool) *bool { return &b }

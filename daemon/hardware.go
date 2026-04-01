@@ -950,6 +950,22 @@ func handleHardwareRoutes(w http.ResponseWriter, r *http.Request) {
 
 	path := r.URL.Path
 	switch path {
+	case "/api/hardware/stats":
+		// Combined stats for NimHealth dashboard
+		cpuData := getCpuUsage()
+		memData := getMemory()
+		loadStr := ""
+		if loadAvg := readFileStr("/proc/loadavg"); loadAvg != "" {
+			parts := strings.Fields(loadAvg)
+			if len(parts) > 0 {
+				loadStr = parts[0]
+			}
+		}
+		cpuData["load1"] = parseFloat(loadStr)
+		jsonOk(w, map[string]interface{}{
+			"cpu":    cpuData,
+			"memory": memData,
+		})
 	case "/api/system":
 		jsonOk(w, getSystemSummary())
 	case "/api/cpu":

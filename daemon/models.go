@@ -166,3 +166,23 @@ func (g DBAppGrant) ToMap() map[string]interface{} {
 		"grantedAt":  g.GrantedAt,
 	}
 }
+
+// ─── App Registry ────────────────────────────────────────────────────────────
+
+type DBAppRegistryEntry struct {
+	Id        string
+	Name      string
+	Category  string
+	AdminOnly bool
+	Public    bool
+}
+
+func (a DBAppRegistryEntry) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"id":        a.Id,
+		"name":      a.Name,
+		"category":  a.Category,
+		"adminOnly": a.AdminOnly,
+		"public":    a.Public,
+	}
+}

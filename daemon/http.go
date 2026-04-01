@@ -461,7 +461,11 @@ func handleAppAccessRoutes(w http.ResponseWriter, r *http.Request) {
 				jsonError(w, 500, err.Error())
 				return
 			}
-			jsonOk(w, map[string]interface{}{"apps": apps})
+			result := make([]map[string]interface{}, len(apps))
+			for i, a := range apps {
+				result[i] = a.ToMap()
+			}
+			jsonOk(w, map[string]interface{}{"apps": result})
 			return
 		}
 
@@ -472,7 +476,11 @@ func handleAppAccessRoutes(w http.ResponseWriter, r *http.Request) {
 				jsonError(w, 500, err.Error())
 				return
 			}
-			jsonOk(w, map[string]interface{}{"grants": grants})
+			result := make([]map[string]interface{}, len(grants))
+			for i, g := range grants {
+				result[i] = g.ToMap()
+			}
+			jsonOk(w, map[string]interface{}{"grants": result})
 			return
 		}
 
@@ -481,7 +489,11 @@ func handleAppAccessRoutes(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 500, err.Error())
 			return
 		}
-		jsonOk(w, map[string]interface{}{"grants": grants})
+		result := make([]map[string]interface{}, len(grants))
+		for i, g := range grants {
+			result[i] = g.ToMap()
+		}
+		jsonOk(w, map[string]interface{}{"grants": result})
 		return
 	}
 
@@ -592,9 +604,11 @@ func handleMyAppsRoute(w http.ResponseWriter, r *http.Request) {
 		publicRows.Close()
 	}
 	for _, g := range grants {
-		if id, ok := g["appId"].(string); ok {
-			appIds = append(appIds, id)
-		}
+		appIds = append(appIds, g.AppId)
 	}
-	jsonOk(w, map[string]interface{}{"apps": appIds, "role": role, "grants": grants})
+	grantsMap := make([]map[string]interface{}, len(grants))
+	for i, g := range grants {
+		grantsMap[i] = g.ToMap()
+	}
+	jsonOk(w, map[string]interface{}{"apps": appIds, "role": role, "grants": grantsMap})
 }

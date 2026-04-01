@@ -566,28 +566,6 @@ func dbShareRemoveAppPermission(shareName, appId string) error {
 // Preferences operations
 // ═══════════════════════════════════
 
-func dbPrefsGet(username string) (map[string]interface{}, error) {
-	rows, err := db.Query(`SELECT key, value FROM preferences WHERE username = ?`, username)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	prefs := map[string]interface{}{}
-	for rows.Next() {
-		var key, value string
-		rows.Scan(&key, &value)
-		// Try to parse as JSON
-		var parsed interface{}
-		if json.Unmarshal([]byte(value), &parsed) == nil {
-			prefs[key] = parsed
-		} else {
-			prefs[key] = value
-		}
-	}
-	return prefs, nil
-}
-
 func dbPrefsSet(username, key, value string) error {
 	_, err := db.Exec(`INSERT OR REPLACE INTO preferences (username, key, value) VALUES (?, ?, ?)`,
 		username, key, value)
@@ -669,27 +647,23 @@ func isAdminOnlyApp(appId string) bool {
 }
 
 // dbListAppRegistry returns all registered apps for the admin panel
-func dbListAppRegistry() ([]map[string]interface{}, error) {
+func dbListAppRegistry() ([]DBAppRegistryEntry, error) {
 	rows, err := db.Query(`SELECT id, name, category, admin_only, public FROM app_registry ORDER BY category, name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []DBAppRegistryEntry
 	for rows.Next() {
-		var id, name, category string
+		var a DBAppRegistryEntry
 		var adminOnly, public int
-		rows.Scan(&id, &name, &category, &adminOnly, &public)
-		result = append(result, map[string]interface{}{
-			"id":        id,
-			"name":      name,
-			"category":  category,
-			"adminOnly": adminOnly == 1,
-			"public":    public == 1,
-		})
+		rows.Scan(&a.Id, &a.Name, &a.Category, &adminOnly, &public)
+		a.AdminOnly = adminOnly == 1
+		a.Public = public == 1
+		result = append(result, a)
 	}
 	if result == nil {
-		result = []map[string]interface{}{}
+		result = []DBAppRegistryEntry{}
 	}
 	return result, nil
 }
@@ -735,39 +709,39 @@ func dbUserGetAppPermission(username, role, appId string) string {
 }
 
 // List all app access for a user
-func dbUserListAppAccess(username string) ([]map[string]interface{}, error) {
+func dbUserListAppAccess(username string) ([]DBAppGrant, error) {
 	rows, err := db.Query(`SELECT app_id, permission, granted_by, granted_at FROM user_app_access WHERE username = ? ORDER BY app_id`, username)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []DBAppGrant
 	for rows.Next() {
 		g := DBAppGrant{Username: username}
 		rows.Scan(&g.AppId, &g.Permission, &g.GrantedBy, &g.GrantedAt)
-		result = append(result, g.ToMap())
+		result = append(result, g)
 	}
 	if result == nil {
-		result = []map[string]interface{}{}
+		result = []DBAppGrant{}
 	}
 	return result, nil
 }
 
 // List all app access entries (for admin panel)
-func dbAppAccessListAll() ([]map[string]interface{}, error) {
+func dbAppAccessListAll() ([]DBAppGrant, error) {
 	rows, err := db.Query(`SELECT username, app_id, permission, granted_by, granted_at FROM user_app_access ORDER BY username, app_id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []DBAppGrant
 	for rows.Next() {
 		var g DBAppGrant
 		rows.Scan(&g.Username, &g.AppId, &g.Permission, &g.GrantedBy, &g.GrantedAt)
-		result = append(result, g.ToMap())
+		result = append(result, g)
 	}
 	if result == nil {
-		result = []map[string]interface{}{}
+		result = []DBAppGrant{}
 	}
 	return result, nil
 }

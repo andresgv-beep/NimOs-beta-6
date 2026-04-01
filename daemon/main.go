@@ -548,8 +548,6 @@ func reconcile() Response {
 			}
 			run(fmt.Sprintf(`setfacl -m u:%d:%s "%s" 2>/dev/null`, app.Uid, acl, share.Path))
 			run(fmt.Sprintf(`setfacl -d -m u:%d:%s "%s" 2>/dev/null`, app.Uid, acl, share.Path))
-				}
-			}
 		}
 
 		// 5. Service user must be in ALL share groups

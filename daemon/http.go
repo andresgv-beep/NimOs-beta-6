@@ -385,6 +385,10 @@ func startHTTPServer() {
 	mux.HandleFunc("/api/notifications", handleNotificationRoutes)
 	mux.HandleFunc("/api/notifications/", handleNotificationRoutes)
 
+	// ── Service Registry ──
+	mux.HandleFunc("/api/services", handleServiceRoutes)
+	mux.HandleFunc("/api/services/", handleServiceRoutes)
+
 	// ── Torrent proxy to NimTorrent ──
 	mux.HandleFunc("/api/torrent/", handleTorrentProxy)
 	mux.HandleFunc("/api/torrent", handleTorrentProxy)

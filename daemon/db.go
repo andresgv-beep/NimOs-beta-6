@@ -143,7 +143,60 @@ func createTables() error {
 		return fmt.Errorf("app registry table: %v", err)
 	}
 
+	// Create service registry tables
+	if err := createServiceRegistryTables(); err != nil {
+		return fmt.Errorf("service registry tables: %v", err)
+	}
+
+	// ── Schema migrations (versioned) ──
+	runSchemaMigrations()
+
 	return nil
+}
+
+// runSchemaMigrations applies versioned migrations.
+// Each migration runs once and bumps user_version.
+func runSchemaMigrations() {
+	var version int
+	db.QueryRow("PRAGMA user_version").Scan(&version)
+
+	if version < 1 {
+		// v1: Extend app_registry with type and managed_by columns
+		db.Exec(`ALTER TABLE app_registry ADD COLUMN type TEXT DEFAULT 'ui'`)
+		db.Exec(`ALTER TABLE app_registry ADD COLUMN managed_by TEXT DEFAULT 'none'`)
+
+		// Update existing apps with correct type and managed_by
+		updates := []struct {
+			id, appType, managedBy string
+		}{
+			{"nimsettings", "ui", "none"},
+			{"storage", "system", "internal"},
+			{"network", "system", "internal"},
+			{"nimtorrent", "daemon", "systemd"},
+			{"appstore", "ui", "none"},
+			{"files", "ui", "none"},
+			{"mediaplayer", "ui", "none"},
+			{"terminal", "ui", "none"},
+			{"containers", "docker", "docker"},
+			{"monitor", "ui", "none"},
+			{"vms", "system", "internal"},
+			{"texteditor", "ui", "none"},
+		}
+		for _, u := range updates {
+			db.Exec(`UPDATE app_registry SET type = ?, managed_by = ? WHERE id = ?`,
+				u.appType, u.managedBy, u.id)
+		}
+
+		// Add nimbackup if not present
+		db.Exec(`INSERT OR IGNORE INTO app_registry (id, name, category, admin_only, public, type, managed_by)
+			VALUES ('nimbackup', 'NimBackup', 'system', 0, 0, 'daemon', 'internal')`)
+
+		db.Exec("PRAGMA user_version = 1")
+		logMsg("schema: migrated to version 1 (app_registry extended, service registry)")
+	}
+
+	// Future migrations go here:
+	// if version < 2 { ... db.Exec("PRAGMA user_version = 2") }
 }
 
 // ═══════════════════════════════════

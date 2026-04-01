@@ -235,3 +235,70 @@ type ResolvedShare struct {
 func (s *ResolvedShare) IsRemote() bool {
 	return s.Remote != nil
 }
+
+// ─── Service Registry ────────────────────────────────────────────────────────
+
+type ServiceInstance struct {
+	ID        string
+	AppID     string
+	PoolName  string
+	Path      string
+	Status    string // running, stopped, starting, stopping, failed, error, unknown
+	Health    string // healthy, degraded, unreachable, unknown
+	Owner     string // system, user
+	Config    string // JSON
+	CreatedAt string
+	UpdatedAt string
+}
+
+func (s ServiceInstance) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"id":        s.ID,
+		"appId":     s.AppID,
+		"poolName":  s.PoolName,
+		"path":      s.Path,
+		"status":    s.Status,
+		"health":    s.Health,
+		"owner":     s.Owner,
+		"config":    s.Config,
+		"createdAt": s.CreatedAt,
+		"updatedAt": s.UpdatedAt,
+	}
+}
+
+type ServiceDependency struct {
+	InstanceID string
+	DepType    string // pool, share, path
+	Target     string
+	Required   string // required, soft, optional
+}
+
+func (d ServiceDependency) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"instanceId": d.InstanceID,
+		"depType":    d.DepType,
+		"target":     d.Target,
+		"required":   d.Required,
+	}
+}
+
+// PoolDependencyInfo is the enriched view for the destroy pool check
+type PoolDependencyInfo struct {
+	InstanceID string
+	AppID      string
+	AppName    string
+	Status     string
+	Health     string
+	Required   string
+}
+
+func (d PoolDependencyInfo) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"id":       d.InstanceID,
+		"appId":    d.AppID,
+		"app":      d.AppName,
+		"status":   d.Status,
+		"health":   d.Health,
+		"required": d.Required,
+	}
+}

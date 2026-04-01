@@ -637,6 +637,9 @@ func main() {
 	// If a remote host is unreachable, NFS mount can take minutes to timeout
 	go remountAllOnStartup()
 
+	// Reconcile service registry — sync status with reality
+	reconcileServices()
+
 	// Clean up stale socket
 	os.Remove(socketPath)
 

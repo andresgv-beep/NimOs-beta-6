@@ -12,4 +12,5 @@ export const APP_META = {
   texteditor:   { name: 'Notes',           icon: '/icons/notes.png',       width: 860, height: 560 },
   terminal:     { name: 'Terminal',        icon: '/icons/terminal.png',    width: 700, height: 450 },
   vms:          { name: 'Virtual Machines',icon: '/icons/vms.png',         width: 850, height: 550 },
+  nimhealth:    { name: 'NimHealth',       icon: '/icons/nimhealth.png',   width: 900, height: 580 },
 };

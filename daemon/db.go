@@ -195,8 +195,16 @@ func runSchemaMigrations() {
 		logMsg("schema: migrated to version 1 (app_registry extended, service registry)")
 	}
 
+	if version < 2 {
+		// v2: Add NimHealth app to registry
+		db.Exec(`INSERT OR IGNORE INTO app_registry (id, name, category, admin_only, public, type, managed_by)
+			VALUES ('nimhealth', 'NimHealth', 'system', 0, 0, 'ui', 'none')`)
+		db.Exec("PRAGMA user_version = 2")
+		logMsg("schema: migrated to version 2 (nimhealth app)")
+	}
+
 	// Future migrations go here:
-	// if version < 2 { ... db.Exec("PRAGMA user_version = 2") }
+	// if version < 3 { ... db.Exec("PRAGMA user_version = 3") }
 }
 
 // ═══════════════════════════════════

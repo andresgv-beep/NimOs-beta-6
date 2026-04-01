@@ -60,9 +60,9 @@ func handleFilesRoutes(w http.ResponseWriter, r *http.Request) {
 // Permission helpers
 // ═══════════════════════════════════
 
-func getSharePermission(session *DBSession, share map[string]interface{}) string {
+func getSharePermission(session *DBSession, share *ResolvedShare) string {
 	// Remote shares: admin gets rw (NFS mount is already authenticated)
-	if isRemote, _ := share["_remote"].(bool); isRemote {
+	if share.IsRemote() {
 		if session.Role == "admin" {
 			return "rw"
 		}
@@ -71,9 +71,8 @@ func getSharePermission(session *DBSession, share map[string]interface{}) string
 	if session.Role == "admin" {
 		return "rw"
 	}
-	username := session.Username
-	if perms, ok := share["permissions"].(map[string]string); ok {
-		if p, ok := perms[username]; ok {
+	if share.Permissions != nil {
+		if p, ok := share.Permissions[session.Username]; ok {
 			return p
 		}
 	}
@@ -82,19 +81,23 @@ func getSharePermission(session *DBSession, share map[string]interface{}) string
 
 // resolveShare looks up a share first in the local DB, then in remote_mounts.
 // Returns a share-like map with at least "name" and "path" fields.
-func resolveShare(name string) (map[string]interface{}, error) {
+func resolveShare(name string) (*ResolvedShare, error) {
 	// Try local DB first
 	share, err := dbSharesGetRaw(name)
 	if err == nil && share != nil {
-		return share.ToMap(), nil
+		return &ResolvedShare{
+			Name:        share.Name,
+			DisplayName: share.DisplayName,
+			Path:        share.Path,
+			Pool:        share.Pool,
+			Permissions: share.Permissions,
+		}, nil
 	}
 
 	// Try remote mounts — name format: "remote:<device>/<share>"
-	// or just the shareName if it matches a remote mount
 	if strings.HasPrefix(name, "remote:") {
 		parts := strings.SplitN(strings.TrimPrefix(name, "remote:"), "/", 2)
 		if len(parts) == 2 {
-			// Look up by device name + share name
 			rows, err := db.Query(`SELECT rm.mount_point, rm.share_name, bd.name
 				FROM remote_mounts rm JOIN backup_devices bd ON rm.device_id = bd.id`)
 			if err == nil {
@@ -104,12 +107,12 @@ func resolveShare(name string) (map[string]interface{}, error) {
 					rows.Scan(&mountPoint, &shareName, &devName)
 					safeDev := regexp.MustCompile(`[^a-zA-Z0-9_-]`).ReplaceAllString(devName, "_")
 					if safeDev == parts[0] && shareName == parts[1] {
-						return map[string]interface{}{
-							"name":        name,
-							"displayName": fmt.Sprintf("%s (%s)", shareName, devName),
-							"path":        mountPoint,
-							"pool":        "remote",
-							"_remote":     true,
+						return &ResolvedShare{
+							Name:        name,
+							DisplayName: fmt.Sprintf("%s (%s)", shareName, devName),
+							Path:        mountPoint,
+							Pool:        "remote",
+							Remote:      &RemoteInfo{Host: devName, DeviceName: safeDev},
 						}, nil
 					}
 				}
@@ -161,15 +164,13 @@ func isPathOnMountedPool(path string) bool {
 }
 
 // requireShareMounted checks if a share's pool is mounted, returns error response if not
-func requireShareMounted(w http.ResponseWriter, share map[string]interface{}) bool {
+func requireShareMounted(w http.ResponseWriter, share *ResolvedShare) bool {
 	// Remote shares: quick check — try to stat the directory (non-blocking)
 	// Don't use mountpoint command which can hang on dead NFS
-	if isRemote, _ := share["_remote"].(bool); isRemote {
-		mountPoint, _ := share["path"].(string)
-		// Use os.Stat with a deadline via goroutine — 2s max
+	if share.IsRemote() {
 		done := make(chan bool, 1)
 		go func() {
-			_, err := os.Stat(mountPoint)
+			_, err := os.Stat(share.Path)
 			done <- (err == nil)
 		}()
 		select {
@@ -183,8 +184,7 @@ func requireShareMounted(w http.ResponseWriter, share map[string]interface{}) bo
 		jsonError(w, 503, "Remote share not available — device may be offline")
 		return false
 	}
-	sharePath, _ := share["path"].(string)
-	if !isPathOnMountedPool(sharePath) {
+	if !isPathOnMountedPool(share.Path) {
 		jsonError(w, 503, "Storage pool not mounted — cannot access files")
 		return false
 	}
@@ -271,7 +271,7 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session *DBSession) {
 		return
 	}
 
-	sharePath, _ := share["path"].(string)
+	sharePath := share.Path
 	fullPath, err := validatePathWithinShare(sharePath, subPath)
 	if err != nil {
 		jsonError(w, 400, err.Error())
@@ -355,7 +355,7 @@ func filesMkdir(w http.ResponseWriter, r *http.Request, session *DBSession) {
 		return
 	}
 
-	sharePath, _ := share["path"].(string)
+	sharePath := share.Path
 	fullPath, err := validatePathWithinShare(sharePath, filepath.Join(dirPath, dirName))
 	if err != nil {
 		jsonError(w, 400, err.Error())
@@ -396,7 +396,7 @@ func filesDelete(w http.ResponseWriter, r *http.Request, session *DBSession) {
 		return
 	}
 
-	sharePath, _ := share["path"].(string)
+	sharePath := share.Path
 	fullPath, err := validatePathWithinShare(sharePath, filePath)
 	if err != nil {
 		jsonError(w, 400, err.Error())
@@ -448,7 +448,7 @@ func filesRename(w http.ResponseWriter, r *http.Request, session *DBSession) {
 		return
 	}
 
-	sharePath, _ := share["path"].(string)
+	sharePath := share.Path
 	fullOld, err := validatePathWithinShare(sharePath, oldPath)
 	if err != nil {
 		jsonError(w, 400, err.Error())
@@ -504,8 +504,8 @@ func filesPaste(w http.ResponseWriter, r *http.Request, session *DBSession) {
 		return
 	}
 
-	srcSharePath, _ := srcShare["path"].(string)
-	destSharePath, _ := destShare["path"].(string)
+	srcSharePath := srcShare.Path
+	destSharePath := destShare.Path
 	fullSrc, err := validatePathWithinShare(srcSharePath, srcPath)
 	if err != nil {
 		jsonError(w, 400, err.Error())
@@ -635,7 +635,7 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sharePath, _ := share["path"].(string)
+	sharePath := share.Path
 	fullPath, err := validatePathWithinShare(sharePath, filepath.Join(uploadPath, fileName))
 	if err != nil {
 		jsonError(w, 400, err.Error())
@@ -759,7 +759,7 @@ func handleChunkedUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sharePath, _ := share["path"].(string)
+	sharePath := share.Path
 	fullPath, err := validatePathWithinShare(sharePath, filepath.Join(uploadPath, fileName))
 	if err != nil {
 		jsonError(w, 400, err.Error())
@@ -917,7 +917,7 @@ func handleFileDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sharePath, _ := share["path"].(string)
+	sharePath := share.Path
 	fullPath, err := validatePathWithinShare(sharePath, filePath)
 	if err != nil {
 		jsonError(w, 400, err.Error())

@@ -211,3 +211,27 @@ func strPtr(s string) *string { return &s }
 
 // boolPtr returns a pointer to a bool
 func boolPtr(b bool) *bool { return &b }
+
+// ─── Resolved Share (local + remote unified) ─────────────────────────────────
+
+// RemoteInfo holds metadata for a remotely mounted share.
+type RemoteInfo struct {
+	Host       string
+	DeviceName string
+}
+
+// ResolvedShare is the unified type returned by resolveShare.
+// Local shares have Local set (with Permissions). Remote shares have Remote set.
+type ResolvedShare struct {
+	Name        string
+	DisplayName string
+	Path        string
+	Pool        string
+	Remote      *RemoteInfo       // nil if local
+	Permissions map[string]string // nil if remote
+}
+
+// IsRemote returns true if this is a remotely mounted share.
+func (s *ResolvedShare) IsRemote() bool {
+	return s.Remote != nil
+}

@@ -277,23 +277,24 @@ func migrateFromJSON() {
 // User operations
 // ═══════════════════════════════════
 
-func dbUsersList() ([]map[string]interface{}, error) {
+// dbUsersListRaw returns typed user summaries from the DB.
+func dbUsersListRaw() ([]DBUserSummary, error) {
 	rows, err := db.Query(`SELECT username, role, description, totp_enabled, created_at FROM users ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var users []map[string]interface{}
+	var users []DBUserSummary
 	for rows.Next() {
 		var u DBUserSummary
 		var totpEnabled int
 		rows.Scan(&u.Username, &u.Role, &u.Description, &totpEnabled, &u.CreatedAt)
 		u.TotpEnabled = totpEnabled == 1
-		users = append(users, u.ToMap())
+		users = append(users, u)
 	}
 	if users == nil {
-		users = []map[string]interface{}{}
+		users = []DBUserSummary{}
 	}
 	return users, nil
 }
@@ -321,15 +322,6 @@ func dbUsersGetRaw(username string) (*DBUser, error) {
 	}
 
 	return &u, nil
-}
-
-// dbUsersGet returns a user as map for backward compatibility.
-func dbUsersGet(username string) (map[string]interface{}, error) {
-	u, err := dbUsersGetRaw(username)
-	if err != nil {
-		return nil, err
-	}
-	return u.ToMap(), nil
 }
 
 func dbUsersCreate(username, password, role, description string) error {
@@ -498,28 +490,15 @@ func dbSharesListRaw() ([]DBShare, error) {
 	return shares, nil
 }
 
-// dbSharesList returns shares as maps for backward compatibility.
-func dbSharesList() ([]map[string]interface{}, error) {
-	raw, err := dbSharesListRaw()
-	if err != nil {
-		return nil, err
-	}
-	result := make([]map[string]interface{}, len(raw))
-	for i, s := range raw {
-		result[i] = s.ToMap()
-	}
-	return result, nil
-}
-
-func dbSharesGet(name string) (map[string]interface{}, error) {
+// dbSharesGetRaw returns a single typed share struct.
+func dbSharesGetRaw(name string) (*DBShare, error) {
 	raw, err := dbSharesListRaw()
 	if err != nil {
 		return nil, err
 	}
 	for _, s := range raw {
 		if s.Name == name {
-			m := s.ToMap()
-			return m, nil
+			return &s, nil
 		}
 	}
 	return nil, fmt.Errorf("share not found: %s", name)

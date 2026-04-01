@@ -362,24 +362,22 @@ func dockerPermissionsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conf := getDockerConfigGo()
-	users, _ := dbUsersList()
+	usersRaw, _ := dbUsersListRaw()
 	perms, _ := conf["permissions"].([]interface{})
 
 	var userList []map[string]interface{}
-	for _, u := range users {
-		username, _ := u["username"].(string)
-		role, _ := u["role"].(string)
-		hasAccess := role == "admin"
+	for _, u := range usersRaw {
+		hasAccess := u.Role == "admin"
 		if !hasAccess {
 			for _, p := range perms {
-				if ps, _ := p.(string); ps == username {
+				if ps, _ := p.(string); ps == u.Username {
 					hasAccess = true
 					break
 				}
 			}
 		}
 		userList = append(userList, map[string]interface{}{
-			"username": username, "role": role, "hasAccess": hasAccess,
+			"username": u.Username, "role": u.Role, "hasAccess": hasAccess,
 		})
 	}
 	jsonOk(w, map[string]interface{}{"users": userList, "permissions": perms})
@@ -408,8 +406,8 @@ func dockerAppPermissions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conf := getDockerConfigGo()
-	users, _ := dbUsersList()
-	shares, _ := dbSharesList()
+	usersRaw2, _ := dbUsersListRaw()
+	sharesRaw, _ := dbSharesListRaw()
 
 	var installedApps []map[string]interface{}
 	containers := getRealContainersGo()
@@ -434,13 +432,13 @@ func dockerAppPermissions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var userList []map[string]interface{}
-	for _, u := range users {
-		userList = append(userList, map[string]interface{}{"username": u["username"], "role": u["role"]})
+	for _, u := range usersRaw2 {
+		userList = append(userList, map[string]interface{}{"username": u.Username, "role": u.Role})
 	}
 
 	var shareList []map[string]interface{}
-	for _, s := range shares {
-		shareList = append(shareList, map[string]interface{}{"name": s["name"], "displayName": s["displayName"], "permissions": s["permissions"]})
+	for _, s := range sharesRaw {
+		shareList = append(shareList, map[string]interface{}{"name": s.Name, "displayName": s.DisplayName, "permissions": s.Permissions})
 	}
 
 	jsonOk(w, map[string]interface{}{
@@ -502,13 +500,12 @@ func dockerAppFolders(w http.ResponseWriter, r *http.Request, appId string) {
 	if session == nil {
 		return
 	}
-	shares, _ := dbSharesList()
+	sharesRaw, _ := dbSharesListRaw()
 	var folders []map[string]interface{}
-	for _, s := range shares {
-		appPerms, _ := s["appPermissions"].([]map[string]interface{})
-		for _, ap := range appPerms {
-			if aid, _ := ap["appId"].(string); aid == appId {
-				folders = append(folders, map[string]interface{}{"name": s["name"], "displayName": s["displayName"], "path": s["path"]})
+	for _, s := range sharesRaw {
+		for _, ap := range s.AppPermissions {
+			if ap.AppId == appId {
+				folders = append(folders, map[string]interface{}{"name": s.Name, "displayName": s.DisplayName, "path": s.Path})
 				break
 			}
 		}
@@ -772,7 +769,7 @@ func dockerInstall(w http.ResponseWriter, r *http.Request) {
 
 		// ── 9. Create docker-apps share ──
 		dockerSharePath := filepath.Join(dockerPath, "containers")
-		existingShare, _ := dbSharesGet("docker-apps")
+		existingShare, _ := dbSharesGetRaw("docker-apps")
 		if existingShare == nil {
 			pName := ""
 			if targetPool != nil {
@@ -786,14 +783,12 @@ func dockerInstall(w http.ResponseWriter, r *http.Request) {
 			run(fmt.Sprintf("usermod -aG %s nimbus 2>/dev/null || true", shareGroup))
 			run(fmt.Sprintf("usermod -aG %s nimos 2>/dev/null || true", shareGroup))
 			dbSharesCreate("docker-apps", "Docker Apps", "Application data for Docker containers", dockerSharePath, pName, pName, "system")
-			if users, err := dbUsersList(); err == nil {
-				for _, u := range users {
-					role, _ := u["role"].(string)
-					username, _ := u["username"].(string)
-					if role == "admin" && username != "" {
-						dbShareSetPermission("docker-apps", username, "rw")
-						run(fmt.Sprintf("usermod -aG docker %s 2>/dev/null || true", username))
-						run(fmt.Sprintf("usermod -aG %s %s 2>/dev/null || true", shareGroup, username))
+			if usersForDocker, err := dbUsersListRaw(); err == nil {
+				for _, u := range usersForDocker {
+					if u.Role == "admin" && u.Username != "" {
+						dbShareSetPermission("docker-apps", u.Username, "rw")
+						run(fmt.Sprintf("usermod -aG docker %s 2>/dev/null || true", u.Username))
+						run(fmt.Sprintf("usermod -aG %s %s 2>/dev/null || true", shareGroup, u.Username))
 					}
 				}
 			}
@@ -918,17 +913,14 @@ func dockerContainerCreate(w http.ResponseWriter, r *http.Request) {
 	cmd += fmt.Sprintf(" -v %s:/config", containerDataPath)
 
 	// Shared folder mounts
-	shares, _ := dbSharesList()
+	sharesForMount, _ := dbSharesListRaw()
 	var mountedShares []string
-	for _, s := range shares {
-		appPerms, _ := s["appPermissions"].([]map[string]interface{})
-		for _, ap := range appPerms {
-			if aid, _ := ap["appId"].(string); aid == id {
-				sharePath, _ := s["path"].(string)
-				shareName, _ := s["name"].(string)
-				if sharePath != "" {
-					cmd += fmt.Sprintf(` -v "%s":"/media/%s":ro`, sharePath, shareName)
-					mountedShares = append(mountedShares, shareName)
+	for _, s := range sharesForMount {
+		for _, ap := range s.AppPermissions {
+			if ap.AppId == id {
+				if s.Path != "" {
+					cmd += fmt.Sprintf(` -v "%s":"/media/%s":ro`, s.Path, s.Name)
+					mountedShares = append(mountedShares, s.Name)
 				}
 				break
 			}
@@ -1274,29 +1266,31 @@ func permissionsMatrix(w http.ResponseWriter, r *http.Request) {
 	if session == nil {
 		return
 	}
-	users, _ := dbUsersList()
-	shares, _ := dbSharesList()
+	usersRaw3, _ := dbUsersListRaw()
+	sharesRaw, _ := dbSharesListRaw()
 	conf := getDockerConfigGo()
 	perms, _ := conf["permissions"].([]interface{})
 
 	var userList []map[string]interface{}
-	for _, u := range users {
-		username, _ := u["username"].(string)
-		role, _ := u["role"].(string)
-		hasDock := role == "admin"
+	for _, u := range usersRaw3 {
+		hasDock := u.Role == "admin"
 		for _, p := range perms {
-			if ps, _ := p.(string); ps == username {
+			if ps, _ := p.(string); ps == u.Username {
 				hasDock = true
 			}
 		}
-		userList = append(userList, map[string]interface{}{"username": username, "role": role, "dockerAccess": hasDock})
+		userList = append(userList, map[string]interface{}{"username": u.Username, "role": u.Role, "dockerAccess": hasDock})
 	}
 
 	var shareList []map[string]interface{}
-	for _, s := range shares {
+	for _, s := range sharesRaw {
+		appPerms := make([]map[string]interface{}, 0, len(s.AppPermissions))
+		for _, ap := range s.AppPermissions {
+			appPerms = append(appPerms, map[string]interface{}{"appId": ap.AppId, "uid": ap.Uid, "permission": ap.Permission})
+		}
 		shareList = append(shareList, map[string]interface{}{
-			"name": s["name"], "displayName": s["displayName"],
-			"userPermissions": s["permissions"], "appPermissions": s["appPermissions"],
+			"name": s.Name, "displayName": s.DisplayName,
+			"userPermissions": s.Permissions, "appPermissions": appPerms,
 		})
 	}
 

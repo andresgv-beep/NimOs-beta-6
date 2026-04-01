@@ -556,7 +556,7 @@ func handleAuthRoutes(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/auth/status — is setup done?
 func authStatus(w http.ResponseWriter, r *http.Request) {
-	users, _ := dbUsersList()
+	users, _ := dbUsersListRaw()
 	hostname, _ := os.Hostname()
 	jsonOk(w, map[string]interface{}{
 		"setup":    len(users) > 0,
@@ -566,7 +566,7 @@ func authStatus(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/auth/setup — create initial admin account
 func authSetup(w http.ResponseWriter, r *http.Request) {
-	users, _ := dbUsersList()
+	users, _ := dbUsersListRaw()
 	if len(users) > 0 {
 		jsonError(w, 400, "Setup already completed")
 		return
@@ -1243,8 +1243,12 @@ func handleUsersRoutes(w http.ResponseWriter, r *http.Request) {
 		if session == nil {
 			return
 		}
-		users, _ := dbUsersList()
-		jsonOk(w, users)
+		users, _ := dbUsersListRaw()
+		result := make([]map[string]interface{}, len(users))
+		for i, u := range users {
+			result[i] = u.ToMap()
+		}
+		jsonOk(w, result)
 		return
 	}
 

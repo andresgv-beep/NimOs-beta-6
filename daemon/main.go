@@ -490,19 +490,17 @@ func reconcile() Response {
 	logMsg("system.reconcile: starting...")
 	fixed := 0
 
-	shares, err := dbSharesList()
+	shares, err := dbSharesListRaw()
 	if err != nil {
 		logMsg("  reconcile error: %v", err)
 		return Response{Error: err.Error(), Fixed: fixed}
 	}
 
 	for _, share := range shares {
-		name, _ := share["name"].(string)
-		sharePath, _ := share["path"].(string)
-		if name == "" || sharePath == "" {
+		if share.Name == "" || share.Path == "" {
 			continue
 		}
-		group := groupName(name)
+		group := groupName(share.Name)
 
 		// 1. Ensure group exists
 		if _, ok := run(fmt.Sprintf("getent group %s", group)); !ok {
@@ -512,20 +510,19 @@ func reconcile() Response {
 		}
 
 		// 2. Ensure directory permissions (skip if quota is near full to avoid blocking)
-		if _, err := os.Stat(sharePath); err == nil {
-			avail := getAvailableBytes(sharePath)
+		if _, err := os.Stat(share.Path); err == nil {
+			avail := getAvailableBytes(share.Path)
 			if avail < 1024*1024 { // less than 1MB free — skip permissions
-				logMsg("  reconcile: skipping permissions for %s (disk full, %d bytes free)", name, avail)
+				logMsg("  reconcile: skipping permissions for %s (disk full, %d bytes free)", share.Name, avail)
 			} else {
-				run(fmt.Sprintf(`chown root:%s "%s"`, group, sharePath))
-				run(fmt.Sprintf(`chmod 2770 "%s"`, sharePath))
-				run(fmt.Sprintf(`setfacl -d -m g:%s:rwx "%s" 2>/dev/null`, group, sharePath))
+				run(fmt.Sprintf(`chown root:%s "%s"`, group, share.Path))
+				run(fmt.Sprintf(`chmod 2770 "%s"`, share.Path))
+				run(fmt.Sprintf(`setfacl -d -m g:%s:rwx "%s" 2>/dev/null`, group, share.Path))
 			}
 		}
 
 		// 3. Ensure user permissions match DB
-		perms, _ := share["permissions"].(map[string]string)
-		for username, perm := range perms {
+		for username, perm := range share.Permissions {
 			if !validUsername.MatchString(username) || systemUsers[username] {
 				continue
 			}
@@ -538,22 +535,19 @@ func reconcile() Response {
 				}
 			} else if perm == "ro" {
 				run(fmt.Sprintf("gpasswd -d %s %s 2>/dev/null", username, group))
-				run(fmt.Sprintf(`setfacl -m u:%s:r-x "%s" 2>/dev/null`, username, sharePath))
-				run(fmt.Sprintf(`setfacl -d -m u:%s:r-x "%s" 2>/dev/null`, username, sharePath))
+				run(fmt.Sprintf(`setfacl -m u:%s:r-x "%s" 2>/dev/null`, username, share.Path))
+				run(fmt.Sprintf(`setfacl -d -m u:%s:r-x "%s" 2>/dev/null`, username, share.Path))
 			}
 		}
 
 		// 4. Ensure app permissions
-		appPerms, _ := share["appPermissions"].([]map[string]interface{})
-		for _, app := range appPerms {
-			if uidVal, ok := app["uid"]; ok {
-				if uid, err := checkUid(uidVal); err == nil {
-					acl := "r-x"
-					if permStr, ok := app["permission"].(string); ok && permStr == "rw" {
-						acl = "rwx"
-					}
-					run(fmt.Sprintf(`setfacl -m u:%d:%s "%s" 2>/dev/null`, uid, acl, sharePath))
-					run(fmt.Sprintf(`setfacl -d -m u:%d:%s "%s" 2>/dev/null`, uid, acl, sharePath))
+		for _, app := range share.AppPermissions {
+			acl := "r-x"
+			if app.Permission == "rw" {
+				acl = "rwx"
+			}
+			run(fmt.Sprintf(`setfacl -m u:%d:%s "%s" 2>/dev/null`, app.Uid, acl, share.Path))
+			run(fmt.Sprintf(`setfacl -d -m u:%d:%s "%s" 2>/dev/null`, app.Uid, acl, share.Path))
 				}
 			}
 		}
@@ -569,15 +563,13 @@ func reconcile() Response {
 		}
 
 		// 6. Admin users always get rw on ALL shares
-		if users, err := dbUsersList(); err == nil {
-			for _, u := range users {
-				role, _ := u["role"].(string)
-				uname, _ := u["username"].(string)
-				if role == "admin" && validUsername.MatchString(uname) {
-					groups, _ := run(fmt.Sprintf(`id -nG "%s" 2>/dev/null`, uname))
+		if adminUsers, err := dbUsersListRaw(); err == nil {
+			for _, u := range adminUsers {
+				if u.Role == "admin" && validUsername.MatchString(u.Username) {
+					groups, _ := run(fmt.Sprintf(`id -nG "%s" 2>/dev/null`, u.Username))
 					if !containsWord(groups, group) {
-						run(fmt.Sprintf("usermod -aG %s %s", group, uname))
-						logMsg("  reconcile: added admin %s to %s", uname, group)
+						run(fmt.Sprintf("usermod -aG %s %s", group, u.Username))
+						logMsg("  reconcile: added admin %s to %s", u.Username, group)
 						fixed++
 					}
 				}

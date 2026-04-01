@@ -504,10 +504,10 @@ func handleAppAccessRoutes(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 400, "Invalid username format")
 			return
 		}
-		if users, err := dbUsersList(); err == nil {
+		if usersCheck, err := dbUsersListRaw(); err == nil {
 			found := false
-			for _, u := range users {
-				if un, _ := u["username"].(string); un == username {
+			for _, u := range usersCheck {
+				if u.Username == username {
 					found = true
 					break
 				}

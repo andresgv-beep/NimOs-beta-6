@@ -129,7 +129,7 @@ func sharesCreateHTTP(w http.ResponseWriter, r *http.Request) {
 	safeName := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), " ", "-"))
 
 	// Check if share already exists
-	if existing, _ := dbSharesGet(safeName); existing != nil {
+	if existing, _ := dbSharesGetRaw(safeName); existing != nil {
 		jsonError(w, 400, "Shared folder already exists")
 		return
 	}
@@ -253,7 +253,7 @@ func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
 		return
 	}
 
-	share, err := dbSharesGet(target)
+	share, err := dbSharesGetRaw(target)
 	if err != nil || share == nil {
 		jsonError(w, 404, "Shared folder not found")
 		return
@@ -280,9 +280,9 @@ func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
 			quotaBytes = int64(qb)
 		}
 
-		sharPool, _ := share["pool"].(string)
+		sharPool := share.Pool
 		if sharPool == "" {
-			sharPool, _ = share["volume"].(string)
+			sharPool = share.Volume
 		}
 		targetPool := findTargetPool(sharPool)
 		if targetPool != nil {
@@ -317,7 +317,7 @@ func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
 	if permsRaw, ok := body["permissions"]; ok {
 		if newPermsMap, ok := permsRaw.(map[string]interface{}); ok {
 			// Get current permissions
-			oldPerms, _ := share["permissions"].(map[string]string)
+			oldPerms := share.Permissions
 			if oldPerms == nil {
 				oldPerms = map[string]string{}
 			}
@@ -362,26 +362,19 @@ func sharesUpdateHTTP(w http.ResponseWriter, r *http.Request, target string) {
 	// Handle app permission changes
 	if appsRaw, ok := body["appPermissions"]; ok {
 		if newApps, ok := appsRaw.([]interface{}); ok {
-			// Get current app permissions
-			oldApps, _ := share["appPermissions"].([]map[string]interface{})
-
 			// Remove old apps not in new list
-			for _, oldApp := range oldApps {
-				uid, _ := oldApp["uid"]
-				appId, _ := oldApp["appId"].(string)
+			for _, oldApp := range share.AppPermissions {
 				found := false
 				for _, na := range newApps {
 					if naMap, ok := na.(map[string]interface{}); ok {
-						if naMap["uid"] == uid {
+						if uid, err := checkUid(naMap["uid"]); err == nil && uid == oldApp.Uid {
 							found = true
 							break
 						}
 					}
 				}
 				if !found {
-					if uidNum, err := checkUid(uid); err == nil {
-						handleOp(Request{Op: "share.remove_app", ShareName: target, AppId: appId, Uid: uidNum})
-					}
+					handleOp(Request{Op: "share.remove_app", ShareName: target, AppId: oldApp.AppId, Uid: oldApp.Uid})
 				}
 			}
 
@@ -408,7 +401,7 @@ func sharesDeleteHTTP(w http.ResponseWriter, r *http.Request, target string) {
 		return
 	}
 
-	share, _ := dbSharesGet(target)
+	share, _ := dbSharesGetRaw(target)
 	if share == nil {
 		jsonError(w, 404, "Shared folder not found")
 		return
@@ -418,9 +411,9 @@ func sharesDeleteHTTP(w http.ResponseWriter, r *http.Request, target string) {
 	handleOp(Request{Op: "share.delete", ShareName: target})
 
 	// If this share lives on a ZFS pool, destroy the dataset
-	sharPool, _ := share["pool"].(string)
+	sharPool := share.Pool
 	if sharPool == "" {
-		sharPool, _ = share["volume"].(string)
+		sharPool = share.Volume
 	}
 	targetPool := findTargetPool(sharPool)
 	if targetPool != nil {

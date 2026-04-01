@@ -2649,10 +2649,10 @@ func handleNFSExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Security: verify the path is actually a share we own
-	shares, _ := dbSharesList()
+	shares, _ := dbSharesListRaw()
 	validPath := false
 	for _, s := range shares {
-		if sp, _ := s["path"].(string); sp == path {
+		if s.Path == path {
 			validPath = true
 			break
 		}

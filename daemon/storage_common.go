@@ -89,15 +89,11 @@ func removePoolFromConfig(poolName string) (conf map[string]interface{}, poolCon
 
 // deleteSharesForPool removes all shares associated with a pool from the DB.
 func deleteSharesForPool(poolName, mountPoint string) {
-	shares, _ := dbSharesList()
+	shares, _ := dbSharesListRaw()
 	for _, s := range shares {
-		sharPool, _ := s["pool"].(string)
-		sharVolume, _ := s["volume"].(string)
-		sharPath, _ := s["path"].(string)
-		sharName, _ := s["name"].(string)
-		if sharPool == poolName || sharVolume == poolName || (mountPoint != "" && strings.HasPrefix(sharPath, mountPoint)) {
-			handleOp(Request{Op: "share.delete", ShareName: sharName})
-			dbSharesDelete(sharName)
+		if s.Pool == poolName || s.Volume == poolName || (mountPoint != "" && strings.HasPrefix(s.Path, mountPoint)) {
+			handleOp(Request{Op: "share.delete", ShareName: s.Name})
+			dbSharesDelete(s.Name)
 		}
 	}
 }

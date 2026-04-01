@@ -84,9 +84,9 @@ func getSharePermission(session *DBSession, share map[string]interface{}) string
 // Returns a share-like map with at least "name" and "path" fields.
 func resolveShare(name string) (map[string]interface{}, error) {
 	// Try local DB first
-	share, err := dbSharesGet(name)
+	share, err := dbSharesGetRaw(name)
 	if err == nil && share != nil {
-		return share, nil
+		return share.ToMap(), nil
 	}
 
 	// Try remote mounts — name format: "remote:<device>/<share>"
@@ -204,22 +204,22 @@ func filesBrowse(w http.ResponseWriter, r *http.Request, session *DBSession) {
 
 	if shareName == "" {
 		// Return list of accessible shares (local + remote)
-		shares, _ := dbSharesList()
+		sharesRaw, _ := dbSharesListRaw()
 		username := session.Username
 		role := session.Role
 		var accessible []map[string]interface{}
-		for _, s := range shares {
+		for _, s := range sharesRaw {
 			perm := "none"
 			if role == "admin" {
 				perm = "rw"
-			} else if perms, ok := s["permissions"].(map[string]string); ok {
-				perm = perms[username]
+			} else if p, ok := s.Permissions[username]; ok {
+				perm = p
 			}
 			if perm == "rw" || perm == "ro" {
 				accessible = append(accessible, map[string]interface{}{
-					"name":        s["name"],
-					"displayName": s["displayName"],
-					"description": s["description"],
+					"name":        s.Name,
+					"displayName": s.DisplayName,
+					"description": s.Description,
 					"permission":  perm,
 				})
 			}

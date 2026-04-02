@@ -213,6 +213,5 @@ NimOs-beta-6/
 
 ## Credits
 
-- Architecture review: Claude (Opus), Gemini, GPT
 - Storage rewrite based on TrueNAS SCALE middleware patterns
-- UI components: Sonnet
+

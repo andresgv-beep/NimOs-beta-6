@@ -127,6 +127,110 @@ func parseIntDefault(s string, def int) int {
 
 var prevCpuIdle, prevCpuTotal int64
 
+// ── Disk I/O tracking (for /api/hardware/stats) ──
+var (
+	prevDiskRead    int64
+	prevDiskWrite   int64
+	prevDiskTime    int64
+)
+
+// getDiskIO reads /proc/diskstats and returns aggregate read/write bytes per second.
+// Only counts whole-disk devices (sda, nvme0n1, vda), not partitions.
+func getDiskIO() map[string]interface{} {
+	data := readFileStr("/proc/diskstats")
+	if data == "" {
+		return map[string]interface{}{"readSpeed": 0, "writeSpeed": 0}
+	}
+
+	var totalRead, totalWrite int64
+	for _, line := range strings.Split(data, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 14 {
+			continue
+		}
+		dev := fields[2]
+		// Only whole disks, not partitions
+		// sd[a-z], nvme[0-9]n[0-9], vd[a-z], xvd[a-z]
+		isWholeDisk := false
+		if regexp.MustCompile(`^sd[a-z]$`).MatchString(dev) ||
+			regexp.MustCompile(`^nvme\d+n\d+$`).MatchString(dev) ||
+			regexp.MustCompile(`^vd[a-z]$`).MatchString(dev) {
+			isWholeDisk = true
+		}
+		if !isWholeDisk {
+			continue
+		}
+		// fields[5] = sectors read, fields[9] = sectors written
+		// Sector size = 512 bytes
+		totalRead += parseInt64(fields[5]) * 512
+		totalWrite += parseInt64(fields[9]) * 512
+	}
+
+	now := time.Now().UnixMilli()
+	var readSpeed, writeSpeed int64
+	if prevDiskTime > 0 {
+		dt := float64(now-prevDiskTime) / 1000
+		if dt > 0 {
+			readSpeed = int64(math.Round(float64(totalRead-prevDiskRead) / dt))
+			writeSpeed = int64(math.Round(float64(totalWrite-prevDiskWrite) / dt))
+			if readSpeed < 0 { readSpeed = 0 }
+			if writeSpeed < 0 { writeSpeed = 0 }
+		}
+	}
+	prevDiskRead = totalRead
+	prevDiskWrite = totalWrite
+	prevDiskTime = now
+
+	return map[string]interface{}{
+		"readSpeed":  readSpeed,
+		"writeSpeed": writeSpeed,
+	}
+}
+
+// getNetworkAggregate returns total rx/tx bytes per second across all physical interfaces.
+func getNetworkAggregate() map[string]interface{} {
+	entries, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		return map[string]interface{}{"rxSpeed": 0, "txSpeed": 0}
+	}
+
+	var totalRx, totalTx int64
+	now := time.Now().UnixMilli()
+
+	prevNetStatsMu.Lock()
+	defer prevNetStatsMu.Unlock()
+
+	for _, e := range entries {
+		dev := e.Name()
+		if !isPhysicalInterface(dev) {
+			continue
+		}
+		operstate := readFileStr(fmt.Sprintf("/sys/class/net/%s/operstate", dev))
+		if operstate != "up" {
+			continue
+		}
+		rxBytes := parseInt64(readFileStr(fmt.Sprintf("/sys/class/net/%s/statistics/rx_bytes", dev)))
+		txBytes := parseInt64(readFileStr(fmt.Sprintf("/sys/class/net/%s/statistics/tx_bytes", dev)))
+
+		if prev, ok := prevNetStats[dev]; ok {
+			dt := float64(now-prev.time) / 1000
+			if dt > 0 {
+				totalRx += int64(math.Round(float64(rxBytes-prev.rx) / dt))
+				totalTx += int64(math.Round(float64(txBytes-prev.tx) / dt))
+			}
+		}
+		prevNetStats[dev] = netStat{rx: rxBytes, tx: txBytes, time: now}
+	}
+
+	if totalRx < 0 { totalRx = 0 }
+	if totalTx < 0 { totalTx = 0 }
+
+	return map[string]interface{}{
+		"rxSpeed": totalRx,
+		"txSpeed": totalTx,
+	}
+}
+
 func getCpuUsage() map[string]interface{} {
 	stat := readFileStr("/proc/stat")
 	cpuCount := 0
@@ -954,6 +1058,8 @@ func handleHardwareRoutes(w http.ResponseWriter, r *http.Request) {
 		// Combined stats for NimHealth dashboard
 		cpuData := getCpuUsage()
 		memData := getMemory()
+		diskData := getDiskIO()
+		netData := getNetworkAggregate()
 		loadStr := ""
 		if loadAvg := readFileStr("/proc/loadavg"); loadAvg != "" {
 			parts := strings.Fields(loadAvg)
@@ -963,8 +1069,10 @@ func handleHardwareRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		cpuData["load1"] = parseFloat(loadStr)
 		jsonOk(w, map[string]interface{}{
-			"cpu":    cpuData,
-			"memory": memData,
+			"cpu":     cpuData,
+			"memory":  memData,
+			"disk":    diskData,
+			"network": netData,
 		})
 	case "/api/system":
 		jsonOk(w, getSystemSummary())

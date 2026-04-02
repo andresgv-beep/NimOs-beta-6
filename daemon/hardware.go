@@ -188,6 +188,12 @@ func getDiskIO() map[string]interface{} {
 }
 
 // getNetworkAggregate returns total rx/tx bytes per second across all physical interfaces.
+// Uses its own tracking vars to avoid interfering with getNetwork() per-interface stats.
+var (
+	prevNetAgg   = map[string]netStat{}
+	prevNetAggMu sync.Mutex
+)
+
 func getNetworkAggregate() map[string]interface{} {
 	entries, err := os.ReadDir("/sys/class/net")
 	if err != nil {
@@ -197,8 +203,8 @@ func getNetworkAggregate() map[string]interface{} {
 	var totalRx, totalTx int64
 	now := time.Now().UnixMilli()
 
-	prevNetStatsMu.Lock()
-	defer prevNetStatsMu.Unlock()
+	prevNetAggMu.Lock()
+	defer prevNetAggMu.Unlock()
 
 	for _, e := range entries {
 		dev := e.Name()
@@ -212,14 +218,14 @@ func getNetworkAggregate() map[string]interface{} {
 		rxBytes := parseInt64(readFileStr(fmt.Sprintf("/sys/class/net/%s/statistics/rx_bytes", dev)))
 		txBytes := parseInt64(readFileStr(fmt.Sprintf("/sys/class/net/%s/statistics/tx_bytes", dev)))
 
-		if prev, ok := prevNetStats[dev]; ok {
+		if prev, ok := prevNetAgg[dev]; ok {
 			dt := float64(now-prev.time) / 1000
 			if dt > 0 {
 				totalRx += int64(math.Round(float64(rxBytes-prev.rx) / dt))
 				totalTx += int64(math.Round(float64(txBytes-prev.tx) / dt))
 			}
 		}
-		prevNetStats[dev] = netStat{rx: rxBytes, tx: txBytes, time: now}
+		prevNetAgg[dev] = netStat{rx: rxBytes, tx: txBytes, time: now}
 	}
 
 	if totalRx < 0 { totalRx = 0 }

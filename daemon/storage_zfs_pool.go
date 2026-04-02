@@ -310,7 +310,7 @@ func destroyPoolZfs(poolName string) map[string]interface{} {
 	time.Sleep(1 * time.Second)
 
 	// 4. Destroy zpool
-	_, err := runCmd("zpool", []string{"destroy", "-f", zpoolName}, opts)
+	_, err = runCmd("zpool", []string{"destroy", "-f", zpoolName}, opts)
 	if err != nil {
 		// Retry with export first
 		logMsg("zpool destroy failed, trying export+reimport+destroy")

@@ -64,23 +64,32 @@
     view = 'detail';
     detailLogs = [];
     detailStats = null;
+    await loadLogs(svc);
   }
 
   function goBack() {
     view = 'dashboard';
     selectedService = null;
+    detailLogs = [];
+  }
+
+  async function loadLogs(svc) {
+    try {
+      const r = await fetch(`/api/services/${svc.id}/logs?n=50`, { headers: hdrs() });
+      const d = await r.json();
+      detailLogs = d.logs || [];
+    } catch { detailLogs = []; }
   }
 
   async function doAction(svc, action) {
-    if (action === 'logs') return; // TODO: implement logs endpoint
     const key = svc.id + ':' + action;
     stopping = { ...stopping, [key]: true };
     try {
       await fetch(`/api/services/${svc.id}/${action}`, { method: 'POST', headers: hdrs() });
       await loadServices();
-      // Refresh detail if viewing this service
       if (selectedService?.id === svc.id) {
         selectedService = services.find(s => s.id === svc.id) || selectedService;
+        await loadLogs(selectedService);
       }
     } catch {}
     stopping = { ...stopping, [key]: false };
@@ -388,6 +397,23 @@
               </button>
             {/if}
           </div>
+
+          <!-- Logs -->
+          {#if detailLogs.length > 0}
+            <div class="d-block">
+              <div class="d-block-title">
+                Logs recientes
+                <button class="log-refresh" on:click={() => loadLogs(selectedService)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:10px;height:10px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-5.4"/></svg>
+                </button>
+              </div>
+              <div class="log-wrap">
+                {#each detailLogs as log}
+                  <div class="log-line"><span class="log-ts">{log.timestamp}</span>{log.message}</div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
 
         <div class="statusbar">
@@ -521,4 +547,13 @@
 
   /* Empty */
   .empty-hint { text-align:center; padding:28px; border:1px dashed var(--border); border-radius:9px; color:var(--text-3); font-size:11px; }
+
+  /* Logs */
+  .log-wrap { background:rgba(0,0,0,0.2); border-radius:7px; padding:10px; font-family:'DM Mono',monospace; font-size:9px; color:var(--text-2); line-height:1.7; max-height:140px; overflow-y:auto; }
+  .log-wrap::-webkit-scrollbar { width:2px; }
+  .log-wrap::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .log-line { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .log-ts { color:var(--text-3); margin-right:8px; }
+  .log-refresh { background:none; border:none; cursor:pointer; color:var(--text-3); padding:2px; margin-left:6px; vertical-align:middle; transition:color .15s; }
+  .log-refresh:hover { color:var(--text-1); }
 </style>

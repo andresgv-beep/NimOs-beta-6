@@ -309,6 +309,19 @@ func destroyPoolBtrfs(poolName string) map[string]interface{} {
 	storageMu.Lock()
 	defer storageMu.Unlock()
 
+	// Check service dependencies before destroying
+	poolLocked[poolName] = true
+	defer delete(poolLocked, poolName)
+
+	deps, canDestroy, _, err := canDestroyPool(poolName)
+	if err == nil && !canDestroy {
+		names := []string{}
+		for _, d := range deps {
+			names = append(names, d.AppName)
+		}
+		return map[string]interface{}{"error": fmt.Sprintf("Active services depend on this pool: %s. Stop them first.", strings.Join(names, ", "))}
+	}
+
 	conf := getStorageConfigFull()
 	confPools, _ := conf["pools"].([]interface{})
 
@@ -392,5 +405,9 @@ func destroyPoolBtrfs(poolName string) map[string]interface{} {
 
 	logMsg("BTRFS pool '%s' destroyed", poolName)
 	updateTorrentConfig()
+
+	// Clean up service registry for this pool
+	dbServiceDeleteByPool(poolName)
+
 	return map[string]interface{}{"ok": true}
 }

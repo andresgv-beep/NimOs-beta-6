@@ -807,6 +807,23 @@ func dockerInstall(w http.ResponseWriter, r *http.Request) {
 	conf["installedAt"] = time.Now().UTC().Format(time.RFC3339)
 	saveDockerConfigGo(conf)
 
+	// ── 11. Register in service registry ──
+	poolNameStr := ""
+	if targetPool != nil {
+		poolNameStr, _ = targetPool["name"].(string)
+	}
+	if poolNameStr != "" {
+		instanceID := "docker@" + poolNameStr
+		dbServiceRegister(ServiceInstance{
+			ID: instanceID, AppID: "containers", PoolName: poolNameStr,
+			Path: dockerPath, Status: "running", Health: "healthy",
+			Owner: "system", Config: "{}",
+		}, []ServiceDependency{
+			{InstanceID: instanceID, DepType: "pool", Target: poolNameStr, Required: "required"},
+			{InstanceID: instanceID, DepType: "path", Target: dockerPath, Required: "required"},
+		})
+	}
+
 	jsonOk(w, map[string]interface{}{"ok": true, "path": dockerPath, "dockerAvailable": dockerAvailable})
 }
 
@@ -823,7 +840,15 @@ func dockerUninstall(w http.ResponseWriter, r *http.Request) {
 	run("apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null || true")
 	run("rm -f /etc/docker/daemon.json 2>/dev/null || true")
 
+	// Deregister from service registry
 	conf := getDockerConfigGo()
+	if p, _ := conf["path"].(string); strings.HasPrefix(p, nimbusPoolsDir+"/") {
+		parts := strings.Split(strings.TrimPrefix(p, nimbusPoolsDir+"/"), "/")
+		if len(parts) > 0 {
+			dbServiceDelete("docker@" + parts[0])
+		}
+	}
+
 	conf["installed"] = false
 	conf["dockerAvailable"] = false
 	conf["path"] = nil

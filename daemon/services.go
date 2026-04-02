@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -394,7 +396,98 @@ func getSystemdUnit(instance *ServiceInstance) string {
 
 // ─── Boot reconciliation ─────────────────────────────────────────────────────
 
+// autoRegisterServices detects running services and registers them if not already present.
+// Called once at boot, before reconcileServices.
+func autoRegisterServices() {
+	// ── NimTorrent ──
+	// Detect from torrent.conf which pool it uses
+	if _, err := dbServiceGet("nimtorrent@*"); err != nil {
+		// No wildcard support — check if ANY nimtorrent instance exists
+		existing, _ := dbServiceList("")
+		hasTorrent := false
+		for _, inst := range existing {
+			if inst.AppID == "nimtorrent" {
+				hasTorrent = true
+				break
+			}
+		}
+		if !hasTorrent {
+			// Try to detect pool from torrent.conf
+			if data, err := os.ReadFile(torrentConfPath); err == nil {
+				for _, line := range strings.Split(string(data), "\n") {
+					if strings.HasPrefix(line, "download_dir=") {
+						dir := strings.TrimPrefix(line, "download_dir=")
+						dir = strings.TrimSpace(dir)
+						if strings.HasPrefix(dir, nimbusPoolsDir+"/") {
+							// Extract pool name: /nimbus/pools/{pool}/shares → pool
+							parts := strings.Split(strings.TrimPrefix(dir, nimbusPoolsDir+"/"), "/")
+							if len(parts) > 0 && parts[0] != "" {
+								poolName := parts[0]
+								instanceID := "nimtorrent@" + poolName
+								path := filepath.Join(nimbusPoolsDir, poolName, "shares")
+								dbServiceRegister(ServiceInstance{
+									ID:       instanceID,
+									AppID:    "nimtorrent",
+									PoolName: poolName,
+									Path:     path,
+									Status:   "unknown",
+									Health:   "unknown",
+									Owner:    "system",
+									Config:   "{}",
+								}, []ServiceDependency{
+									{InstanceID: instanceID, DepType: "pool", Target: poolName, Required: "required"},
+								})
+								logMsg("service auto-register: NimTorrent on pool %s", poolName)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// ── Docker ──
+	existing, _ := dbServiceList("")
+	hasDocker := false
+	for _, inst := range existing {
+		if inst.AppID == "containers" {
+			hasDocker = true
+			break
+		}
+	}
+	if !hasDocker {
+		// Check if Docker is installed and configured on a pool
+		conf := getDockerConfigGo()
+		installed, _ := conf["installed"].(bool)
+		dockerPath, _ := conf["path"].(string)
+		if installed && dockerPath != "" && strings.HasPrefix(dockerPath, nimbusPoolsDir+"/") {
+			parts := strings.Split(strings.TrimPrefix(dockerPath, nimbusPoolsDir+"/"), "/")
+			if len(parts) > 0 && parts[0] != "" {
+				poolName := parts[0]
+				instanceID := "docker@" + poolName
+				dbServiceRegister(ServiceInstance{
+					ID:       instanceID,
+					AppID:    "containers",
+					PoolName: poolName,
+					Path:     dockerPath,
+					Status:   "unknown",
+					Health:   "unknown",
+					Owner:    "system",
+					Config:   "{}",
+				}, []ServiceDependency{
+					{InstanceID: instanceID, DepType: "pool", Target: poolName, Required: "required"},
+					{InstanceID: instanceID, DepType: "path", Target: dockerPath, Required: "required"},
+				})
+				logMsg("service auto-register: Docker on pool %s", poolName)
+			}
+		}
+	}
+}
+
 func reconcileServices() {
+	// Auto-register first — detect services that exist but aren't registered
+	autoRegisterServices()
+
 	instances, err := dbServiceList("")
 	if err != nil {
 		logMsg("service reconcile: error loading instances: %v", err)

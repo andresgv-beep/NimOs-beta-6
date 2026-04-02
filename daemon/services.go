@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -720,6 +721,10 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		instanceID := parts[0]
+		// URL-decode the instance ID (@ gets encoded as %40)
+		if decoded, err := url.PathUnescape(instanceID); err == nil {
+			instanceID = decoded
+		}
 		action := parts[1]
 
 		if err := validateInstanceID(instanceID); err != nil {

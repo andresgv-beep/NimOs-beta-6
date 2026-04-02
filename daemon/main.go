@@ -637,8 +637,12 @@ func main() {
 	// If a remote host is unreachable, NFS mount can take minutes to timeout
 	go remountAllOnStartup()
 
-	// Reconcile service registry — sync status with reality
-	reconcileServices()
+	// Reconcile service registry in background — don't block daemon startup
+	// runCmd calls to systemctl/test can hang on NFS or slow services
+	go func() {
+		time.Sleep(3 * time.Second) // wait for socket to be ready
+		reconcileServices()
+	}()
 
 	// Clean up stale socket
 	os.Remove(socketPath)

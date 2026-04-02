@@ -394,6 +394,105 @@ func getSystemdUnit(instance *ServiceInstance) string {
 	}
 }
 
+// ─── Service logs ────────────────────────────────────────────────────────────
+
+// getServiceLogs returns the last N lines of logs for a service instance.
+func getServiceLogs(instanceID string, n int) ([]map[string]interface{}, error) {
+	instance, err := dbServiceGet(instanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	var managedBy string
+	db.QueryRow(`SELECT managed_by FROM app_registry WHERE id = ?`, instance.AppID).Scan(&managedBy)
+
+	var rawOutput string
+
+	switch managedBy {
+	case "systemd":
+		unitName := getSystemdUnit(instance)
+		out, _ := runCmd("journalctl", []string{
+			"-u", unitName,
+			"-n", fmt.Sprintf("%d", n),
+			"--no-pager",
+			"-o", "short-iso",
+		}, CmdOptions{Timeout: 5 * time.Second})
+		rawOutput = out.Stdout
+
+	case "docker":
+		// Get logs from docker daemon
+		out, _ := runCmd("journalctl", []string{
+			"-u", "docker",
+			"-n", fmt.Sprintf("%d", n),
+			"--no-pager",
+			"-o", "short-iso",
+		}, CmdOptions{Timeout: 5 * time.Second})
+		rawOutput = out.Stdout
+
+	case "internal":
+		// NimBackup and internal services log to the daemon log
+		out, _ := runCmd("journalctl", []string{
+			"-u", "nimos-daemon",
+			"-n", fmt.Sprintf("%d", n),
+			"--no-pager",
+			"-o", "short-iso",
+			"--grep", instance.AppID,
+		}, CmdOptions{Timeout: 5 * time.Second})
+		rawOutput = out.Stdout
+		// If grep found nothing, fall back to daemon logs without filter
+		if strings.TrimSpace(rawOutput) == "" || strings.Contains(rawOutput, "No entries") {
+			out, _ = runCmd("journalctl", []string{
+				"-u", "nimos-daemon",
+				"-n", fmt.Sprintf("%d", n),
+				"--no-pager",
+				"-o", "short-iso",
+			}, CmdOptions{Timeout: 5 * time.Second})
+			rawOutput = out.Stdout
+		}
+
+	default:
+		return []map[string]interface{}{}, nil
+	}
+
+	// Parse output into structured lines
+	var lines []map[string]interface{}
+	for _, line := range strings.Split(rawOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "-- ") {
+			continue
+		}
+		// short-iso format: "2026-04-02T10:23:45+0200 hostname unit[pid]: message"
+		// Try to split timestamp from message
+		ts := ""
+		msg := line
+		if len(line) > 25 && (line[4] == '-' || line[10] == 'T') {
+			// Find first space after timestamp+hostname+unit
+			// Format: "2026-04-02T10:23:45+0200 hostname unit[123]: actual message"
+			idx := strings.Index(line, "]: ")
+			if idx > 0 {
+				ts = line[:25] // ISO timestamp portion
+				msg = strings.TrimSpace(line[idx+3:])
+			} else {
+				// Simpler format, just split at first colon after timestamp
+				spaceIdx := strings.Index(line[25:], " ")
+				if spaceIdx > 0 {
+					ts = line[:25]
+					msg = strings.TrimSpace(line[25+spaceIdx:])
+				}
+			}
+		}
+		lines = append(lines, map[string]interface{}{
+			"timestamp": ts,
+			"message":   msg,
+		})
+	}
+
+	if lines == nil {
+		lines = []map[string]interface{}{}
+	}
+	return lines, nil
+}
+
 // ─── Boot reconciliation ─────────────────────────────────────────────────────
 
 // autoRegisterServices detects running services and registers them if not already present.
@@ -612,12 +711,8 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 	// POST /api/services/{id}/stop
 	// POST /api/services/{id}/start
 	// POST /api/services/{id}/restart
-	if method == "POST" && strings.HasPrefix(path, "/api/services/") {
-		if session.Role != "admin" {
-			jsonError(w, 403, "Admin required")
-			return
-		}
-
+	// GET  /api/services/{id}/logs
+	if strings.HasPrefix(path, "/api/services/") {
 		trimmed := strings.TrimPrefix(path, "/api/services/")
 		parts := strings.SplitN(trimmed, "/", 2)
 		if len(parts) != 2 {
@@ -632,31 +727,56 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		switch action {
-		case "stop":
-			if err := serviceStop(instanceID); err != nil {
+		// GET /api/services/{id}/logs
+		if method == "GET" && action == "logs" {
+			n := 50
+			if nStr := r.URL.Query().Get("n"); nStr != "" {
+				if parsed := parseIntDefault(nStr, 50); parsed > 0 && parsed <= 200 {
+					n = parsed
+				}
+			}
+			lines, err := getServiceLogs(instanceID, n)
+			if err != nil {
 				jsonError(w, 500, err.Error())
 				return
 			}
-			jsonOk(w, map[string]interface{}{"ok": true, "status": "stopped"})
-		case "start":
-			if err := serviceStart(instanceID); err != nil {
-				jsonError(w, 500, err.Error())
-				return
-			}
-			jsonOk(w, map[string]interface{}{"ok": true, "status": "running"})
-		case "restart":
-			serviceStop(instanceID)
-			time.Sleep(1 * time.Second)
-			if err := serviceStart(instanceID); err != nil {
-				jsonError(w, 500, err.Error())
-				return
-			}
-			jsonOk(w, map[string]interface{}{"ok": true, "status": "running"})
-		default:
-			jsonError(w, 404, "Unknown action")
+			jsonOk(w, map[string]interface{}{"logs": lines})
+			return
 		}
-		return
+
+		// POST actions require admin
+		if method == "POST" {
+			if session.Role != "admin" {
+				jsonError(w, 403, "Admin required")
+				return
+			}
+
+			switch action {
+			case "stop":
+				if err := serviceStop(instanceID); err != nil {
+					jsonError(w, 500, err.Error())
+					return
+				}
+				jsonOk(w, map[string]interface{}{"ok": true, "status": "stopped"})
+			case "start":
+				if err := serviceStart(instanceID); err != nil {
+					jsonError(w, 500, err.Error())
+					return
+				}
+				jsonOk(w, map[string]interface{}{"ok": true, "status": "running"})
+			case "restart":
+				serviceStop(instanceID)
+				time.Sleep(1 * time.Second)
+				if err := serviceStart(instanceID); err != nil {
+					jsonError(w, 500, err.Error())
+					return
+				}
+				jsonOk(w, map[string]interface{}{"ok": true, "status": "running"})
+			default:
+				jsonError(w, 404, "Unknown action")
+			}
+			return
+		}
 	}
 
 	jsonError(w, 404, "Not found")

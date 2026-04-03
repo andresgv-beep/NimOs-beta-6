@@ -167,7 +167,32 @@
 
   $: totalBytes = [...eligible, ...provisioned, ...nvme].reduce((a, d) => a + (d.size || 0), 0);
   $: usedBytes  = pools.reduce((a, p) => a + (p.used || 0), 0);
-  $: usedPct    = totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0;
+  $: totalPoolBytes = pools.reduce((a, p) => a + (p.size || 0), 0);
+  $: usedPct    = totalPoolBytes > 0 ? (usedBytes / totalPoolBytes) * 100 : 0;
+
+  // All physical disks (for resumen)
+  $: allDisks = [...provisioned.filter(d => !d.name?.startsWith('nvme')), ...eligible, ...nvme.filter(d => d.name)];
+
+  // Sort pools: degraded/error first
+  $: sortedPools = [...pools].sort((a, b) => {
+    const order = { 'FAULTED': 0, 'DEGRADED': 1, 'ONLINE': 2, 'active': 2 };
+    return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+  });
+
+  function poolUsedPct(pool) {
+    if (!pool.size || pool.size === 0) return 0;
+    return Math.round((pool.used || 0) / pool.size * 100);
+  }
+
+  function translateProtection(profile) {
+    const map = { mirror: 'Espejo', raidz1: 'Protección simple', raidz2: 'Protección doble', stripe: 'Sin protección', single: 'Disco único', raid1: 'Espejo' };
+    return map[profile?.toLowerCase()] || profile || '—';
+  }
+
+  // Simulated recent activity (from notifications in future)
+  $: recentActivity = pools.length > 0 ? [
+    { time: 'Reciente', color: 'var(--green)', message: `${pools.length} volumen${pools.length > 1 ? 'es' : ''} activo${pools.length > 1 ? 's' : ''}` },
+  ] : [];
 
   function fmt(bytes) {
     if (!bytes) return '—';
@@ -290,6 +315,102 @@
 
     {#if loading}
       <div class="s-loading"><div class="spinner"></div></div>
+
+    {:else if activeTab === 'resumen'}
+
+      <!-- ══ RESUMEN ══ -->
+      <div class="resumen-scroll">
+        {#if pools.length === 0 && eligible.length > 0}
+          <!-- Onboarding: no volumes, disks available -->
+          <div class="onboard">
+            <div class="onboard-icon">💾</div>
+            <div class="onboard-title">Configura tu almacenamiento</div>
+            <div class="onboard-desc">NimOS ha detectado {eligible.length} disco{eligible.length > 1 ? 's' : ''} disponible{eligible.length > 1 ? 's' : ''}. Crea un volumen para empezar a guardar archivos, instalar apps y hacer copias de seguridad.</div>
+            <div class="onboard-disks">
+              {#each eligible as d}
+                <div class="onboard-disk"><span class="o-dot"></span>{d.name} · {d.model || '—'} · {fmt(d.size)}</div>
+              {/each}
+            </div>
+            <button class="btn-cta" on:click={() => activeTab = 'disks'}>Crear mi primer volumen →</button>
+          </div>
+        {:else if pools.length === 0}
+          <!-- No disks at all -->
+          <div class="onboard">
+            <div class="onboard-icon">⊘</div>
+            <div class="onboard-title">No se detectaron discos</div>
+            <div class="onboard-desc">Conecta discos al NAS para empezar a crear volúmenes de almacenamiento.</div>
+          </div>
+        {:else}
+          <!-- Normal resumen with volumes -->
+          <div class="r-alert r-alert-ok">
+            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            {pools.length} volumen{pools.length > 1 ? 'es' : ''} activo{pools.length > 1 ? 's' : ''} · {allDisks.length} disco{allDisks.length > 1 ? 's' : ''} sano{allDisks.length > 1 ? 's' : ''}
+          </div>
+
+          <div class="r-grid">
+            <!-- Volume cards -->
+            <div class="r-vols">
+              <div class="r-sec">Volúmenes</div>
+              {#each sortedPools as pool}
+                <div class="r-vol-card {pool.status === 'DEGRADED' ? 'degraded' : pool.status === 'FAULTED' ? 'error' : ''}">
+                  <div class="r-vol-top">
+                    <div>
+                      <div class="r-vol-name">{pool.displayName || pool.name}</div>
+                      <div class="r-vol-meta">{translateProtection(pool.profile || pool.vdevType)} · {pool.type?.toUpperCase()} · {pool.disks?.length || '?'} disco{(pool.disks?.length || 0) > 1 ? 's' : ''}</div>
+                    </div>
+                    <span class="r-badge {pool.status === 'ONLINE' || pool.status === 'active' ? 'r-badge-ok' : pool.status === 'DEGRADED' ? 'r-badge-warn' : 'r-badge-err'}">
+                      {pool.status === 'ONLINE' || pool.status === 'active' ? 'Normal' : pool.status === 'DEGRADED' ? 'Degradado' : pool.status || 'Desconocido'}
+                    </span>
+                  </div>
+                  <div class="r-bar"><div class="r-bar-fill" style="width:{poolUsedPct(pool)}%"></div></div>
+                  <div class="r-bar-text"><span>{fmt(pool.used || 0)} usados</span><span>{fmt(pool.size || 0)} · {poolUsedPct(pool)}%</span></div>
+                  <div class="r-vol-info">
+                    <span>📁 {pool.shares?.length || 0} carpetas</span>
+                  </div>
+                </div>
+              {/each}
+            </div>
+
+            <!-- Activity -->
+            <div class="r-activity-card">
+              <div class="r-sec">Actividad reciente</div>
+              {#if recentActivity.length > 0}
+                {#each recentActivity as act}
+                  <div class="r-act-item">
+                    <span class="r-act-time">{act.time}</span>
+                    <span class="r-act-dot" style="background:{act.color}"></span>
+                    <span class="r-act-msg">{act.message}</span>
+                  </div>
+                {/each}
+              {:else}
+                <div class="r-act-item"><span class="r-act-msg" style="color:var(--text-3)">Sin actividad reciente</span></div>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Disks summary -->
+          <div class="r-sec" style="margin-top:16px">Discos físicos</div>
+          <div class="r-disk-list">
+            {#each allDisks as d}
+              <div class="r-disk-row">
+                <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
+                <div class="r-disk-info">
+                  <div class="r-disk-name">{d.name}</div>
+                  <div class="r-disk-model">{d.model || '—'} · {fmt(d.size)}</div>
+                </div>
+                <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+              </div>
+            {/each}
+          </div>
+
+          <!-- Capacity -->
+          <div class="r-cap" style="margin-top:16px">
+            <div class="r-sec">Capacidad total</div>
+            <div class="r-bar"><div class="r-bar-fill" style="width:{usedPct.toFixed(0)}%"></div></div>
+            <div class="r-bar-text"><span>{fmt(usedBytes)} usados de {fmt(totalPoolBytes)}</span><span>{usedPct.toFixed(0)}%</span></div>
+          </div>
+        {/if}
+      </div>
 
     {:else if activeTab === 'disks'}
 
@@ -1005,4 +1126,66 @@
   .scrub-progress-fill  { height:100%; border-radius:3px; background:linear-gradient(90deg, var(--accent), var(--accent2)); transition:width .5s; }
   .scrub-pct { font-size:11px; font-family:'DM Mono',monospace; color:var(--text-2); flex-shrink:0; width:36px; text-align:right; }
   .scrub-eta { font-size:10px; color:var(--text-3); }
+
+  /* ── RESUMEN ── */
+  .resumen-scroll { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
+  .resumen-scroll::-webkit-scrollbar { width:3px; }
+  .resumen-scroll::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
+
+  .r-alert { display:flex; align-items:center; gap:10px; padding:12px 16px; border-radius:10px; font-size:12px; font-weight:500; }
+  .r-alert svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; flex-shrink:0; }
+  .r-alert-ok { background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.15); color:var(--green); }
+  .r-alert-warn { background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.15); color:var(--amber); }
+
+  .r-grid { display:grid; grid-template-columns:2fr 1fr; gap:14px; }
+  .r-vols { display:flex; flex-direction:column; gap:10px; }
+  .r-sec { font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); margin-bottom:4px; }
+
+  .r-vol-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; border-left:4px solid var(--green); transition:all .2s; cursor:pointer; }
+  .r-vol-card:hover { border-color:var(--border-hi); border-left-color:var(--green); }
+  .r-vol-card.degraded { border-left-color:var(--amber); }
+  .r-vol-card.error { border-left-color:var(--red); }
+  .r-vol-top { display:flex; justify-content:space-between; align-items:flex-start; }
+  .r-vol-name { font-size:14px; font-weight:700; color:var(--text-1); }
+  .r-vol-meta { font-size:11px; color:var(--text-3); margin-top:2px; }
+  .r-vol-info { display:flex; gap:14px; font-size:11px; color:var(--text-2); margin-top:8px; }
+
+  .r-badge { padding:4px 12px; border-radius:20px; font-size:10px; font-weight:600; }
+  .r-badge-ok { background:rgba(34,197,94,0.10); color:var(--green); border:1px solid rgba(34,197,94,0.25); }
+  .r-badge-warn { background:rgba(245,158,11,0.10); color:var(--amber); border:1px solid rgba(245,158,11,0.25); }
+  .r-badge-err { background:rgba(239,68,68,0.10); color:var(--red); border:1px solid rgba(239,68,68,0.25); }
+
+  .r-bar { height:7px; border-radius:4px; background:rgba(255,255,255,0.04); overflow:hidden; margin:10px 0 4px; }
+  .r-bar-fill { height:100%; border-radius:4px; background:linear-gradient(90deg, var(--accent), var(--accent2)); transition:width .6s ease; }
+  .r-bar-text { display:flex; justify-content:space-between; font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; }
+
+  .r-activity-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; }
+  .r-act-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .r-act-item:last-child { border:none; }
+  .r-act-time { font-size:9px; color:var(--text-3); font-family:'DM Mono',monospace; min-width:50px; }
+  .r-act-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .r-act-msg { color:var(--text-2); }
+
+  .r-disk-list { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .r-disk-row { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .1s; }
+  .r-disk-row:last-child { border:none; }
+  .r-disk-row:hover { background:rgba(255,255,255,0.02); }
+  .r-disk-ico { width:32px; height:32px; border-radius:8px; background:rgba(96,165,250,0.08); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .r-disk-ico svg { width:14px; height:14px; stroke:var(--blue); fill:none; stroke-width:2; stroke-linecap:round; }
+  .r-disk-info { flex:1; }
+  .r-disk-name { font-size:13px; font-weight:600; color:var(--text-1); }
+  .r-disk-model { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; }
+
+  .r-cap { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:14px 18px; }
+
+  /* Onboarding */
+  .onboard { width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; padding:40px; }
+  .onboard-icon { font-size:52px; line-height:1; }
+  .onboard-title { font-size:20px; font-weight:700; color:var(--text-1); }
+  .onboard-desc { font-size:13px; color:var(--text-2); line-height:1.7; max-width:400px; }
+  .onboard-disks { display:flex; flex-direction:column; gap:6px; margin:6px 0; }
+  .onboard-disk { display:flex; align-items:center; gap:10px; padding:9px 16px; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:8px; font-size:11px; color:var(--text-1); }
+  .o-dot { width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0; }
+  .btn-cta { padding:12px 28px; border-radius:10px; border:none; cursor:pointer; background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; font-size:14px; font-weight:600; font-family:inherit; margin-top:8px; box-shadow:0 4px 16px rgba(124,111,255,0.25); transition:opacity .15s; }
+  .btn-cta:hover { opacity:.88; }
 </style>

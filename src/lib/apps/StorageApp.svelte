@@ -3,23 +3,24 @@
   import TabNav from '$lib/components/TabNav.svelte';
   import StoragePanel from '$lib/apps/StoragePanel.svelte';
 
-  let activeTab = 'disks';
+  let activeTab = 'resumen';
 
   // Sidebar items — Storage-specific sections
   const sidebarItems = [
-    { id: 'disks',    label: 'Disks',           icon: 'disk'     },
-    { id: 'pools',    label: 'Storage Manager', icon: 'pool'     },
-    { id: 'health',   label: 'Health',          icon: 'health'   },
-    { id: 'restore',  label: 'Restore Pool',    icon: 'restore'  },
-    { id: 'snapshots',label: 'Snapshots',       icon: 'snapshot' },
-    { id: 'scrub',    label: 'Scrub',           icon: 'scrub'    },
+    { id: 'resumen',   label: 'Resumen',                icon: 'resumen'  },
+    { id: 'disks',     label: 'Discos',                  icon: 'disk'     },
+    { id: 'snapshots', label: 'Puntos de restauración',  icon: 'snapshot' },
+  ];
+  const maintItems = [
+    { id: 'health',    label: 'Salud',                   icon: 'health'   },
+    { id: 'restore',   label: 'Restaurar volumen',       icon: 'restore'  },
   ];
 
   $: userName = $user?.username || 'User';
   $: userRole = $user?.role     || 'user';
 
   // Tab label for titlebar subtitle
-  const tabLabel = { disks: 'Disks', pools: 'Storage Manager', health: 'Health', restore: 'Restore Pool', snapshots: 'Snapshots', scrub: 'Scrub' };
+  const tabLabel = { resumen:'Resumen', disks:'Discos', health:'Salud', restore:'Restaurar volumen', snapshots:'Puntos de restauración' };
 </script>
 
 <div class="storage-app-root">
@@ -31,7 +32,7 @@
         <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
         <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
       </svg>
-      <span class="sb-app-title">Storage</span>
+      <span class="sb-app-title">Almacenamiento</span>
     </div>
 
     <div class="sb-search">⌕ Buscar…</div>
@@ -41,17 +42,31 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="sb-item" class:active={activeTab === item.id} on:click={() => activeTab = item.id}>
-        <span class="sb-ico">
-          {#if item.icon === 'disk'}⛁
-          {:else if item.icon === 'pool'}▦
-          {:else if item.icon === 'health'}♡
-          {:else if item.icon === 'restore'}⟲
-          {:else if item.icon === 'snapshot'}◈
-          {:else if item.icon === 'dataset'}⊟
-          {:else if item.icon === 'scrub'}⌖
-          {:else}●
+        <svg class="sb-svg" viewBox="0 0 24 24">
+          {#if item.icon === 'resumen'}
+            <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+          {:else if item.icon === 'disk'}
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+          {:else if item.icon === 'snapshot'}
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-5.4"/>
           {/if}
-        </span>
+        </svg>
+        {item.label}
+      </div>
+    {/each}
+
+    <div class="sb-section" style="margin-top:8px">Mantenimiento</div>
+    {#each maintItems as item}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="sb-item" class:active={activeTab === item.id} on:click={() => activeTab = item.id}>
+        <svg class="sb-svg" viewBox="0 0 24 24">
+          {#if item.icon === 'health'}
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          {:else if item.icon === 'restore'}
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          {/if}
+        </svg>
         {item.label}
       </div>
     {/each}
@@ -72,7 +87,7 @@
     <div class="inner">
       <!-- TITLEBAR -->
       <div class="inner-titlebar">
-        <div class="tb-title">Storage</div>
+        <div class="tb-title">Almacenamiento</div>
         <div class="tb-sub">— {tabLabel[activeTab] || ''}</div>
       </div>
 
@@ -129,8 +144,8 @@
   }
   .sb-item:hover { background:rgba(128,128,128,0.10); color:var(--text-1); }
   .sb-item.active { background:var(--active-bg); color:var(--text-1); border-color:var(--border-hi); }
-  .sb-ico { font-size:13px; width:16px; text-align:center; flex-shrink:0; opacity:0.7; }
-  .sb-item.active .sb-ico { opacity:1; }
+  .sb-svg { width:14px; height:14px; flex-shrink:0; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; opacity:0.5; }
+  .sb-item.active .sb-svg { opacity:1; }
 
   .sb-bottom { margin-top:auto; border-top:1px solid var(--border); padding-top:8px; }
   .sb-user-card {

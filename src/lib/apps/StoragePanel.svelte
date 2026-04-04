@@ -355,11 +355,10 @@
     if (!canDestroy || !detailPool) return;
     destroying = true;
     try {
-      const fsType = detailPool.type || detailPool.filesystem || 'zfs';
-      const r = await fetch('/api/storage/destroy', {
+      const r = await fetch('/api/storage/pool/destroy', {
         method: 'POST',
         headers: { ...hdrs(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pool: detailPool.name, type: fsType }),
+        body: JSON.stringify({ name: detailPool.name }),
       });
       const d = await r.json();
       if (d.ok) {

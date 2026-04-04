@@ -157,8 +157,6 @@
   .b-close:hover { color:var(--red); }
   .b-close svg { width:10px; height:10px; }
   .upload-bubble { animation: none; }
-  .upload-bubble.done { border-left:2px solid var(--green); }
-  .upload-bubble.error { border-left:2px solid var(--red); }
   .up-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:6px; }
   .up-fill { height:100%; background:var(--accent); border-radius:2px; transition:width .3s ease; }
   .up-pct { font-size:9px; color:var(--text-3); font-family:"DM Mono",monospace; margin-top:3px; }

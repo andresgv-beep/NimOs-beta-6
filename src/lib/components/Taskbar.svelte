@@ -149,7 +149,7 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="transfer-btn" on:click={openTransferManager} title="Transferencias">
-        <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
           <path d="M9 22H15C20 22 22 20 22 15V9C22 4 20 2 15 2H9C4 2 2 4 2 9V15C2 20 4 22 9 22Z" fill="currentColor" opacity="0.9"/>
           <path d="M12.37 8.88H17.62" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round"/>
           <path d="M6.38 8.88L7.13 9.63L9.38 7.38" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -185,7 +185,7 @@
       </div>
       <div class="sep"></div>
       <button class="tb-btn" title="Cerrar sesión" on:click={logout}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
         </svg>
       </button>
@@ -370,7 +370,7 @@
   .notif-bell { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; transition:background .15s; }
   .notif-bell:hover { background:var(--ibtn-bg); }
   .notif-bell.active { background:rgba(124,111,255,0.12); }
-  .notif-bell svg { width:15px; height:15px; color:var(--text-2); transition:color .15s; }
+  .notif-bell svg { width:20px; height:20px; color:var(--text-2); transition:color .15s; }
   .notif-bell:hover svg, .notif-bell.active svg { color:var(--text-1); }
   .notif-badge { position:absolute; top:5px; right:5px; min-width:13px; height:13px; border-radius:7px; background:var(--red); font-size:8px; font-weight:700; color:#fff; display:flex; align-items:center; justify-content:center; padding:0 3px; }
   .sep {

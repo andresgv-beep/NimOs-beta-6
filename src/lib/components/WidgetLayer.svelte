@@ -160,13 +160,15 @@
 
   // ── Data polling ──
   let pollTimer, sysData = {}, storageData = {}, netData = {}, torrentData = { torrents: [], dlSpeed: 0, ulSpeed: 0 };
+  let smartSummary = { worstStatus: 'ok', disks: [] };
 
   async function fetchData() {
     try {
-      const [sys, stor, net, tor] = await Promise.all([
+      const [sys, stor, net, smart, tor] = await Promise.all([
         fetch('/api/system',         { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
         fetch('/api/storage/status', { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
         fetch('/api/network',        { headers: hdrs() }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/disks/smart/summary', { headers: hdrs() }).then(r => r.json()).catch(() => ({ worstStatus: 'ok', disks: [] })),
         fetch('/api/torrent/torrents', { headers: hdrs() }).then(r => r.json()).then(d => {
           const raw = Array.isArray(d) ? d : (d.torrents || []);
           const list = raw.map(t => ({
@@ -183,6 +185,7 @@
         }).catch(() => {}),
       ]);
       sysData = sys || {}; storageData = stor || {}; netData = net || {};
+      smartSummary = smart || { worstStatus: 'ok', disks: [] };
       updateNetCharts();
     } catch {}
   }
@@ -593,13 +596,26 @@
 
             {:else if is1x2sto}
               <!-- ── STORAGE 1×2: bars ── -->
-              <div class="wg-header">Storage</div>
+              <div class="wg-header">Storage
+                {#if smartSummary.worstStatus === 'critical'}
+                  <svg class="wg-sto-warn-ico crit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                {:else if smartSummary.worstStatus === 'warning'}
+                  <svg class="wg-sto-warn-ico warn" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                {/if}
+              </div>
               {#if pools.length > 0}
                 <div class="wg-sto-bars">
                   {#each pools as pool}
                     <div class="wg-sto-bar-row">
                       <div class="wg-sto-bar-info">
-                        <span class="wg-sto-bar-name">{pool.name}</span>
+                        <span class="wg-sto-bar-name">
+                          {#if smartSummary.worstStatus === 'critical'}
+                            <svg class="wg-sto-inline-ico crit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                          {:else if smartSummary.worstStatus === 'warning'}
+                            <svg class="wg-sto-inline-ico warn" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                          {/if}
+                          {pool.name}
+                        </span>
                         <span class="wg-sto-bar-size">{pool.usedFormatted||'—'} / {pool.totalFormatted||'—'}</span>
                       </div>
                       <div class="wg-sto-track">
@@ -614,14 +630,27 @@
 
             {:else}
               <!-- ── STORAGE 2×2: cards + total ── -->
-              <div class="wg-header">Storage</div>
+              <div class="wg-header">Storage
+                {#if smartSummary.worstStatus === 'critical'}
+                  <svg class="wg-sto-warn-ico crit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                {:else if smartSummary.worstStatus === 'warning'}
+                  <svg class="wg-sto-warn-ico warn" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                {/if}
+              </div>
               {#if pools.length > 0}
                 <div class="wg-sto-cards">
                   {#each pools as pool}
                     <div class="wg-sto-card">
                       <div class="wg-sto-card-top">
                         <div>
-                          <div class="wg-sto-card-name">{pool.name}</div>
+                          <div class="wg-sto-card-name">
+                            {#if smartSummary.worstStatus === 'critical'}
+                              <svg class="wg-sto-inline-ico crit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                            {:else if smartSummary.worstStatus === 'warning'}
+                              <svg class="wg-sto-inline-ico warn" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            {/if}
+                            {pool.name}
+                          </div>
                           <div class="wg-sto-card-raid">{pool.raidLevel || pool.type || '—'}</div>
                         </div>
                         <span class="wg-sto-card-pct" style="color:{stoColor(pool.usagePercent||0)}">{pool.usagePercent||0}%</span>
@@ -914,6 +943,12 @@
   .ctx-back:hover { opacity: .7; }
 
   /* ── STORAGE WIDGET ── */
+  .wg-sto-warn-ico { width:12px; height:12px; fill:none; stroke-width:2; stroke-linecap:round; margin-left:5px; vertical-align:middle; display:inline; }
+  .wg-sto-warn-ico.warn { stroke:var(--amber); }
+  .wg-sto-warn-ico.crit { stroke:var(--red); }
+  .wg-sto-inline-ico { width:11px; height:11px; fill:none; stroke-width:2; stroke-linecap:round; vertical-align:-1px; margin-right:3px; display:inline; }
+  .wg-sto-inline-ico.warn { stroke:var(--amber); }
+  .wg-sto-inline-ico.crit { stroke:var(--red); }
   .wg-sto-select-wrap { width:100%; flex-shrink:0; }
   .wg-sto-select {
     width:100%; font-size:9px; padding:3px 8px; border-radius:6px;

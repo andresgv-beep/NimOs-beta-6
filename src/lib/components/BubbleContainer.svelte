@@ -1,7 +1,7 @@
 <script>
   import { fly } from 'svelte/transition';
   import { notifications, hideBubble } from '$lib/stores/notifications.js';
-  import { uploadTasks, removeTask } from '$lib/stores/uploadTasks.js';
+  import { uploadTasks, removeTask, cancelTask } from '$lib/stores/uploadTasks.js';
   import { openWindow } from '$lib/stores/windows.js';
 
   const DURATION = 5000;
@@ -48,8 +48,12 @@
   }
 
   function closeBubble(b) {
-    if (b._kind === 'task') removeTask(b.id);
-    else hideBubble(b.id);
+    if (b._kind === 'task') {
+      if (b.status === 'uploading') cancelTask(b.id);
+      else removeTask(b.id);
+    } else {
+      hideBubble(b.id);
+    }
   }
 </script>
 
@@ -97,15 +101,13 @@
           {/if}
         {/if}
       </div>
-      {#if b._kind !== 'task' || b.status !== 'uploading'}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="b-close" on:click|stopPropagation={() => closeBubble(b)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </div>
-      {/if}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="b-close" on:click|stopPropagation={() => closeBubble(b)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </div>
     </div>
   {/each}
 </div>

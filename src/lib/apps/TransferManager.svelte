@@ -1,9 +1,9 @@
 <script>
-  import { uploadTasks, activeTasks, cancelTask, removeTask, clearDone } from '$lib/stores/uploadTasks.js';
+  import { uploadTasks, activeTasks, cancelTask, removeTask, clearDone, pauseTask, resumeTask } from '$lib/stores/uploadTasks.js';
 
   let activeTab = 'active'; // 'active' | 'done' | 'error'
 
-  $: tabActive = $uploadTasks.filter(t => t.status === 'uploading');
+  $: tabActive = $uploadTasks.filter(t => t.status === 'uploading' || t.status === 'queued' || t.status === 'paused');
   $: tabDone   = $uploadTasks.filter(t => t.status === 'done');
   $: tabError  = $uploadTasks.filter(t => t.status === 'error');
 
@@ -17,6 +17,13 @@
   }
 
   function fmtPct(pct) { return Math.round(pct) + '%'; }
+
+  function fmtSpeed(bps) {
+    if (!bps || bps <= 0) return '';
+    if (bps >= 1e6) return (bps / 1e6).toFixed(1) + ' MB/s';
+    if (bps >= 1e3) return (bps / 1e3).toFixed(0) + ' KB/s';
+    return Math.round(bps) + ' B/s';
+  }
 </script>
 
 <div class="tm">
@@ -82,6 +89,14 @@
                   <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.25;0.75;1" dur="1.2s" begin="-0.6s" repeatCount="indefinite"/>
                 </polygon>
               </svg>
+            {:else if task.status === 'paused'}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2.5" stroke-linecap="round">
+                <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
+              </svg>
+            {:else if task.status === 'queued'}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2.5" stroke-linecap="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
             {:else if task.status === 'done'}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round">
                 <polyline points="20 6 9 17 4 12"/>
@@ -100,7 +115,14 @@
               <div class="prog-wrap">
                 <div class="prog-bar" style="width:{task.progress}%"></div>
               </div>
-              <div class="row-meta">{fmtPct(task.progress)} · {fmtSize(task.size)}</div>
+              <div class="row-meta">{fmtPct(task.progress)} · {fmtSize(task.size)}{#if task.speed} · {fmtSpeed(task.speed)}{/if}</div>
+            {:else if task.status === 'paused'}
+              <div class="prog-wrap">
+                <div class="prog-bar paused" style="width:{task.progress}%"></div>
+              </div>
+              <div class="row-meta paused-text">Pausado · {fmtPct(task.progress)} · {fmtSize(task.size)}</div>
+            {:else if task.status === 'queued'}
+              <div class="row-meta queued-text">En cola · {fmtSize(task.size)}</div>
             {:else if task.status === 'done'}
               <div class="row-meta done">Completado · {fmtSize(task.size)}</div>
             {:else}
@@ -109,14 +131,43 @@
           </div>
 
           <!-- Action -->
-          <div class="row-action">
+          <div class="row-actions">
             {#if task.status === 'uploading'}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="action-btn cancel" title="Cancelar" on:click={() => cancelTask(task.id)}>
+              <div class="action-btn pause" title="Pausar" on:click={() => pauseTask(task.id)}>
                 <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                  <rect x="5" y="4" width="4" height="16" rx="1"/>
-                  <rect x="15" y="4" width="4" height="16" rx="1"/>
+                  <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
+                </svg>
+              </div>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="action-btn cancel" title="Cancelar" on:click={() => cancelTask(task.id)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </div>
+            {:else if task.status === 'paused'}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="action-btn resume" title="Reanudar" on:click={() => resumeTask(task.id)}>
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <polygon points="6,4 20,12 6,20"/>
+                </svg>
+              </div>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="action-btn cancel" title="Cancelar" on:click={() => cancelTask(task.id)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </div>
+            {:else if task.status === 'queued'}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="action-btn cancel" title="Cancelar" on:click={() => cancelTask(task.id)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>
               </div>
             {:else}
@@ -185,16 +236,24 @@
   .row-meta { font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; margin-top:3px; }
   .row-meta.done  { color:var(--green); }
   .row-meta.error { color:var(--red); }
+  .row-meta.paused-text { color:var(--amber); }
+  .row-meta.queued-text { color:var(--text-3); }
 
   /* PROGRESS */
   .prog-wrap { height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
   .prog-bar  { height:100%; background:var(--accent); border-radius:2px; transition:width .4s ease; }
+  .prog-bar.paused { background:var(--amber); }
 
   /* ACTION */
+  .row-actions { display:flex; gap:4px; flex-shrink:0; }
   .action-btn { width:26px; height:26px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .15s; flex-shrink:0; }
   .action-btn svg { width:12px; height:12px; }
-  .action-btn.cancel { color:var(--amber); }
-  .action-btn.cancel:hover { background:rgba(251,191,36,0.12); }
+  .action-btn.pause { color:var(--amber); }
+  .action-btn.pause:hover { background:rgba(251,191,36,0.12); }
+  .action-btn.resume { color:var(--green); }
+  .action-btn.resume:hover { background:rgba(74,222,128,0.12); }
+  .action-btn.cancel { color:var(--text-3); }
+  .action-btn.cancel:hover { background:rgba(248,113,113,0.1); color:var(--red); }
   .action-btn.remove { color:var(--text-3); }
   .action-btn.remove:hover { background:rgba(248,113,113,0.1); color:var(--red); }
 

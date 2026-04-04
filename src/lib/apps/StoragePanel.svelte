@@ -119,10 +119,29 @@
     });
     const data = await res.json();
     if (data.ok) {
-      scrubMsg = 'Scrub iniciado'; scrubMsgError = false;
+      scrubMsg = 'Verificación iniciada'; scrubMsgError = false;
+      if (scrubInterval) clearInterval(scrubInterval);
       scrubInterval = setInterval(() => loadScrubStatus(scrubPool), 3000);
       loadScrubStatus(scrubPool);
     } else { scrubMsg = data.error || 'Error'; scrubMsgError = true; }
+  }
+
+  async function startScrubForPool(poolName) {
+    const res = await fetch('/api/storage/scrub', {
+      method: 'POST',
+      headers: { ...hdrs(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pool: poolName }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      scrubPool = poolName;
+      if (scrubInterval) clearInterval(scrubInterval);
+      scrubInterval = setInterval(() => loadScrubStatus(poolName), 3000);
+      loadScrubStatus(poolName);
+      activeTab = 'health';
+    } else {
+      alert(data.error || 'Error al iniciar verificación');
+    }
   }
 
   // ── Reactive: load ZFS data when tab changes ────────────────────────────────
@@ -130,12 +149,12 @@
     if (!snapPool) snapPool = pools[0]?.name || '';
     loadSnapshots(snapPool);
   }
-  $: if (activeTab === 'scrub' && pools.length > 0) {
+  $: if ((activeTab === 'health' || activeTab === 'scrub') && pools.length > 0) {
     if (!scrubPool) scrubPool = pools[0]?.name || '';
     loadScrubStatus(scrubPool);
   }
   $: if (snapPool && activeTab === 'snapshots') loadSnapshots(snapPool);
-  $: if (scrubPool && activeTab === 'scrub')     loadScrubStatus(scrubPool);
+  $: if (scrubPool && (activeTab === 'health' || activeTab === 'scrub')) loadScrubStatus(scrubPool);
 
   function fmtDate(raw) {
     if (!raw) return '—';
@@ -591,7 +610,7 @@
         <!-- Actions -->
         <div class="r-sec" style="margin-top:14px">Acciones</div>
         <div class="r-actions-row">
-          <button class="r-btn">Verificar integridad</button>
+          <button class="r-btn" on:click={() => startScrubForPool(detailPool.name)}>Verificar integridad</button>
           <button class="r-btn r-btn-primary">Crear punto de restauración</button>
           <button class="r-btn r-btn-danger" on:click={openDestroy}>Destruir volumen</button>
         </div>
@@ -889,21 +908,144 @@
       {/if}
 
     {:else if activeTab === 'health'}
-      <div class="section-label">Estado de salud</div>
-      {#if pools.length > 0}
-        {#each pools as pool}
-          <div class="pool-row">
-            <div class="pool-led" class:healthy={pool.status === 'active'}></div>
-            <div class="pool-info">
-              <div class="pool-name">{pool.name}</div>
-              <div class="pool-meta">{pool.raidLevel || '—'} · {pool.status || '—'} · {pool.usagePercent ?? 0}% usado</div>
+
+      <!-- ══ SALUD ══ -->
+      <div class="resumen-scroll">
+        <!-- Health overview hero -->
+        {#if pools.every(p => p.status === 'active' || p.health === 'ONLINE')}
+          <div class="r-health-hero r-health-ok">
+            <div class="r-hh-icon">
+              <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
             </div>
-            <div class="pool-badge" class:green={pool.status === 'active'}>{pool.status || '—'}</div>
+            <div>
+              <div class="r-hh-title">Todo correcto</div>
+              <div class="r-hh-sub">Todos los volúmenes y discos funcionan con normalidad</div>
+            </div>
+          </div>
+        {:else}
+          <div class="r-health-hero r-health-warn">
+            <div class="r-hh-icon warn">
+              <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div>
+              <div class="r-hh-title">Atención requerida</div>
+              <div class="r-hh-sub">Uno o más volúmenes necesitan revisión</div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Per-pool scrub status -->
+        <div class="r-sec" style="margin-top:4px">Volúmenes</div>
+        {#each pools as pool}
+          {@const isActive = scrubPool === pool.name}
+          {@const st = isActive ? scrubStatus : { status: 'idle' }}
+          <div class="r-detail-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <div>
+                <div style="font-size:14px;font-weight:600;color:var(--text-1)">{pool.name}</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:2px">{translateProtection(pool.vdevType)} · {pool.disks?.length || '?'} discos · {fmt(pool.used || 0)} / {fmt(pool.total || 0)}</div>
+              </div>
+              <span class="r-badge {pool.status === 'active' || pool.health === 'ONLINE' ? 'r-badge-ok' : 'r-badge-warn'}">
+                {pool.status === 'active' || pool.health === 'ONLINE' ? 'Normal' : pool.status || '—'}
+              </span>
+            </div>
+
+            <!-- Scrub info -->
+            {#if isActive && st.status === 'scrubbing'}
+              <!-- Scrub in progress -->
+              <div class="r-scrub-active">
+                <div class="r-scrub-label">Verificando integridad...</div>
+                <div class="r-scrub-progress"><div class="r-scrub-fill" style="width:{st.progress || 0}%"></div></div>
+                <div class="r-scrub-stats">
+                  <span>{st.progress || 0}%</span>
+                  <span>{st.errors || 0} errores</span>
+                  {#if st.speed && st.speed !== '—'}<span>{st.speed}</span>{/if}
+                  {#if st.timeRemaining && st.timeRemaining !== '—'}<span>~{st.timeRemaining} restante</span>{/if}
+                </div>
+                {#if st.scanned && st.scanned !== '—'}
+                  <div class="r-scrub-detail">Escaneado: {st.scanned} de {st.totalSize || '—'}</div>
+                {/if}
+              </div>
+            {:else if isActive && st.status === 'done'}
+              <!-- Last scrub completed -->
+              <div class="r-scrub-done">
+                <div class="r-scrub-row">
+                  <span class="r-scrub-key">Última verificación</span>
+                  <span class="r-scrub-val">{st.lastScrub ? fmtDate(st.lastScrub) : '—'}</span>
+                </div>
+                <div class="r-scrub-row">
+                  <span class="r-scrub-key">Resultado</span>
+                  <span class="r-scrub-val" style="color:{(st.lastErrors || 0) === 0 ? 'var(--green)' : 'var(--red)'}">
+                    {(st.lastErrors || 0) === 0 ? 'Sin errores' : `${st.lastErrors} errores encontrados`}
+                  </span>
+                </div>
+                <div class="r-scrub-row">
+                  <span class="r-scrub-key">Duración</span>
+                  <span class="r-scrub-val">{st.lastDuration || '—'}</span>
+                </div>
+                {#if st.repaired && st.repaired !== '0B' && st.repaired !== '0'}
+                  <div class="r-scrub-row">
+                    <span class="r-scrub-key">Datos reparados</span>
+                    <span class="r-scrub-val">{st.repaired}</span>
+                  </div>
+                {/if}
+                {#if st.dataErrors && st.dataErrors !== '—'}
+                  <div class="r-scrub-row">
+                    <span class="r-scrub-key">Estado de datos</span>
+                    <span class="r-scrub-val">{st.dataErrors}</span>
+                  </div>
+                {/if}
+              </div>
+              <button class="r-btn" style="margin-top:10px" on:click={() => { scrubPool = pool.name; startScrub(); }} disabled={st.status === 'scrubbing'}>
+                Verificar ahora
+              </button>
+            {:else if isActive && st.status === 'never'}
+              <div class="r-scrub-never">Nunca se ha realizado una verificación de integridad en este volumen.</div>
+              <button class="r-btn r-btn-primary" style="margin-top:10px" on:click={() => { scrubPool = pool.name; startScrub(); }}>
+                Verificar ahora
+              </button>
+            {:else}
+              <!-- Idle / no data loaded yet -->
+              <div class="r-scrub-never">Cargando estado de verificación...</div>
+              <button class="r-btn" style="margin-top:10px" on:click={() => { scrubPool = pool.name; loadScrubStatus(pool.name).then(() => { if (scrubStatus.status === 'idle' || scrubStatus.status === 'never') startScrub(); }); }}>
+                Verificar ahora
+              </button>
+            {/if}
+
+            <!-- Disk errors from scrub -->
+            {#if isActive && st.disks && st.disks.length > 0}
+              <div class="r-sec" style="margin-top:14px">Estado de discos</div>
+              {#each st.disks as disk}
+                <div class="r-scrub-disk-row">
+                  <span class="r-scrub-disk-name">{disk.name}</span>
+                  <span class="r-scrub-disk-state" style="color:{disk.state === 'ONLINE' ? 'var(--green)' : 'var(--red)'}">{disk.state}</span>
+                  <span class="r-scrub-disk-errs">R:{disk.read} W:{disk.write} C:{disk.cksum}</span>
+                </div>
+              {/each}
+            {/if}
           </div>
         {/each}
-      {:else}
-        <p class="coming-soon">No hay pools para monitorizar</p>
-      {/if}
+
+        <!-- Disks temperature summary -->
+        <div class="r-sec" style="margin-top:4px">Discos</div>
+        <div class="r-detail-card">
+          {#each allDisks as d}
+            <div class="r-disk-row" style="cursor:default">
+              <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
+              <div class="r-disk-info">
+                <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
+                <div class="r-disk-model">{fmt(d.size)}</div>
+              </div>
+              <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+            </div>
+          {/each}
+        </div>
+
+        <!-- Explanation -->
+        <div class="r-scrub-note">
+          La verificación de integridad comprueba que todos los datos almacenados estén correctos y no haya corrupción silenciosa. Se recomienda ejecutarla al menos una vez al mes.
+        </div>
+      </div>
 
     {:else if activeTab === 'restore'}
       <div class="section-label">Restaurar pool</div>
@@ -1490,4 +1632,38 @@
   .r-confirm-input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-1); font-family:inherit; font-size:13px; outline:none; transition:border-color .15s; }
   .r-confirm-input:focus { border-color:var(--red); }
   .r-confirm-input::placeholder { color:var(--text-3); }
+
+  /* ── SALUD / HEALTH VIEW ── */
+  .r-health-hero { display:flex; align-items:center; gap:16px; padding:18px 20px; border-radius:12px; }
+  .r-health-ok { background:rgba(34,197,94,0.05); border:1px solid rgba(34,197,94,0.15); }
+  .r-health-warn { background:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.15); }
+  .r-hh-icon { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(34,197,94,0.10); flex-shrink:0; }
+  .r-hh-icon.warn { background:rgba(245,158,11,0.10); }
+  .r-hh-icon svg { width:20px; height:20px; stroke:var(--green); fill:none; stroke-width:2; stroke-linecap:round; }
+  .r-hh-icon.warn svg { stroke:var(--amber); }
+  .r-hh-title { font-size:16px; font-weight:700; color:var(--text-1); }
+  .r-hh-sub { font-size:12px; color:var(--text-3); margin-top:3px; }
+
+  .r-scrub-active { margin-top:8px; }
+  .r-scrub-label { font-size:12px; font-weight:600; color:var(--accent); margin-bottom:4px; }
+  .r-scrub-progress { height:6px; border-radius:3px; background:rgba(255,255,255,0.06); overflow:hidden; }
+  .r-scrub-fill { height:100%; border-radius:3px; background:linear-gradient(90deg, var(--accent), var(--accent2, #a855f7)); transition:width .5s ease; }
+  .r-scrub-stats { display:flex; gap:16px; font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; margin-top:6px; }
+  .r-scrub-detail { font-size:10px; color:var(--text-3); margin-top:4px; }
+
+  .r-scrub-done { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .r-scrub-row { display:flex; justify-content:space-between; align-items:center; font-size:12px; padding:4px 0; border-bottom:1px solid var(--border); }
+  .r-scrub-row:last-child { border:none; }
+  .r-scrub-key { color:var(--text-3); }
+  .r-scrub-val { color:var(--text-1); font-family:'DM Mono',monospace; }
+
+  .r-scrub-never { font-size:11px; color:var(--text-3); margin-top:8px; line-height:1.5; }
+
+  .r-scrub-disk-row { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--border); font-size:11px; }
+  .r-scrub-disk-row:last-child { border:none; }
+  .r-scrub-disk-name { font-family:'DM Mono',monospace; color:var(--text-2); flex:1; font-size:10px; overflow:hidden; text-overflow:ellipsis; }
+  .r-scrub-disk-state { font-weight:600; min-width:55px; }
+  .r-scrub-disk-errs { font-family:'DM Mono',monospace; color:var(--text-3); font-size:10px; }
+
+  .r-scrub-note { font-size:11px; color:var(--text-3); line-height:1.6; margin-top:10px; padding:12px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:9px; }
 </style>

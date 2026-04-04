@@ -39,11 +39,11 @@
     return { destroy() { clearTimeout(t); } };
   }
 
-  function onBubbleClick(n) {
-    if (n._kind !== 'notif') return;
-    if (n.category === 'system' && (n.title?.includes('Disco') || n.title?.includes('SMART') || n.title?.includes('Verificación') || n.message?.includes('disco'))) {
+  function onBubbleClick(b) {
+    if (b._kind !== 'notif') return;
+    if (b.category === 'system' && (b.title?.includes('Disco') || b.title?.includes('SMART') || b.title?.includes('Verificación') || b.message?.includes('disco'))) {
       openWindow('storage');
-      hideBubble(n.id);
+      hideBubble(b.id);
     }
   }
 
@@ -58,12 +58,13 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="bubble b-{b.type}"
+      class="bubble b-{b.type}" class:persistent={b._kind === 'notif' && PERSISTENT_TYPES.has(b.type)}
       in:fly={{ x: 100, duration: 300 }}
       out:fly={{ x: 100, duration: 220 }}
       use:autoHide={{ id: b.id, type: b.type, kind: b._kind }}
       on:click={() => onBubbleClick(b)}
     >
+      <div class="b-stripe"></div>
       {#if b._kind === 'task' && b.status === 'uploading'}
         <div class="upload-dots">
           <span class="dot"></span>
@@ -112,13 +113,15 @@
 <style>
   .bubble-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; align-items:flex-end; }
 
-  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1.5px solid var(--window-border); border-radius:11px; padding:11px 12px 11px; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
+  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:2px solid var(--glass-border); border-radius:11px; padding:11px 12px 0; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
+  .bubble.persistent { padding-bottom:11px; border-width:2px; }
 
-  .b-success { border-color:var(--green); }
-  .b-error   { border-color:var(--red); }
-  .b-warning { border-color:var(--amber); }
-  .b-info    { border-color:var(--accent); }
-  .b-security{ border-color:var(--red); }
+  .b-stripe { position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:0 2px 2px 0; }
+  .b-success .b-stripe  { background:var(--green); }
+  .b-error .b-stripe    { background:var(--red); }
+  .b-warning .b-stripe  { background:var(--amber); }
+  .b-info .b-stripe     { background:var(--accent); }
+  .b-security .b-stripe { background:var(--red); }
 
   .b-ico { width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-left:6px; margin-top:1px; }
   .b-ico svg { width:11px; height:11px; fill:none; stroke-width:2.5; stroke-linecap:round; }
@@ -128,7 +131,7 @@
   .b-info .b-ico     { background:rgba(124,111,255,0.12); } .b-info .b-ico svg     { stroke:var(--accent); }
   .b-security .b-ico { background:rgba(248,113,113,0.12); } .b-security .b-ico svg { stroke:var(--red); }
 
-  .b-body { flex:1; min-width:0; }
+  .b-body { flex:1; min-width:0; padding-bottom:10px; }
   .b-title { font-size:11px; font-weight:700; color:var(--text-1); }
   .b-msg { font-size:11px; color:var(--text-2); margin-top:2px; line-height:1.4; }
   .b-msg.solo { font-weight:600; color:var(--text-1); margin-top:0; }

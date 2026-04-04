@@ -20,6 +20,30 @@
   let nvme = [];
   let selectedDisk = null;
   let expandedDisk = null;
+  let smartData = {};  // keyed by disk name
+  let smartLoading = {};
+
+  async function loadSmartData(diskName) {
+    if (smartData[diskName]) return;  // already loaded
+    smartLoading = { ...smartLoading, [diskName]: true };
+    try {
+      const r = await fetch(`/api/disks/smart?disk=${encodeURIComponent(diskName)}`, { headers: hdrs() });
+      const d = await r.json();
+      smartData = { ...smartData, [diskName]: d };
+    } catch {
+      smartData = { ...smartData, [diskName]: { error: 'No se pudo cargar', status: 'ok', attributes: [] } };
+    }
+    smartLoading = { ...smartLoading, [diskName]: false };
+  }
+
+  function toggleDiskExpand(diskName) {
+    if (expandedDisk === diskName) {
+      expandedDisk = null;
+    } else {
+      expandedDisk = diskName;
+      loadSmartData(diskName);
+    }
+  }
 
   // Storage capabilities
   let capabilities = { zfs: false, btrfs: false, mdadm: false, recommended: 'btrfs' };
@@ -706,14 +730,21 @@
               {#each [...provisioned, ...eligible] as disk}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <tr class="r-disk-tr" class:expanded={expandedDisk === disk.name} on:click={() => expandedDisk = expandedDisk === disk.name ? null : disk.name}>
+                <tr class="r-disk-tr" class:expanded={expandedDisk === disk.name} on:click={() => toggleDiskExpand(disk.name)}>
                   <td class="r-dt-name">{disk.name}</td>
                   <td class="r-dt-model">{disk.model || '—'}</td>
                   <td>{fmt(disk.size)}</td>
-                  <td class="r-dt-mono">—</td>
+                  <td class="r-dt-mono">{smartData[disk.name]?.temperature ?? '—'}{smartData[disk.name]?.temperature ? '°C' : ''}</td>
                   <td>
                     {#if disk.classification === 'provisioned'}
-                      <span class="r-dt-badge r-dt-ok">Sano</span>
+                      {@const sd = smartData[disk.name]}
+                      {#if sd?.status === 'critical'}
+                        <span class="r-dt-badge r-dt-err">Riesgo</span>
+                      {:else if sd?.status === 'warning'}
+                        <span class="r-dt-badge r-dt-warn">Atención</span>
+                      {:else if disk.classification === 'provisioned'}
+                        <span class="r-dt-badge r-dt-ok">Sano</span>
+                      {/if}
                     {:else}
                       <span class="r-dt-badge r-dt-free">Libre</span>
                     {/if}
@@ -724,11 +755,63 @@
                   <tr class="r-disk-detail-tr">
                     <td colspan="6">
                       <div class="r-disk-detail">
-                        <div class="r-dd-row"><span class="r-dd-key">Serial</span><span class="r-dd-val">{disk.serial || '—'}</span></div>
-                        <div class="r-dd-row"><span class="r-dd-key">Tipo</span><span class="r-dd-val">{disk.rota ? 'HDD' : 'SSD'}</span></div>
-                        {#if disk.transport}<div class="r-dd-row"><span class="r-dd-key">Interfaz</span><span class="r-dd-val">{disk.transport?.toUpperCase()}</span></div>{/if}
-                        <div class="r-dd-row"><span class="r-dd-key">Errores SMART</span><span class="r-dd-val" style="color:var(--green)">0</span></div>
-                        <div class="r-dd-row"><span class="r-dd-key">Sectores dañados</span><span class="r-dd-val">0</span></div>
+                        {#if smartLoading[disk.name]}
+                          <div style="font-size:11px;color:var(--text-3);padding:8px 0">Cargando datos SMART...</div>
+                        {:else if smartData[disk.name]}
+                          {@const sd = smartData[disk.name]}
+                          <div class="r-dd-row"><span class="r-dd-key">Serial</span><span class="r-dd-val">{sd.serial || disk.serial || '—'}</span></div>
+                          <div class="r-dd-row"><span class="r-dd-key">Tipo</span><span class="r-dd-val">{disk.rota ? 'HDD' : 'SSD'}</span></div>
+                          {#if disk.transport}<div class="r-dd-row"><span class="r-dd-key">Interfaz</span><span class="r-dd-val">{disk.transport?.toUpperCase()}</span></div>{/if}
+                          <div class="r-dd-row"><span class="r-dd-key">Temperatura</span><span class="r-dd-val">{sd.temperature ?? '—'}{sd.temperature ? '°C' : ''}</span></div>
+                          <div class="r-dd-row"><span class="r-dd-key">Horas encendido</span><span class="r-dd-val">{sd.powerOnHours != null ? sd.powerOnHours.toLocaleString() : '—'}</span></div>
+                          <div class="r-dd-row"><span class="r-dd-key">Ciclos de encendido</span><span class="r-dd-val">{sd.powerCycles ?? '—'}</span></div>
+                          <div class="r-dd-row">
+                            <span class="r-dd-key">Sectores reubicados</span>
+                            <span class="r-dd-val" style="color:{sd.reallocated > 0 ? 'var(--amber)' : 'var(--green)'}">{sd.reallocated ?? 0}</span>
+                          </div>
+                          <div class="r-dd-row">
+                            <span class="r-dd-key">Sectores pendientes</span>
+                            <span class="r-dd-val" style="color:{sd.pending > 0 ? 'var(--amber)' : 'var(--green)'}">{sd.pending ?? 0}</span>
+                          </div>
+                          <div class="r-dd-row">
+                            <span class="r-dd-key">Errores incorregibles</span>
+                            <span class="r-dd-val" style="color:{sd.uncorrectable > 0 ? 'var(--red)' : 'var(--green)'}">{sd.uncorrectable ?? 0}</span>
+                          </div>
+                          {#if sd.firmware}
+                            <div class="r-dd-row"><span class="r-dd-key">Firmware</span><span class="r-dd-val">{sd.firmware}</span></div>
+                          {/if}
+
+                          {#if sd.attributes && sd.attributes.length > 0}
+                            <div class="r-smart-toggle" on:click|stopPropagation={() => { sd._showAll = !sd._showAll; smartData = smartData; }}>
+                              {sd._showAll ? '▾ Ocultar atributos SMART' : '▸ Ver todos los atributos SMART'}
+                            </div>
+                            {#if sd._showAll}
+                              <table class="r-smart-table">
+                                <tr><th>ID</th><th>Atributo</th><th>Valor</th><th>Peor</th><th>Umbral</th><th>Raw</th><th>Estado</th></tr>
+                                {#each sd.attributes as attr}
+                                  <tr>
+                                    <td>{attr.id}</td>
+                                    <td>{attr.name}</td>
+                                    <td>{attr.value}</td>
+                                    <td>{attr.worst}</td>
+                                    <td>{attr.thresh || '—'}</td>
+                                    <td>{attr.raw}</td>
+                                    <td style="color:{attr.status === 'ok' ? 'var(--green)' : attr.status === 'warning' ? 'var(--amber)' : 'var(--red)'}">
+                                      {attr.status === 'ok' ? '●' : attr.status === 'warning' ? '⚠' : '✕'}
+                                    </td>
+                                  </tr>
+                                {/each}
+                              </table>
+                            {/if}
+                          {/if}
+
+                          {#if sd.error}
+                            <div style="font-size:10px;color:var(--text-3);margin-top:6px">{sd.error}</div>
+                          {/if}
+                        {:else}
+                          <div class="r-dd-row"><span class="r-dd-key">Serial</span><span class="r-dd-val">{disk.serial || '—'}</span></div>
+                          <div class="r-dd-row"><span class="r-dd-key">Tipo</span><span class="r-dd-val">{disk.rota ? 'HDD' : 'SSD'}</span></div>
+                        {/if}
                         {#if disk.classification !== 'provisioned'}
                           <div style="margin-top:8px">
                             <button class="r-btn r-btn-danger" style="font-size:10px;padding:5px 10px" on:click|stopPropagation={() => wipeDisk(disk.name)} disabled={wiping === disk.name}>
@@ -1877,6 +1960,12 @@
   .r-dd-row:last-child { border:none; }
   .r-dd-key { color:var(--text-3); }
   .r-dd-val { color:var(--text-1); font-family:'DM Mono',monospace; }
+
+  .r-smart-toggle { font-size:11px; color:var(--accent); cursor:pointer; margin-top:10px; padding:4px 0; }
+  .r-smart-toggle:hover { text-decoration:underline; }
+  .r-smart-table { width:100%; border-collapse:collapse; margin-top:6px; font-size:10px; }
+  .r-smart-table th { color:var(--text-3); font-weight:600; text-align:left; padding:5px 6px; font-size:9px; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid var(--border); }
+  .r-smart-table td { color:var(--text-2); padding:4px 6px; border-bottom:1px solid var(--border); font-family:'DM Mono',monospace; font-size:10px; }
 
   /* ── CREATE POOL FORM ── */
   .r-create-form { display:flex; flex-direction:column; gap:12px; }

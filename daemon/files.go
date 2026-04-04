@@ -581,6 +581,14 @@ func handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Legacy multipart upload — only for small files (Notes, etc.)
+	// Large files MUST use /api/files/upload-chunk to avoid RAM inflation.
+	// On RPi, /tmp is tmpfs (RAM), and ParseMultipartForm spills there.
+	if r.ContentLength > 100*1024*1024 {
+		jsonError(w, 413, "File too large for legacy upload. Use chunked upload.")
+		return
+	}
+
 	// Parse multipart — buffer 32MB in RAM, rest goes to temp files on disk
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		jsonError(w, 400, "Failed to parse upload")

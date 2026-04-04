@@ -3,7 +3,7 @@
   import TreeNode from '$lib/components/TreeNode.svelte';
   import { getToken } from '$lib/stores/auth.js';
   import { notifySuccess, notifyError, notifyWarning } from '$lib/stores/notifications.js';
-  import { addTask, updateProgress, completeTask, failTask, removeTask } from '$lib/stores/uploadTasks.js';
+  import { addTask, updateProgress, completeTask, failTask, removeTask, getSignal } from '$lib/stores/uploadTasks.js';
 
   let shares = [];
   let currentShare = null;
@@ -89,6 +89,7 @@
 
         try {
           let failed = false;
+          const signal = getSignal(taskId);
           for (let i = 0; i < totalChunks; i++) {
             const start = i * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, f.size);
@@ -96,6 +97,7 @@
 
             const resp = await fetch('/api/files/upload-chunk', {
               method: 'POST',
+              signal,
               headers: {
                 'Authorization': `Bearer ${getToken()}`,
                 'X-Share': currentShare,
@@ -128,6 +130,7 @@
             setTimeout(() => removeTask(taskId), 3000);
           }
         } catch (err) {
+          if (err.name === 'AbortError') continue;
           failTask(taskId, 'Error de conexión');
         }
       }

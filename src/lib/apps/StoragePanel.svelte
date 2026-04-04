@@ -787,7 +787,8 @@
                             </div>
                             {#if sd._showAll}
                               <table class="r-smart-table">
-                                <tr><th>ID</th><th>Atributo</th><th>Valor</th><th>Peor</th><th>Umbral</th><th>Raw</th><th>Estado</th></tr>
+                                <thead><tr><th>ID</th><th>Atributo</th><th>Valor</th><th>Peor</th><th>Umbral</th><th>Raw</th><th>Estado</th></tr></thead>
+                                <tbody>
                                 {#each sd.attributes as attr}
                                   <tr>
                                     <td>{attr.id}</td>
@@ -801,6 +802,7 @@
                                     </td>
                                   </tr>
                                 {/each}
+                                </tbody>
                               </table>
                             {/if}
                           {/if}

@@ -96,7 +96,10 @@
     else { snapMsg = data.error || 'Error'; snapMsgError = true; }
   }
 
+  let snapCreating = {};  // poolName -> 'loading' | 'done' | 'error'
+
   async function quickSnapshot(poolName) {
+    snapCreating = { ...snapCreating, [poolName]: 'loading' };
     try {
       const res = await fetch('/api/storage/snapshot', {
         method: 'POST',
@@ -105,11 +108,15 @@
       });
       const data = await res.json();
       if (data.ok) {
+        snapCreating = { ...snapCreating, [poolName]: 'done' };
         loadRecentActivity();
       } else {
-        alert(data.error || 'Error al crear punto de restauración');
+        snapCreating = { ...snapCreating, [poolName]: 'error' };
       }
-    } catch(e) { alert('Error: ' + e.message); }
+    } catch {
+      snapCreating = { ...snapCreating, [poolName]: 'error' };
+    }
+    setTimeout(() => { snapCreating = { ...snapCreating, [poolName]: null }; }, 3000);
   }
 
   async function deleteSnap(snapshot) {
@@ -660,7 +667,17 @@
                   </div>
                   <div class="r-vol-actions">
                     <button class="r-btn" on:click|stopPropagation={() => openDetail(pool)}>Gestionar</button>
-                    <button class="r-btn r-btn-primary" on:click|stopPropagation={() => quickSnapshot(pool.name)}>+ Punto de restauración</button>
+                    <button class="r-btn r-btn-primary r-snap-btn" class:loading={snapCreating[pool.name] === 'loading'} class:done={snapCreating[pool.name] === 'done'} class:fail={snapCreating[pool.name] === 'error'} disabled={snapCreating[pool.name] === 'loading'} on:click|stopPropagation={() => quickSnapshot(pool.name)}>
+                      {#if snapCreating[pool.name] === 'loading'}
+                        <span class="r-snap-spinner"></span> Creando...
+                      {:else if snapCreating[pool.name] === 'done'}
+                        <span class="r-snap-tick">✓</span> Creado
+                      {:else if snapCreating[pool.name] === 'error'}
+                        <span class="r-snap-fail">✕</span> Error
+                      {:else}
+                        + Punto de restauración
+                      {/if}
+                    </button>
                   </div>
                 </div>
               {/each}
@@ -801,7 +818,17 @@
         <div class="r-sec" style="margin-top:14px">Acciones</div>
         <div class="r-actions-row">
           <button class="r-btn" on:click={() => startScrubForPool(detailPool.name)}>Verificar integridad</button>
-          <button class="r-btn r-btn-primary" on:click={() => quickSnapshot(detailPool.name)}>Crear punto de restauración</button>
+          <button class="r-btn r-btn-primary r-snap-btn" class:loading={snapCreating[detailPool.name] === 'loading'} class:done={snapCreating[detailPool.name] === 'done'} class:fail={snapCreating[detailPool.name] === 'error'} disabled={snapCreating[detailPool.name] === 'loading'} on:click={() => quickSnapshot(detailPool.name)}>
+            {#if snapCreating[detailPool.name] === 'loading'}
+              <span class="r-snap-spinner"></span> Creando...
+            {:else if snapCreating[detailPool.name] === 'done'}
+              <span class="r-snap-tick">✓</span> Creado
+            {:else if snapCreating[detailPool.name] === 'error'}
+              <span class="r-snap-fail">✕</span> Error
+            {:else}
+              Crear punto de restauración
+            {/if}
+          </button>
           <button class="r-btn r-btn-danger" on:click={openDestroy}>Destruir volumen</button>
         </div>
       </div>
@@ -1933,6 +1960,16 @@
   .r-btn:hover { border-color:var(--border-hi); background:rgba(124,111,255,0.08); }
   .r-btn-primary { background:linear-gradient(135deg, var(--accent), var(--accent2, #a855f7)); border:none; color:#fff; box-shadow:0 2px 10px rgba(124,111,255,0.2); }
   .r-btn-primary:hover { opacity:.88; }
+  .r-btn-primary:disabled { opacity:.6; cursor:not-allowed; }
+
+  .r-snap-btn { display:inline-flex; align-items:center; gap:5px; transition:all .2s; }
+  .r-snap-btn.loading { background:rgba(124,111,255,0.3); }
+  .r-snap-btn.done { background:rgba(34,197,94,0.3); border-color:rgba(34,197,94,0.4); }
+  .r-snap-btn.fail { background:rgba(239,68,68,0.3); border-color:rgba(239,68,68,0.4); }
+  .r-snap-spinner { width:12px; height:12px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:r-spin .6s linear infinite; }
+  @keyframes r-spin { to { transform:rotate(360deg); } }
+  .r-snap-tick { font-weight:700; color:var(--green); }
+  .r-snap-fail { font-weight:700; color:var(--red); }
 
   .r-badge { padding:4px 12px; border-radius:20px; font-size:10px; font-weight:600; }
   .r-badge-ok { background:rgba(34,197,94,0.10); color:var(--green); border:1px solid rgba(34,197,94,0.25); }

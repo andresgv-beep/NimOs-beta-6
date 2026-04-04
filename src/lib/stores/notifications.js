@@ -12,13 +12,34 @@ function hdrs() {
 }
 
 // ── Load from backend on init ──
+// Preserves local-only notifications (like login SMART alert) and sorts critical first
 export async function loadNotifications() {
   try {
     const r = await fetch('/api/notifications?limit=100', { headers: hdrs() });
     if (!r.ok) return;
     const d = await r.json();
-    notifications.set(d.notifications || []);
+    const backend = d.notifications || [];
+
+    // Preserve local-only entries (no numeric id — they have string ids like 'smart-login-xxx')
+    const current = get(notifications);
+    const localOnly = current.filter(n => typeof n.id === 'string' && !backend.some(b => b.id === n.id));
+
+    // Merge: local-only + backend, then sort by severity
+    const merged = [...localOnly, ...backend];
+    merged.sort(sortBySeverity);
+
+    notifications.set(merged);
   } catch {}
+}
+
+// Sort: critical/error first, then warning, then by date
+const SEVERITY_ORDER = { error: 0, security: 0, critical: 0, warning: 1, info: 2, success: 3 };
+function sortBySeverity(a, b) {
+  const sa = SEVERITY_ORDER[a.type] ?? 2;
+  const sb = SEVERITY_ORDER[b.type] ?? 2;
+  if (sa !== sb) return sa - sb;
+  // Same severity — newest first
+  return new Date(b.timestamp || 0) - new Date(a.timestamp || 0);
 }
 
 // ── Create notification (persisted to backend) ──

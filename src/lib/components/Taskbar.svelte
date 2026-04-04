@@ -73,7 +73,7 @@
   $: isDock   = mode === 'dock';
 
   // Open windows not pinned
-  $: openUnpinned = $windowList.filter(w => !$pinnedApps.includes(w.appId));
+  $: openUnpinned = $windowList.filter(w => !$pinnedApps.includes(w.appId) && w.appId !== 'transfermanager');
 </script>
 
 <Launcher bind:visible={showLauncher} />
@@ -103,7 +103,7 @@
 
     <!-- Pinned apps -->
     <div class="app-row">
-      {#each $pinnedApps as appId}
+      {#each $pinnedApps.filter(id => id !== 'transfermanager') as appId}
         {@const meta = APP_META[appId]}
         {#if meta}
           {@const isOpen = $windowList.some(w => w.appId === appId)}
@@ -208,7 +208,7 @@
       <div class="dock-sep"></div>
 
       <!-- Pinned -->
-      {#each $pinnedApps as appId}
+      {#each $pinnedApps.filter(id => id !== 'transfermanager') as appId}
         {@const meta = APP_META[appId]}
         {#if meta}
           {@const isOpen = $windowList.some(w => w.appId === appId)}

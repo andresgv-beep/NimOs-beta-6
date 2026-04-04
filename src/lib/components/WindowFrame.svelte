@@ -99,18 +99,28 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="drag-zone" on:mousedown={onTitleMouseDown}></div>
 
-  <!-- Window controls — three colored lines -->
-  <div class="wf-controls">
-    <button class="wf-btn close" on:click={() => closeWindow(win.id)}>
-      <div class="wf-line red"></div>
-    </button>
-    <button class="wf-btn minimize" on:click={() => minimizeWindow(win.id)}>
-      <div class="wf-line yellow"></div>
-    </button>
-    <button class="wf-btn maximize" on:click={doMaximize}>
-      <div class="wf-line green"></div>
-    </button>
-  </div>
+  <!-- Window controls -->
+  {#if win.appId === 'transfermanager'}
+    <div class="wf-controls wf-controls-right">
+      <button class="wf-btn close" on:click={() => closeWindow(win.id)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="10" height="10">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+  {:else}
+    <div class="wf-controls">
+      <button class="wf-btn close" on:click={() => closeWindow(win.id)}>
+        <div class="wf-line red"></div>
+      </button>
+      <button class="wf-btn minimize" on:click={() => minimizeWindow(win.id)}>
+        <div class="wf-line yellow"></div>
+      </button>
+      <button class="wf-btn maximize" on:click={doMaximize}>
+        <div class="wf-line green"></div>
+      </button>
+    </div>
+  {/if}
 
   <!-- App content — fills entire window -->
   <div class="content">
@@ -188,6 +198,9 @@
     display: flex; gap: 8px; z-index: 10;
     opacity: 0.35;
     transition: opacity 0.2s;
+  }
+  .wf-controls-right {
+    left: auto; right: 12px;
   }
   .window:hover .wf-controls { opacity: 1; }
   .wf-btn {

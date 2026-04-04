@@ -59,7 +59,6 @@
       use:autoHide={{ id: n.id, type: n.type }}
       on:click={() => onBubbleClick(n)}
     >
-      <div class="b-stripe"></div>
       <div class="b-ico">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round">
           {@html getIcon(n.type)}
@@ -87,7 +86,6 @@
       class:persistent={task.status !== 'uploading'}
       in:fly={{ x: 100, duration: 300 }}
       out:fly={{ x: 100, duration: 220 }}>
-      <div class="b-stripe"></div>
       {#if task.status === 'uploading'}
         <div class="upload-dots">
           <span class="dot"></span>
@@ -128,14 +126,13 @@
 <style>
   .bubble-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; align-items:flex-end; }
 
-  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1.5px solid var(--window-border); border-radius:11px; padding:11px 12px 11px; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
+  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1px solid var(--window-border); border-radius:11px; padding:11px 12px 11px; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; border-left:3px solid transparent; }
 
-  .b-stripe { position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:0 2px 2px 0; }
-  .b-success .b-stripe  { background:var(--green); }
-  .b-error .b-stripe    { background:var(--red); }
-  .b-warning .b-stripe  { background:var(--amber); }
-  .b-info .b-stripe     { background:var(--accent); }
-  .b-security .b-stripe { background:var(--red); }
+  .b-success { border-left-color:var(--green); }
+  .b-error   { border-left-color:var(--red); }
+  .b-warning { border-left-color:var(--amber); }
+  .b-info    { border-left-color:var(--accent); }
+  .b-security{ border-left-color:var(--red); }
 
   .b-ico { width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-left:6px; margin-top:1px; }
   .b-ico svg { width:11px; height:11px; fill:none; stroke-width:2.5; stroke-linecap:round; }

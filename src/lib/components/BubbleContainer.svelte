@@ -1,7 +1,7 @@
 <script>
   import { fly } from 'svelte/transition';
   import { notifications, hideBubble } from '$lib/stores/notifications.js';
-  import { uploadTasks, removeTask, cancelTask } from '$lib/stores/uploadTasks.js';
+  import { uploadTasks, removeTask } from '$lib/stores/uploadTasks.js';
   import { openWindow } from '$lib/stores/windows.js';
 
   const DURATION = 5000;
@@ -48,12 +48,8 @@
   }
 
   function closeBubble(b) {
-    if (b._kind === 'task') {
-      if (b.status === 'uploading') cancelTask(b.id);
-      else removeTask(b.id);
-    } else {
-      hideBubble(b.id);
-    }
+    if (b._kind === 'task') removeTask(b.id);
+    else hideBubble(b.id);
   }
 </script>
 

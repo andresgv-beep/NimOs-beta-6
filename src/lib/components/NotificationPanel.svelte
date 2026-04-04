@@ -1,6 +1,6 @@
 <script>
   import { notifications, unreadCount, dismissNotification, clearCategory, markAllRead } from '$lib/stores/notifications.js';
-  import { uploadTasks, removeTask, clearDone } from '$lib/stores/uploadTasks.js';
+  import { uploadTasks, removeTask, clearDone, cancelTask } from '$lib/stores/uploadTasks.js';
 
   export let open = false;
 
@@ -9,7 +9,7 @@
   $: general = $notifications.filter(n => n.category === 'notification');
   $: system  = $notifications.filter(n => n.category === 'system');
   $: systemAlerts = system.filter(n => n.type === 'error' || n.type === 'warning');
-  $: current = activeTab === 'notification' ? general : system;
+  $: current = activeTab === 'notification' ? general : activeTab === 'system' ? system : [];
 
   const ICONS = {
     success:  '<polyline points="20 6 9 17 4 12"/>',
@@ -124,7 +124,13 @@
                   <div class="task-meta" style="color:var(--red)">{task.error || 'Error'}</div>
                 {/if}
               </div>
-              {#if task.status !== 'uploading'}
+              {#if task.status === 'uploading'}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <span class="np-x np-cancel" on:click={() => cancelTask(task.id)} title="Cancelar subida">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+                </span>
+              {:else}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <span class="np-x" on:click={() => removeTask(task.id)}>
@@ -199,6 +205,8 @@
   .np-x { width:16px; height:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; color:var(--text-3); border-radius:4px; transition:color .15s; margin-top:1px; }
   .np-x:hover { color:var(--red); }
   .np-x svg { width:10px; height:10px; }
+  .np-cancel { color:var(--text-2); }
+  .np-cancel:hover { color:var(--red); }
 
   .np-empty { text-align:center; padding:32px; color:var(--text-3); font-size:11px; }
 

@@ -911,10 +911,6 @@
 
       <!-- ══ SALUD ══ -->
       <div class="resumen-scroll">
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="r-back" on:click={() => activeTab = 'resumen'}>← Volver a Resumen</div>
-
         <!-- Health overview hero -->
         {#if scrubStatus.status === 'scrubbing'}
           <div class="r-health-hero r-health-checking">

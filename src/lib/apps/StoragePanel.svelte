@@ -1611,7 +1611,7 @@
   .snap-icon { color:var(--accent); }
   .ds-icon   { color:var(--accent2); }
   .zfs-row-info { flex:1; min-width:0; }
-  .zfs-row-name { font-size:12px; font-weight:600; color:var(--text-1); font-family:'DM Mono',monospace; }
+  .zfs-row-name { font-size:12px; font-weight:600; color:var(--text-1); }
   .zfs-row-meta { font-size:10px; color:var(--text-3); margin-top:1px; }
   .zfs-row-sizes { display:flex; gap:5px; flex-shrink:0; }
   .zfs-size-badge {

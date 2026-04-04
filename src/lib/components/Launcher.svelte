@@ -52,6 +52,7 @@
     const seen = new Set();
     return [...systemApps, ...dockerApps].filter(app => {
       if (seen.has(app.id)) return false;
+      if (app.hidden) return false;
       seen.add(app.id);
       return canAccess(app.id);
     });

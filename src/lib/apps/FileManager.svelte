@@ -110,12 +110,10 @@
 
             const d = await resp.json();
             if (d.error) {
-              failTask(taskId, d.error);
-              if (d.error.toLowerCase().includes('quota') || d.error.toLowerCase().includes('space') || d.error.toLowerCase().includes('full')) {
-                notifyError(`Sin espacio: ${f.name}`, 'Carpeta llena');
-              } else {
-                notifyError(d.error, 'Upload');
-              }
+              const msg = (d.error.toLowerCase().includes('quota') || d.error.toLowerCase().includes('space') || d.error.toLowerCase().includes('full'))
+                ? `Sin espacio: ${f.name}`
+                : d.error;
+              failTask(taskId, msg);
               failed = true;
               break;
             }
@@ -127,12 +125,10 @@
 
           if (!failed) {
             completeTask(taskId);
-            notifySuccess(f.name, 'Subido correctamente');
             setTimeout(() => removeTask(taskId), 3000);
           }
         } catch (err) {
           failTask(taskId, 'Error de conexión');
-          notifyError(`No se pudo subir ${f.name}`, 'Upload');
         }
       }
 

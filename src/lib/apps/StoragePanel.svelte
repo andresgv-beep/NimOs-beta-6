@@ -505,7 +505,7 @@
                 <div class="onboard-disk"><span class="o-dot"></span>{d.name} · {d.model || '—'} · {fmt(d.size)}</div>
               {/each}
             </div>
-            <button class="btn-cta" on:click={() => activeTab = 'disks'}>Crear mi primer volumen →</button>
+            <button class="btn-cta" on:click={() => activeTab = 'pools'}>Crear mi primer volumen →</button>
           </div>
         {:else if pools.length === 0}
           <!-- No disks at all -->

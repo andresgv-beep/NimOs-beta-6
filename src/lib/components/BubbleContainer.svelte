@@ -33,9 +33,15 @@
 
   function getIcon(type) { return ICONS[type] || ICONS.info; }
 
-  function autoHide(node, { id, type, kind }) {
-    if (PERSISTENT_TYPES.has(type) || kind === 'task') return { destroy() {} };
-    const t = setTimeout(() => hideBubble(id), DURATION);
+  function autoHide(node, { id, type, kind, status }) {
+    if (PERSISTENT_TYPES.has(type)) return { destroy() {} };
+    // Tasks: only auto-hide when done or error
+    if (kind === 'task' && status !== 'done' && status !== 'error') return { destroy() {} };
+    const delay = kind === 'task' ? 5000 : DURATION;
+    const t = setTimeout(() => {
+      if (kind === 'task') removeTask(id);
+      else hideBubble(id);
+    }, delay);
     return { destroy() { clearTimeout(t); } };
   }
 
@@ -61,7 +67,7 @@
       class="bubble b-{b.type}" class:persistent={b._kind === 'notif' && PERSISTENT_TYPES.has(b.type)}
       in:fly={{ x: 100, duration: 300 }}
       out:fly={{ x: 100, duration: 220 }}
-      use:autoHide={{ id: b.id, type: b.type, kind: b._kind }}
+      use:autoHide={{ id: b.id, type: b.type, kind: b._kind, status: b.status }}
       on:click={() => onBubbleClick(b)}
     >
       <div class="b-stripe"></div>

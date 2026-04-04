@@ -145,18 +145,6 @@
 
     <!-- Right -->
     <div class="right">
-      <!-- Transfer Manager Icon -->
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="transfer-btn" on:click={openTransferManager} title="Transferencias">
-        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <path d="M9 22H15C20 22 22 20 22 15V9C22 4 20 2 15 2H9C4 2 2 4 2 9V15C2 20 4 22 9 22Z" fill="currentColor" opacity="0.9"/>
-          <path d="M12.37 8.88H17.62" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round"/>
-          <path d="M6.38 8.88L7.13 9.63L9.38 7.38" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          <path d="M12.37 15.88H17.62" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round"/>
-          <path d="M6.38 15.88L7.13 16.63L9.38 14.38" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-        </svg>
-      </div>
       {#if $activeTasks.length > 0}
         <div class="transfer-activity" title="{$activeTasks.length} subiendo">
           <svg width="20" height="20" viewBox="0 0 14 14">
@@ -171,6 +159,18 @@
           </svg>
         </div>
       {/if}
+      <!-- Transfer Manager Icon -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="transfer-btn" on:click={openTransferManager} title="Transferencias">
+        <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 22H15C20 22 22 20 22 15V9C22 4 20 2 15 2H9C4 2 2 4 2 9V15C2 20 4 22 9 22Z" fill="currentColor" opacity="0.9"/>
+          <path d="M12.37 8.88H17.62" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M6.38 8.88L7.13 9.63L9.38 7.38" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <path d="M12.37 15.88H17.62" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M6.38 15.88L7.13 16.63L9.38 14.38" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+      </div>
       <div class="notif-bell-wrap">
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -367,7 +367,7 @@
 
   .transfer-btn { display:flex; align-items:center; justify-content:center; cursor:pointer; padding:4px 6px; border-radius:8px; color:var(--text-2); transition:color .15s, background .15s; }
   .transfer-btn:hover { background:var(--ibtn-bg); color:var(--text-1); }
-  .transfer-activity { display:flex; align-items:center; justify-content:center; color:var(--accent); }
+  .transfer-activity { display:flex; align-items:center; justify-content:center; color:var(--text-1); }
   .notif-bell-wrap { position:relative; display:flex; align-items:center; }
   .notif-bell { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; transition:background .15s; }
   .notif-bell:hover { background:var(--ibtn-bg); }

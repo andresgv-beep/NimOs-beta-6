@@ -4,6 +4,7 @@ export const APP_META = {
   storage:      { name: 'Storage',         icon: '/icons/storage.png',     width: 900, height: 580 },
   network:      { name: 'Network',         icon: '/icons/network.png',     width: 860, height: 560 },
   nimtorrent:   { name: 'NimTorrent',      icon: '/icons/nimtorrent.png',  width: 820, height: 520 },
+  transfermanager: { name: 'Transferencias', icon: '', width: 640, height: 480, noSidebar: true },
   monitor:      { name: 'System Monitor',  icon: '/icons/monitor.png',     width: 700, height: 480 },
   containers:   { name: 'Containers',      icon: '/icons/containers.png',  width: 800, height: 520 },
   mediaplayer:  { name: 'Media Player',    icon: '/icons/media.png',       width: 650, height: 500 },

@@ -86,6 +86,8 @@
   }
 </script>
 
+<div class="tm">
+
 <!-- TABS -->
 <div class="tabs">
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -225,8 +227,11 @@
     <span>{tabDone.length} completadas · {tabErrors.length} errores</span>
   </div>
 </div>
+</div>
 
 <style>
+  .tm { display:flex; flex-direction:column; height:100%; overflow:hidden; }
+
   /* TABS */
   .tabs {
     display:flex; gap:0;

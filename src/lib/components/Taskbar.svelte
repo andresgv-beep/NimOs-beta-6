@@ -156,8 +156,10 @@
           <path d="M12.37 15.88H17.62" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round"/>
           <path d="M6.38 15.88L7.13 16.63L9.38 14.38" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
         </svg>
-        {#if $activeTasks.length > 0}
-          <svg class="transfer-spinner" width="14" height="14" viewBox="0 0 14 14">
+      </div>
+      {#if $activeTasks.length > 0}
+        <div class="transfer-activity" title="{$activeTasks.length} subiendo">
+          <svg width="20" height="20" viewBox="0 0 14 14">
             <circle cx="7" cy="2" r="1.4" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="0s" repeatCount="indefinite"/></circle>
             <circle cx="9.95" cy="2.95" r="1.2" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.875s" repeatCount="indefinite"/></circle>
             <circle cx="12" cy="7" r="1.0" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.75s" repeatCount="indefinite"/></circle>
@@ -167,8 +169,8 @@
             <circle cx="2" cy="7" r="0.6" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.25s" repeatCount="indefinite"/></circle>
             <circle cx="4.05" cy="2.95" r="0.5" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.125s" repeatCount="indefinite"/></circle>
           </svg>
-        {/if}
-      </div>
+        </div>
+      {/if}
       <div class="notif-bell-wrap">
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -363,9 +365,9 @@
     background: var(--active-bg); color: var(--text-1);
   }
 
-  .transfer-btn { display:flex; align-items:center; gap:5px; cursor:pointer; padding:4px 6px; border-radius:8px; color:var(--text-2); transition:color .15s, background .15s; }
+  .transfer-btn { display:flex; align-items:center; justify-content:center; cursor:pointer; padding:4px 6px; border-radius:8px; color:var(--text-2); transition:color .15s, background .15s; }
   .transfer-btn:hover { background:var(--ibtn-bg); color:var(--text-1); }
-  .transfer-spinner { color:var(--text-2); flex-shrink:0; }
+  .transfer-activity { display:flex; align-items:center; justify-content:center; color:var(--accent); }
   .notif-bell-wrap { position:relative; display:flex; align-items:center; }
   .notif-bell { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; transition:background .15s; }
   .notif-bell:hover { background:var(--ibtn-bg); }

@@ -10,6 +10,11 @@
   let pools = [];
   let detailPool = null;  // selected pool for detail view
   let poolServices = [];  // services for the selected pool
+  let showDestroy = false;
+  let destroyInput = '';
+  let destroyDeps = [];
+  let destroying = false;
+  let stoppingService = {};
   let eligible = [];
   let provisioned = [];
   let nvme = [];
@@ -169,7 +174,7 @@
 
   $: totalBytes = [...eligible, ...provisioned, ...nvme].reduce((a, d) => a + (d.size || 0), 0);
   $: usedBytes  = pools.reduce((a, p) => a + (p.used || 0), 0);
-  $: totalPoolBytes = pools.reduce((a, p) => a + (p.size || 0), 0);
+  $: totalPoolBytes = pools.reduce((a, p) => a + (p.total || p.size || 0), 0);
   $: usedPct    = totalPoolBytes > 0 ? (usedBytes / totalPoolBytes) * 100 : 0;
 
   // All physical disks (for resumen)
@@ -182,8 +187,9 @@
   });
 
   function poolUsedPct(pool) {
-    if (!pool.size || pool.size === 0) return 0;
-    return Math.round((pool.used || 0) / pool.size * 100);
+    const total = pool.total || pool.size || 0;
+    if (total === 0) return 0;
+    return Math.round((pool.used || 0) / total * 100);
   }
 
   function translateProtection(profile) {
@@ -224,9 +230,64 @@
 
   // Get disks that belong to a specific pool
   function poolDisks(pool) {
-    if (pool.disks && pool.disks.length > 0) return pool.disks;
-    // Fallback: match provisioned disks by pool name
-    return provisioned.filter(d => d.pool === pool.name || d.poolName === pool.name);
+    if (!pool.disks || pool.disks.length === 0) return [];
+    const name = devPath => devPath.replace('/dev/', '');
+    return pool.disks.map(devPath => {
+      const n = name(devPath);
+      const found = provisioned.find(d => d.name === n);
+      return found || { name: n, model: '—', size: 0 };
+    });
+  }
+
+  async function openDestroy() {
+    if (!detailPool) return;
+    destroyInput = '';
+    destroying = false;
+    stoppingService = {};
+    try {
+      const r = await fetch(`/api/services/dependencies?pool=${encodeURIComponent(detailPool.name)}`, { headers: hdrs() });
+      const d = await r.json();
+      destroyDeps = d.dependencies || [];
+    } catch { destroyDeps = []; }
+    showDestroy = true;
+  }
+
+  async function stopServiceForDestroy(svc) {
+    stoppingService = { ...stoppingService, [svc.id]: true };
+    try {
+      await fetch(`/api/services/${svc.id}/stop`, { method: 'POST', headers: hdrs() });
+      svc.status = 'stopped';
+      destroyDeps = [...destroyDeps];
+    } catch {}
+    stoppingService = { ...stoppingService, [svc.id]: false };
+  }
+
+  $: allDepsStopped = destroyDeps.every(d => d.status !== 'running' && d.status !== 'starting');
+  $: canDestroy = destroyInput === 'ELIMINAR' && allDepsStopped;
+
+  async function doDestroy() {
+    if (!canDestroy || !detailPool) return;
+    destroying = true;
+    try {
+      const fsType = detailPool.type || detailPool.filesystem || 'zfs';
+      const r = await fetch('/api/storage/destroy', {
+        method: 'POST',
+        headers: { ...hdrs(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pool: detailPool.name, type: fsType }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showDestroy = false;
+        detailPool = null;
+        activeTab = 'resumen';
+        await load();
+      } else {
+        alert(d.error || 'Error al destruir el volumen');
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+    destroying = false;
   }
 
   function selectDisk(d) {
@@ -391,7 +452,7 @@
                     </span>
                   </div>
                   <div class="r-bar"><div class="r-bar-fill" style="width:{poolUsedPct(pool)}%"></div></div>
-                  <div class="r-bar-text"><span>{fmt(pool.used || 0)} usados</span><span>{fmt(pool.size || 0)} · {poolUsedPct(pool)}%</span></div>
+                  <div class="r-bar-text"><span>{fmt(pool.used || 0)} usados</span><span>{fmt(pool.total || pool.size || 0)} · {poolUsedPct(pool)}%</span></div>
                   <div class="r-vol-info">
                     <span>📁 {pool.shares?.length || 0} carpetas</span>
                   </div>
@@ -482,7 +543,7 @@
           <div class="r-detail-card">
             <div class="r-sec">Espacio</div>
             <div class="r-bar"><div class="r-bar-fill" style="width:{poolUsedPct(detailPool)}%"></div></div>
-            <div class="r-bar-text"><span>{fmt(detailPool.used || 0)}</span><span>{fmt(detailPool.size || 0)} · {poolUsedPct(detailPool)}%</span></div>
+            <div class="r-bar-text"><span>{fmt(detailPool.used || 0)}</span><span>{fmt(detailPool.total || detailPool.size || 0)} · {poolUsedPct(detailPool)}%</span></div>
             {#if detailPool.shares && detailPool.shares.length > 0}
               <div style="margin-top:14px">
                 {#each detailPool.shares as share}
@@ -532,7 +593,7 @@
         <div class="r-actions-row">
           <button class="r-btn">Verificar integridad</button>
           <button class="r-btn r-btn-primary">Crear punto de restauración</button>
-          <button class="r-btn r-btn-danger">Destruir volumen</button>
+          <button class="r-btn r-btn-danger" on:click={openDestroy}>Destruir volumen</button>
         </div>
       </div>
 
@@ -989,6 +1050,64 @@
   </div>
 </div>
 
+<!-- ══ DESTROY MODAL ══ -->
+{#if showDestroy && detailPool}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="r-modal-overlay" on:click|self={() => showDestroy = false}>
+    <div class="r-modal">
+      <div class="r-modal-header">
+        <span class="r-modal-title">Destruir {detailPool.displayName || detailPool.name}</span>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span class="r-modal-close" on:click={() => showDestroy = false}>✕</span>
+      </div>
+      <div class="r-modal-body">
+        <div class="r-destroy-warn">
+          Esta acción eliminará permanentemente todos los datos del volumen, incluyendo carpetas compartidas, configuraciones de apps y puntos de restauración.
+        </div>
+
+        {#if destroyDeps.length > 0}
+          <div class="r-sec" style="margin-top:14px">Servicios que dependen de este volumen</div>
+          <div class="r-destroy-deps">
+            {#each destroyDeps as dep}
+              <div class="r-dep-item">
+                <span class="r-dep-dot" style="background:{dep.status === 'running' ? 'var(--green)' : 'var(--text-3)'}"></span>
+                <span class="r-dep-name">{dep.app || dep.appId}</span>
+                <span class="r-dep-status">{dep.status === 'running' ? 'activo' : dep.status}</span>
+                {#if dep.status === 'running' || dep.status === 'starting'}
+                  <button class="r-dep-stop" disabled={stoppingService[dep.id]} on:click={() => stopServiceForDestroy(dep)}>
+                    {stoppingService[dep.id] ? 'Deteniendo...' : 'Detener'}
+                  </button>
+                {:else}
+                  <span class="r-dep-stopped">Detenido</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+          {#if !allDepsStopped}
+            <div style="font-size:11px;color:var(--text-3);margin-top:8px">Debes detener todos los servicios antes de destruir el volumen.</div>
+          {/if}
+        {/if}
+
+        <div style="margin-top:16px">
+          <div class="r-sec">Confirmar destrucción</div>
+          <div style="font-size:11px;color:var(--text-2);margin-bottom:6px">
+            Escribe <strong style="color:var(--red)">ELIMINAR</strong> para confirmar:
+          </div>
+          <input class="r-confirm-input" bind:value={destroyInput} placeholder="Escribe ELIMINAR">
+        </div>
+      </div>
+      <div class="r-modal-footer">
+        <button class="r-btn" on:click={() => showDestroy = false}>Cancelar</button>
+        <button class="r-btn r-btn-danger" disabled={!canDestroy || destroying} on:click={doDestroy}>
+          {destroying ? 'Destruyendo...' : 'Destruir volumen'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .storage-root { width:100%; height:100%; display:flex; flex-direction:column; overflow:hidden; }
   .s-body { flex:1; overflow-y:auto; padding:18px 20px; }
@@ -1345,4 +1464,30 @@
   .r-actions-row { display:flex; gap:8px; margin-top:4px; }
   .r-btn-danger { background:rgba(239,68,68,0.10); border-color:rgba(239,68,68,0.3); color:var(--red); }
   .r-btn-danger:hover { background:rgba(239,68,68,0.18); }
+  .r-btn-danger:disabled { opacity:.35; cursor:not-allowed; }
+
+  /* ── DESTROY MODAL ── */
+  .r-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:200; display:flex; align-items:center; justify-content:center; }
+  .r-modal { background:var(--bg-inner, #1c1b3a); border:1px solid var(--border); border-radius:16px; width:520px; max-width:92%; max-height:85vh; overflow-y:auto; box-shadow:0 40px 100px rgba(0,0,0,0.6); animation:r-modalIn .25s ease both; }
+  @keyframes r-modalIn { from{opacity:0;transform:scale(0.96) translateY(8px)} to{opacity:1;transform:none} }
+  .r-modal-header { padding:18px 22px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .r-modal-title { font-size:15px; font-weight:700; color:var(--text-1); }
+  .r-modal-close { width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-3); font-size:13px; transition:.15s; }
+  .r-modal-close:hover { background:rgba(255,255,255,0.12); color:var(--text-1); }
+  .r-modal-body { padding:18px 22px; }
+  .r-modal-footer { padding:14px 22px 18px; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end; }
+
+  .r-destroy-warn { padding:12px 14px; border-radius:10px; background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.15); font-size:12px; color:var(--red); line-height:1.6; }
+  .r-destroy-deps { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .r-dep-item { display:flex; align-items:center; gap:10px; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:8px; font-size:12px; }
+  .r-dep-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .r-dep-name { font-weight:500; color:var(--text-1); }
+  .r-dep-status { font-size:11px; color:var(--text-3); }
+  .r-dep-stop { margin-left:auto; padding:4px 10px; border-radius:6px; border:1px solid rgba(239,68,68,0.3); background:rgba(239,68,68,0.08); color:var(--red); font-size:10px; font-weight:600; cursor:pointer; font-family:inherit; transition:.15s; }
+  .r-dep-stop:hover { background:rgba(239,68,68,0.15); }
+  .r-dep-stop:disabled { opacity:.4; cursor:not-allowed; }
+  .r-dep-stopped { margin-left:auto; font-size:10px; font-weight:600; color:var(--green); }
+  .r-confirm-input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-1); font-family:inherit; font-size:13px; outline:none; transition:border-color .15s; }
+  .r-confirm-input:focus { border-color:var(--red); }
+  .r-confirm-input::placeholder { color:var(--text-3); }
 </style>

@@ -1,7 +1,7 @@
 <script>
   import { fly } from 'svelte/transition';
   import { notifications, hideBubble } from '$lib/stores/notifications.js';
-  import { uploadTasks, removeTask } from '$lib/stores/uploadTasks.js';
+  import { uploadTasks, hideBubbleTask } from '$lib/stores/uploadTasks.js';
   import { openWindow } from '$lib/stores/windows.js';
 
   const DURATION = 5000;
@@ -15,7 +15,7 @@
   }));
 
   $: taskBubbles = $uploadTasks
-    .filter(t => t.status === 'uploading' || t.status === 'done' || t.status === 'error')
+    .filter(t => t.showBubble && (t.status === 'uploading' || t.status === 'done' || t.status === 'error'))
     .map(t => ({
     ...t, _kind: 'task', _priority: PRIORITY.task,
     type: t.status === 'done' ? 'success' : t.status === 'error' ? 'error' : 'info'
@@ -41,7 +41,7 @@
     if (kind === 'task' && status !== 'done' && status !== 'error') return { destroy() {} };
     const delay = kind === 'task' ? 5000 : DURATION;
     const t = setTimeout(() => {
-      if (kind === 'task') removeTask(id);
+      if (kind === 'task') hideBubbleTask(id);
       else hideBubble(id);
     }, delay);
     return { destroy() { clearTimeout(t); } };
@@ -56,7 +56,7 @@
   }
 
   function closeBubble(b) {
-    if (b._kind === 'task') removeTask(b.id);
+    if (b._kind === 'task') hideBubbleTask(b.id);
     else hideBubble(b.id);
   }
 </script>

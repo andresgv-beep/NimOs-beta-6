@@ -6,9 +6,15 @@
   import Launcher from './Launcher.svelte';
   import NotificationPanel from '$lib/components/NotificationPanel.svelte';
   import { unreadCount } from '$lib/stores/notifications.js';
+  import { uploadTasks, activeTasks } from '$lib/stores/uploadTasks.js';
 
   let showLauncher = false;
   let showNotifPanel = false;
+  let showTransferManager = false;
+
+  function openTransferManager() {
+    openWindow('transfermanager');
+  }
 
   function isIconUrl(icon) { return icon && (icon.startsWith('/') || icon.startsWith('http')); }
 
@@ -53,9 +59,8 @@
     else minimizeWindow(win.id);
   }
 
-  let time = '';
-  let date = '';
-  function updateClock() {
+  // clock removed
+  function updateClock_DISABLED() {
     const now = new Date();
     const h = String(now.getHours()).padStart(2,'0');
     const m = String(now.getMinutes()).padStart(2,'0');
@@ -143,9 +148,29 @@
 
     <!-- Right -->
     <div class="right">
-      <div class="clock-wrap">
-        <span class="clock">{time}</span>
-        <span class="clock-date">{date}</span>
+      <!-- Transfer Manager Icon -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="transfer-btn" on:click={openTransferManager} title="Transferencias">
+        <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 22H15C20 22 22 20 22 15V9C22 4 20 2 15 2H9C4 2 2 4 2 9V15C2 20 4 22 9 22Z" fill="currentColor" opacity="0.9"/>
+          <path d="M12.37 8.88H17.62" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M6.38 8.88L7.13 9.63L9.38 7.38" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <path d="M12.37 15.88H17.62" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M6.38 15.88L7.13 16.63L9.38 14.38" stroke="var(--bg-frame)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        {#if $activeTasks.length > 0}
+          <svg class="transfer-spinner" width="14" height="14" viewBox="0 0 14 14">
+            <circle cx="7" cy="2" r="1.4" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="0s" repeatCount="indefinite"/></circle>
+            <circle cx="9.95" cy="2.95" r="1.2" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.875s" repeatCount="indefinite"/></circle>
+            <circle cx="12" cy="7" r="1.0" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.75s" repeatCount="indefinite"/></circle>
+            <circle cx="9.95" cy="11.05" r="0.9" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.625s" repeatCount="indefinite"/></circle>
+            <circle cx="7" cy="12" r="0.8" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.5s" repeatCount="indefinite"/></circle>
+            <circle cx="4.05" cy="11.05" r="0.7" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.375s" repeatCount="indefinite"/></circle>
+            <circle cx="2" cy="7" r="0.6" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.25s" repeatCount="indefinite"/></circle>
+            <circle cx="4.05" cy="2.95" r="0.5" fill="currentColor"><animate attributeName="opacity" values="1;0.15;1" dur="1s" begin="-0.125s" repeatCount="indefinite"/></circle>
+          </svg>
+        {/if}
       </div>
       <div class="notif-bell-wrap">
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -341,6 +366,9 @@
     background: var(--active-bg); color: var(--text-1);
   }
 
+  .transfer-btn { display:flex; align-items:center; gap:5px; cursor:pointer; padding:4px 6px; border-radius:8px; color:var(--text-2); transition:color .15s, background .15s; }
+  .transfer-btn:hover { background:var(--ibtn-bg); color:var(--text-1); }
+  .transfer-spinner { color:var(--text-2); flex-shrink:0; }
   .notif-bell-wrap { position:relative; display:flex; align-items:center; }
   .notif-bell { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; transition:background .15s; }
   .notif-bell:hover { background:var(--ibtn-bg); }
@@ -392,7 +420,7 @@
     margin-left: 0; margin-top: auto; flex-direction: column;
   }
 
-  .clock-wrap {
+  .clock-wrap-DISABLED {
     display: flex; flex-direction: column; align-items: center;
     padding: 0 8px; gap: 1px;
   }

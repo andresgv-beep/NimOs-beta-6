@@ -22,9 +22,9 @@
   let expandedDisk = null;
   let smartData = {};  // keyed by disk name
   let smartLoading = {};
+  let smartLastLoad = 0;  // timestamp of last full load
 
   async function loadSmartData(diskName) {
-    if (smartData[diskName]) return;  // already loaded
     smartLoading = { ...smartLoading, [diskName]: true };
     try {
       const r = await fetch(`/api/disks/smart?disk=${encodeURIComponent(diskName)}`, { headers: hdrs() });
@@ -228,10 +228,13 @@
   let allDisksSmartLoaded = false;
 
   async function loadAllDisksSmart() {
-    if (allDisksSmartLoaded) return;
+    const now = Date.now();
+    // Refresh every 5 minutes, or if never loaded
+    if (allDisksSmartLoaded && (now - smartLastLoad) < 300000) return;
     const disksToCheck = [...provisioned, ...eligible].map(d => d.name);
     await Promise.all(disksToCheck.map(name => loadSmartData(name)));
     allDisksSmartLoaded = true;
+    smartLastLoad = now;
   }
 
   // Compute worst SMART status across all disks

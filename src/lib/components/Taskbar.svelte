@@ -59,7 +59,6 @@
     else minimizeWindow(win.id);
   }
 
-  // clock removed
   function updateClock_DISABLED() {
     const now = new Date();
     const h = String(now.getHours()).padStart(2,'0');
@@ -67,8 +66,6 @@
     time = `${h}:${m}`;
     date = now.toLocaleDateString('es-ES', { weekday:'short', day:'numeric', month:'short' });
   }
-  updateClock();
-  setInterval(updateClock, 10000);
 
   $: mode     = $prefs.taskbarMode     || 'classic';
   $: position = $prefs.taskbarPosition || 'bottom';

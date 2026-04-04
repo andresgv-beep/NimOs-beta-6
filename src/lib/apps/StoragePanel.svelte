@@ -1141,7 +1141,7 @@
   .r-alert-ok { background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.15); color:var(--green); }
   .r-alert-warn { background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.15); color:var(--amber); }
 
-  .r-grid { display:grid; grid-template-columns:2fr 1fr; gap:14px; align-items:start; }
+  .r-grid { display:grid; grid-template-columns:2fr 1fr; gap:14px; align-items:stretch; }
   .r-vols { display:flex; flex-direction:column; gap:10px; }
   .r-sec { font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); margin-bottom:4px; }
 
@@ -1169,7 +1169,7 @@
   .r-bar-fill { height:100%; border-radius:4px; background:linear-gradient(90deg, var(--accent), var(--accent2)); transition:width .6s ease; }
   .r-bar-text { display:flex; justify-content:space-between; font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; }
 
-  .r-activity-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; max-height:220px; overflow:hidden; }
+  .r-activity-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; overflow:hidden; display:flex; flex-direction:column; }
   .r-act-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .r-act-item:last-child { border:none; }
   .r-act-time { font-size:9px; color:var(--text-3); font-family:'DM Mono',monospace; min-width:50px; flex-shrink:0; }

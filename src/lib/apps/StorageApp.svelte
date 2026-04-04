@@ -93,7 +93,7 @@
 
       <!-- CONTENT -->
       <div class="inner-content no-pad">
-        <StoragePanel {activeTab} />
+        <StoragePanel bind:activeTab />
       </div>
 
       <div class="statusbar">

@@ -147,9 +147,9 @@
   .b-info .b-bar     { background:var(--accent); }
   .b-security .b-bar { background:var(--red); }
 
-  .b-close { width:16px; height:16px; flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-3); border-radius:4px; transition:color .15s; margin-top:1px; }
+  .b-close { width:20px; height:20px; flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-3); border-radius:4px; transition:color .15s; margin-top:1px; }
   .b-close:hover { color:var(--red); }
-  .b-close svg { width:10px; height:10px; }
+  .b-close svg { width:13px; height:13px; }
 
   .upload-dots { width:24px; height:24px; flex-shrink:0; margin-left:6px; margin-top:1px; display:flex; align-items:center; justify-content:center; gap:3px; }
   .dot { width:4px; height:4px; border-radius:50%; background:var(--accent); animation:dotBounce 1.2s ease-in-out infinite; }

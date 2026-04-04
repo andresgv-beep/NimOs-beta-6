@@ -222,7 +222,35 @@
     if (!scrubPool) scrubPool = pools[0]?.name || '';
     loadScrubStatus(scrubPool);
     loadScrubSchedule(scrubPool);
+    loadAllDisksSmart();
   }
+
+  let allDisksSmartLoaded = false;
+
+  async function loadAllDisksSmart() {
+    if (allDisksSmartLoaded) return;
+    const disksToCheck = [...provisioned, ...eligible].map(d => d.name);
+    await Promise.all(disksToCheck.map(name => loadSmartData(name)));
+    allDisksSmartLoaded = true;
+  }
+
+  // Compute worst SMART status across all disks
+  $: worstSmartStatus = (() => {
+    let worst = 'ok';
+    for (const d of [...provisioned, ...eligible]) {
+      const sd = smartData[d.name];
+      if (!sd) continue;
+      if (sd.status === 'critical') return 'critical';
+      if (sd.status === 'warning') worst = 'warning';
+    }
+    return worst;
+  })();
+
+  // Get list of disks with problems for the warning banner
+  $: problemDisks = [...provisioned, ...eligible].filter(d => {
+    const sd = smartData[d.name];
+    return sd && (sd.status === 'warning' || sd.status === 'critical');
+  }).map(d => ({ name: d.name, model: d.model, status: smartData[d.name]?.status, details: smartData[d.name] }));
   $: if (snapPool && activeTab === 'snapshots') loadSnapshots(snapPool);
   $: if (scrubPool && (activeTab === 'health' || activeTab === 'scrub')) loadScrubStatus(scrubPool);
 
@@ -1090,7 +1118,33 @@
               <div class="r-hh-sub">Comprobando datos... {scrubStatus.progress || 0}% completado</div>
             </div>
           </div>
-        {:else if pools.every(p => p.status === 'active' || p.health === 'ONLINE')}
+        {:else if worstSmartStatus === 'critical'}
+          <div class="r-health-hero r-health-err">
+            <div class="r-hh-icon err">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            </div>
+            <div>
+              <div class="r-hh-title">Disco en riesgo</div>
+              <div class="r-hh-sub">{problemDisks.length} disco{problemDisks.length > 1 ? 's' : ''} con errores críticos — planifica su reemplazo</div>
+            </div>
+          </div>
+        {:else if worstSmartStatus === 'warning' || !pools.every(p => p.status === 'active' || p.health === 'ONLINE')}
+          <div class="r-health-hero r-health-warn">
+            <div class="r-hh-icon warn">
+              <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div>
+              <div class="r-hh-title">Atención requerida</div>
+              <div class="r-hh-sub">
+                {#if problemDisks.length > 0}
+                  {problemDisks.length} disco{problemDisks.length > 1 ? 's' : ''} con alertas SMART
+                {:else}
+                  Uno o más volúmenes necesitan revisión
+                {/if}
+              </div>
+            </div>
+          </div>
+        {:else}
           <div class="r-health-hero r-health-ok">
             <div class="r-hh-icon">
               <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -1100,15 +1154,26 @@
               <div class="r-hh-sub">Todos los volúmenes y discos funcionan con normalidad</div>
             </div>
           </div>
-        {:else}
-          <div class="r-health-hero r-health-warn">
-            <div class="r-hh-icon warn">
-              <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            </div>
-            <div>
-              <div class="r-hh-title">Atención requerida</div>
-              <div class="r-hh-sub">Uno o más volúmenes necesitan revisión</div>
-            </div>
+        {/if}
+
+        <!-- Disk SMART warnings -->
+        {#if problemDisks.length > 0}
+          <div class="r-detail-card r-smart-alert">
+            <div class="r-sec">Alertas de disco</div>
+            {#each problemDisks as pd}
+              <div class="r-smart-alert-row">
+                <span class="r-dt-badge {pd.status === 'critical' ? 'r-dt-err' : 'r-dt-warn'}">
+                  {pd.status === 'critical' ? 'Riesgo' : 'Atención'}
+                </span>
+                <span class="r-smart-alert-name">{pd.name}</span>
+                <span class="r-smart-alert-model">{pd.model || '—'}</span>
+                <span class="r-smart-alert-detail">
+                  {#if pd.details?.reallocated > 0}{pd.details.reallocated} sect. reubicados{/if}
+                  {#if pd.details?.pending > 0} · {pd.details.pending} pendientes{/if}
+                  {#if pd.details?.uncorrectable > 0} · {pd.details.uncorrectable} incorregibles{/if}
+                </span>
+              </div>
+            {/each}
           </div>
         {/if}
 
@@ -1279,13 +1344,20 @@
         <div class="r-sec" style="margin-top:4px">Discos</div>
         <div class="r-detail-card">
           {#each allDisks as d}
+            {@const sd = smartData[d.name]}
             <div class="r-disk-row" style="cursor:default">
               <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
               <div class="r-disk-info">
                 <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
-                <div class="r-disk-model">{fmt(d.size)}</div>
+                <div class="r-disk-model">{sd?.temperature ? sd.temperature + '°C · ' : ''}{sd?.powerOnHours ? sd.powerOnHours.toLocaleString() + 'h' : fmt(d.size)}</div>
               </div>
-              <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+              {#if sd?.status === 'critical'}
+                <span class="r-badge r-badge-err" style="font-size:10px">Riesgo</span>
+              {:else if sd?.status === 'warning'}
+                <span class="r-badge r-badge-warn" style="font-size:10px">Atención</span>
+              {:else}
+                <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+              {/if}
             </div>
           {/each}
         </div>
@@ -1886,13 +1958,23 @@
   .r-health-hero { display:flex; align-items:center; gap:16px; padding:18px 20px; border-radius:12px; }
   .r-health-ok { background:rgba(34,197,94,0.05); border:1px solid rgba(34,197,94,0.15); }
   .r-health-warn { background:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.15); }
+  .r-health-err { background:rgba(239,68,68,0.05); border:1px solid rgba(239,68,68,0.15); }
   .r-health-checking { background:rgba(124,111,255,0.05); border:1px solid rgba(124,111,255,0.20); }
   .r-hh-icon { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(34,197,94,0.10); flex-shrink:0; }
   .r-hh-icon.warn { background:rgba(245,158,11,0.10); }
+  .r-hh-icon.err { background:rgba(239,68,68,0.10); }
   .r-hh-icon.checking { background:rgba(124,111,255,0.12); }
   .r-hh-icon svg { width:20px; height:20px; stroke:var(--green); fill:none; stroke-width:2; stroke-linecap:round; }
   .r-hh-icon.warn svg { stroke:var(--amber); }
+  .r-hh-icon.err svg { stroke:var(--red); }
   .r-hh-icon.checking svg { stroke:var(--accent); }
+
+  .r-smart-alert { border-color:rgba(245,158,11,0.2); }
+  .r-smart-alert-row { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .r-smart-alert-row:last-child { border:none; }
+  .r-smart-alert-name { font-weight:600; color:var(--text-1); }
+  .r-smart-alert-model { color:var(--text-3); font-size:11px; }
+  .r-smart-alert-detail { margin-left:auto; font-size:10px; color:var(--amber); font-family:'DM Mono',monospace; }
   .r-hh-title { font-size:16px; font-weight:700; color:var(--text-1); }
   .r-hh-sub { font-size:12px; color:var(--text-3); margin-top:3px; }
 

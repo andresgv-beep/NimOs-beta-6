@@ -339,7 +339,10 @@
   }
 
   // Load activity when resumen tab is active
-  $: if (activeTab === 'resumen' && !loading) loadRecentActivity();
+  $: if (activeTab === 'resumen' && !loading) {
+    loadRecentActivity();
+    loadAllDisksSmart();
+  }
 
   function fmt(bytes) {
     if (!bytes) return '—';
@@ -569,10 +572,52 @@
           </div>
         {:else}
           <!-- Normal resumen with volumes -->
-          <div class="r-alert r-alert-ok">
-            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            {pools.length} volumen{pools.length > 1 ? 'es' : ''} activo{pools.length > 1 ? 's' : ''} · {allDisks.length} disco{allDisks.length > 1 ? 's' : ''} sano{allDisks.length > 1 ? 's' : ''}
-          </div>
+          <!-- Alert banner — dynamic based on SMART + pool status -->
+          {#if worstSmartStatus === 'critical'}
+            <div class="r-alert r-alert-err">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              Disco en riesgo — {problemDisks.length} disco{problemDisks.length > 1 ? 's' : ''} con errores críticos
+            </div>
+          {:else if worstSmartStatus === 'warning'}
+            <div class="r-alert r-alert-warn">
+              <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Atención — {problemDisks.length} disco{problemDisks.length > 1 ? 's' : ''} con alertas SMART
+            </div>
+          {:else if !pools.every(p => p.status === 'active' || p.health === 'ONLINE')}
+            <div class="r-alert r-alert-warn">
+              <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Atención — volumen degradado
+            </div>
+          {:else}
+            <div class="r-alert r-alert-ok">
+              <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              {pools.length} volumen{pools.length > 1 ? 'es' : ''} activo{pools.length > 1 ? 's' : ''} · {allDisks.length} disco{allDisks.length > 1 ? 's' : ''} sano{allDisks.length > 1 ? 's' : ''}
+            </div>
+          {/if}
+
+          <!-- Disk warnings card — only if problems -->
+          {#if problemDisks.length > 0}
+            <div class="r-disk-list" style="border-color:rgba(245,158,11,0.2)">
+              {#each problemDisks as pd}
+                <div class="r-disk-row">
+                  <div class="r-disk-ico" style="background:{pd.status === 'critical' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)'}">
+                    <svg viewBox="0 0 24 24" style="stroke:{pd.status === 'critical' ? 'var(--red)' : 'var(--amber)'}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                  </div>
+                  <div class="r-disk-info">
+                    <div class="r-disk-name">{pd.name} · {pd.model || '—'}</div>
+                    <div class="r-disk-model" style="color:{pd.status === 'critical' ? 'var(--red)' : 'var(--amber)'}">
+                      {#if pd.details?.reallocated > 0}{pd.details.reallocated} sect. reubicados  {/if}
+                      {#if pd.details?.pending > 0}{pd.details.pending} pendientes  {/if}
+                      {#if pd.details?.uncorrectable > 0}{pd.details.uncorrectable} incorregibles{/if}
+                    </div>
+                  </div>
+                  <span class="r-badge {pd.status === 'critical' ? 'r-badge-err' : 'r-badge-warn'}" style="font-size:10px">
+                    {pd.status === 'critical' ? 'Riesgo' : 'Atención'}
+                  </span>
+                </div>
+              {/each}
+            </div>
+          {/if}
 
           <div class="r-sec">Volúmenes</div>
           <div class="r-grid">
@@ -623,13 +668,20 @@
           <div class="r-sec" style="margin-top:16px">Discos físicos</div>
           <div class="r-disk-list">
             {#each allDisks as d}
-              <div class="r-disk-row">
+              {@const sd = smartData[d.name]}
+              <div class="r-disk-row" on:click={() => activeTab = 'disks'} style="cursor:pointer">
                 <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
                 <div class="r-disk-info">
                   <div class="r-disk-name">{d.name}</div>
-                  <div class="r-disk-model">{d.model || '—'} · {fmt(d.size)}</div>
+                  <div class="r-disk-model">{d.model || '—'} · {fmt(d.size)}{sd?.temperature ? ' · ' + sd.temperature + '°C' : ''}</div>
                 </div>
-                <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+                {#if sd?.status === 'critical'}
+                  <span class="r-badge r-badge-err" style="font-size:10px">Riesgo</span>
+                {:else if sd?.status === 'warning'}
+                  <span class="r-badge r-badge-warn" style="font-size:10px">Atención</span>
+                {:else}
+                  <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+                {/if}
               </div>
             {/each}
           </div>
@@ -1842,6 +1894,7 @@
   .r-alert svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; flex-shrink:0; }
   .r-alert-ok { background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.15); color:var(--green); }
   .r-alert-warn { background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.15); color:var(--amber); }
+  .r-alert-err { background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.15); color:var(--red); }
 
   .r-grid { display:grid; grid-template-columns:2fr 1fr; gap:14px; align-items:stretch; }
   .r-vols { display:flex; flex-direction:column; gap:10px; }

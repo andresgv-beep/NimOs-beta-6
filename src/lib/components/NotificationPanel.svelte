@@ -8,6 +8,7 @@
 
   $: general = $notifications.filter(n => n.category === 'notification');
   $: system  = $notifications.filter(n => n.category === 'system');
+  $: systemAlerts = system.filter(n => n.type === 'error' || n.type === 'warning');
   $: current = activeTab === 'notification' ? general : system;
 
   const ICONS = {
@@ -60,7 +61,7 @@
       <span class="np-tab" class:on={activeTab === 'notification'} on:click={() => activeTab = 'notification'}>General</span>
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <span class="np-tab" class:on={activeTab === 'system'} on:click={() => activeTab = 'system'}>Sistema</span>
+      <span class="np-tab" class:on={activeTab === 'system'} on:click={() => activeTab = 'system'}>Sistema{#if systemAlerts.length > 0} <span class="tab-badge" style="background:var(--amber)">{systemAlerts.length}</span>{/if}</span>
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <span class="np-tab" class:on={activeTab === 'tasks'} on:click={() => activeTab = 'tasks'}>Tareas{#if $uploadTasks.length > 0} <span class="tab-badge">{$uploadTasks.length}</span>{/if}</span>

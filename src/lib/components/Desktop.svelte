@@ -25,8 +25,8 @@
   async function pollNotifications() {
     const prevIds = new Set($notifications.map(n => n.id));
     await loadNotifications();
-    // Find genuinely new notifications
-    const newOnes = $notifications.filter(n => !prevIds.has(n.id) && !n.read);
+    // Find genuinely new backend notifications
+    const newOnes = $notifications.filter(n => !prevIds.has(n.id) && !n.read && typeof n.id === 'number');
     if (newOnes.length > 0) {
       notifications.update(all => all.map(n => {
         if (newOnes.some(ne => ne.id === n.id)) {

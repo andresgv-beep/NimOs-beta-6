@@ -128,7 +128,7 @@
 <style>
   .bubble-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; align-items:flex-end; }
 
-  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:2px solid var(--glass-border); border-radius:11px; padding:11px 12px 11px; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
+  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1.5px solid var(--window-border); border-radius:11px; padding:11px 12px 11px; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
 
   .b-stripe { position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:0 2px 2px 0; }
   .b-success .b-stripe  { background:var(--green); }

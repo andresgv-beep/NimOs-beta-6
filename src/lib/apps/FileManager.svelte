@@ -3,7 +3,7 @@
   import TreeNode from '$lib/components/TreeNode.svelte';
   import { getToken } from '$lib/stores/auth.js';
   import { notifySuccess, notifyError, notifyWarning } from '$lib/stores/notifications.js';
-  import { addTask, updateProgress, completeTask, failTask, removeTask, getSignal } from '$lib/stores/uploadTasks.js';
+  import { addTask } from '$lib/stores/uploadTasks.js';
 
   let shares = [];
   let currentShare = null;
@@ -84,58 +84,12 @@
       const files = Array.from(e.target.files);
 
       for (const f of files) {
-        const taskId = addTask(f.name, f.size);
         const totalChunks = Math.ceil(f.size / CHUNK_SIZE) || 1;
-
-        try {
-          let failed = false;
-          const signal = getSignal(taskId);
-          for (let i = 0; i < totalChunks; i++) {
-            const start = i * CHUNK_SIZE;
-            const end = Math.min(start + CHUNK_SIZE, f.size);
-            const chunk = f.slice(start, end);
-
-            const resp = await fetch('/api/files/upload-chunk', {
-              method: 'POST',
-              signal,
-              headers: {
-                'Authorization': `Bearer ${getToken()}`,
-                'X-Share': currentShare,
-                'X-Path': currentPath,
-                'X-Filename': f.name,
-                'X-Chunk-Index': String(i),
-                'X-Total-Chunks': String(totalChunks),
-                'X-Total-Size': String(f.size),
-              },
-              body: chunk,
-            });
-
-            const d = await resp.json();
-            if (d.error) {
-              const msg = (d.error.toLowerCase().includes('quota') || d.error.toLowerCase().includes('space') || d.error.toLowerCase().includes('full'))
-                ? `Sin espacio: ${f.name}`
-                : d.error;
-              failTask(taskId, msg);
-              failed = true;
-              break;
-            }
-
-            // Update progress
-            const pct = Math.round(((i + 1) / totalChunks) * 100);
-            updateProgress(taskId, pct);
-          }
-
-          if (!failed) {
-            completeTask(taskId);
-            setTimeout(() => removeTask(taskId), 3000);
-          }
-        } catch (err) {
-          if (err.name === 'AbortError') continue;
-          failTask(taskId, 'Error de conexión');
-        }
+        addTask(f.name, f.size, f, currentShare, currentPath, totalChunks, CHUNK_SIZE);
       }
 
-      fetchFiles();
+      // Refresh file list after a short delay to catch fast uploads
+      setTimeout(() => fetchFiles(), 2000);
     };
     input.click();
   }

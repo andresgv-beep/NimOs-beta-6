@@ -538,7 +538,9 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 120s;
         proxy_send_timeout 120s;
-        client_max_body_size 10G;
+        client_max_body_size 0;
+        proxy_request_buffering off;
+        proxy_buffering off;
     }
 }
 EOF

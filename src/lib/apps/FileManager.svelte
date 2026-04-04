@@ -288,6 +288,54 @@
     infoModal = file;
   }
 
+  // ── Zip / Unzip ──
+  async function zipSelected() {
+    closeCtx();
+    const sel = [...selected].map(i => sorted[i]).filter(Boolean);
+    if (!sel.length || !currentShare) return;
+    const paths = sel.map(f => currentPath === '/' ? `/${f.name}` : `${currentPath}/${f.name}`);
+    const name = sel.length === 1 ? sel[0].name + '.zip' : 'archive.zip';
+    try {
+      const r = await fetch('/api/files/zip', {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({ share: currentShare, paths, name })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        notifySuccess(`${d.name} creado`, 'Comprimido');
+        fetchFiles();
+      } else {
+        notifyError(d.error || 'Error al comprimir', 'Zip');
+      }
+    } catch {
+      notifyError('Error de conexión', 'Zip');
+    }
+  }
+
+  async function unzipFile(file) {
+    closeCtx();
+    const fp = filePath(file);
+    try {
+      const r = await fetch('/api/files/unzip', {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({ share: currentShare, path: fp })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        notifySuccess(`${d.count} archivos extraídos en "${d.folder}"`, 'Descomprimido');
+        fetchFiles();
+      } else {
+        notifyError(d.error || 'Error al descomprimir', 'Unzip');
+      }
+    } catch {
+      notifyError('Error de conexión', 'Unzip');
+    }
+  }
+
+  function isZipFile(file) {
+    return !file.isDirectory && file.name.toLowerCase().endsWith('.zip');
+  }
+
   function fmtSize(b) {
     if (!b) return '—';
     if (b >= 1e9) return (b/1e9).toFixed(2) + ' GB';
@@ -566,6 +614,20 @@
         <div class="ctx-item" on:click={() => { const fp = filePath(ctxMenu.file); window.open(`/api/files/download?share=${currentShare}&path=${encodeURIComponent(fp)}&token=${getToken()}`, '_blank'); closeCtx(); }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Descargar
+        </div>
+      {/if}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="ctx-item" on:click={zipSelected}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z"/><path d="M9 9h1M12 9h1M9 12h1M12 12h1M9 15h1M12 15h1"/></svg>
+        Comprimir (.zip)
+      </div>
+      {#if isZipFile(ctxMenu.file)}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="ctx-item" on:click={() => unzipFile(ctxMenu.file)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10z"/><polyline points="9 11 12 14 15 11"/><line x1="12" y1="7" x2="12" y2="14"/></svg>
+          Descomprimir
         </div>
       {/if}
       <!-- svelte-ignore a11y_click_events_have_key_events -->

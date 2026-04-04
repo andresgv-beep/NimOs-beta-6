@@ -647,6 +647,9 @@ func main() {
 	// Start scrub scheduler — checks every 60s if a scheduled verification is due
 	go startScrubScheduler()
 
+	// Start SMART monitor — checks disk health every 30 min, alerts on changes
+	go startSmartMonitor()
+
 	// Clean up stale socket
 	os.Remove(socketPath)
 

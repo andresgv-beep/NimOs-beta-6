@@ -340,6 +340,7 @@ func startHTTPServer() {
 	mux.HandleFunc("/api/network", handleHardwareRoutes)
 	mux.HandleFunc("/api/disks", handleHardwareRoutes)
 	mux.HandleFunc("/api/disks/smart", handleHardwareRoutes)
+	mux.HandleFunc("/api/disks/smart/summary", handleHardwareRoutes)
 	mux.HandleFunc("/api/uptime", handleHardwareRoutes)
 	mux.HandleFunc("/api/containers", handleHardwareRoutes)
 	mux.HandleFunc("/api/containers/", handleContainerAction)

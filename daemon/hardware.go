@@ -1101,6 +1101,8 @@ func handleHardwareRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOk(w, getDiskSmart(disk))
+	case "/api/disks/smart/summary":
+		jsonOk(w, getSmartSummary())
 	case "/api/uptime":
 		jsonOk(w, map[string]interface{}{"uptime": getUptime()})
 	case "/api/containers":
@@ -1495,4 +1497,146 @@ func parseRawSmartValue(raw string) int {
 	}
 	n, _ := strconv.Atoi(numStr)
 	return n
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMART Monitor — Background disk health monitoring
+// Runs every 30 minutes, checks all disks, creates notifications on status change
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var smartHistory = map[string]string{} // disk name -> last known status ("ok"/"warning"/"critical")
+var smartMu sync.Mutex
+
+func startSmartMonitor() {
+	// Wait for system to be ready
+	time.Sleep(30 * time.Second)
+
+	if !hasSmartctl {
+		logMsg("SMART monitor: smartctl not available, monitor disabled")
+		return
+	}
+
+	logMsg("SMART monitor started (interval: 30min)")
+
+	// Initial scan
+	checkAllDisksSmart()
+
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		checkAllDisksSmart()
+	}
+}
+
+func checkAllDisksSmart() {
+	// Get all disks from lsblk
+	out, ok := run("lsblk -d -n -o NAME,TYPE 2>/dev/null")
+	if !ok || out == "" {
+		return
+	}
+
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[1] != "disk" {
+			continue
+		}
+		diskName := fields[0]
+
+		// Skip loop/ram devices
+		if strings.HasPrefix(diskName, "loop") || strings.HasPrefix(diskName, "ram") || strings.HasPrefix(diskName, "zram") {
+			continue
+		}
+
+		smartResult := getDiskSmart(diskName)
+		currentStatus, _ := smartResult["status"].(string)
+		if currentStatus == "" {
+			continue
+		}
+
+		smartMu.Lock()
+		prevStatus, existed := smartHistory[diskName]
+		smartHistory[diskName] = currentStatus
+		smartMu.Unlock()
+
+		// Only notify on status changes (not on first scan unless bad)
+		if !existed {
+			// First scan — only notify if already bad
+			if currentStatus == "warning" {
+				model, _ := smartResult["model"].(string)
+				addNotification("warning", "system",
+					fmt.Sprintf("Disco %s requiere atención", diskName),
+					fmt.Sprintf("SMART detecta problemas en %s (%s). Revisa la sección Salud.", diskName, model))
+			} else if currentStatus == "critical" {
+				model, _ := smartResult["model"].(string)
+				addNotification("error", "system",
+					fmt.Sprintf("Disco %s en riesgo de fallo", diskName),
+					fmt.Sprintf("SMART indica errores críticos en %s (%s). Reemplaza el disco lo antes posible.", diskName, model))
+			}
+			continue
+		}
+
+		// Status changed
+		if currentStatus != prevStatus {
+			model, _ := smartResult["model"].(string)
+
+			switch {
+			case currentStatus == "critical" && prevStatus != "critical":
+				addNotification("error", "system",
+					fmt.Sprintf("Disco %s en riesgo de fallo", diskName),
+					fmt.Sprintf("SMART indica errores críticos en %s (%s). Reemplaza el disco lo antes posible.", diskName, model))
+				logMsg("SMART CRITICAL: disk %s status changed from %s to critical", diskName, prevStatus)
+
+			case currentStatus == "warning" && prevStatus == "ok":
+				addNotification("warning", "system",
+					fmt.Sprintf("Disco %s requiere atención", diskName),
+					fmt.Sprintf("SMART detecta nuevos problemas en %s (%s). Revisa la sección Salud.", diskName, model))
+				logMsg("SMART WARNING: disk %s status changed from ok to warning", diskName)
+
+			case currentStatus == "ok" && prevStatus != "ok":
+				addNotification("success", "system",
+					fmt.Sprintf("Disco %s recuperado", diskName),
+					fmt.Sprintf("SMART de %s (%s) ha vuelto a estado normal.", diskName, model))
+				logMsg("SMART OK: disk %s status recovered from %s", diskName, prevStatus)
+			}
+		}
+
+		// Temperature alert — check for high temp
+		if temp, ok := smartResult["temperature"].(int); ok {
+			if temp >= 55 {
+				addNotification("warning", "system",
+					fmt.Sprintf("Temperatura alta en disco %s", diskName),
+					fmt.Sprintf("El disco %s está a %d°C. Verifica la ventilación.", diskName, temp))
+				logMsg("SMART TEMP WARNING: disk %s at %d°C", diskName, temp)
+			}
+		}
+	}
+}
+
+// getSmartSummary returns a summary of all disks' SMART status
+// GET /api/disks/smart/summary
+func getSmartSummary() map[string]interface{} {
+	smartMu.Lock()
+	defer smartMu.Unlock()
+
+	disks := make([]map[string]interface{}, 0)
+	worstStatus := "ok"
+
+	for name, status := range smartHistory {
+		disks = append(disks, map[string]interface{}{
+			"name":   name,
+			"status": status,
+		})
+		if status == "critical" {
+			worstStatus = "critical"
+		} else if status == "warning" && worstStatus != "critical" {
+			worstStatus = "warning"
+		}
+	}
+
+	return map[string]interface{}{
+		"disks":       disks,
+		"worstStatus": worstStatus,
+		"lastCheck":   time.Now().Format(time.RFC3339),
+	}
 }

@@ -912,7 +912,17 @@
       <!-- ══ SALUD ══ -->
       <div class="resumen-scroll">
         <!-- Health overview hero -->
-        {#if pools.every(p => p.status === 'active' || p.health === 'ONLINE')}
+        {#if scrubStatus.status === 'scrubbing'}
+          <div class="r-health-hero r-health-checking">
+            <div class="r-hh-icon checking">
+              <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            </div>
+            <div>
+              <div class="r-hh-title">Verificando integridad</div>
+              <div class="r-hh-sub">Comprobando datos... {scrubStatus.progress || 0}% completado</div>
+            </div>
+          </div>
+        {:else if pools.every(p => p.status === 'active' || p.health === 'ONLINE')}
           <div class="r-health-hero r-health-ok">
             <div class="r-hh-icon">
               <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -1637,10 +1647,13 @@
   .r-health-hero { display:flex; align-items:center; gap:16px; padding:18px 20px; border-radius:12px; }
   .r-health-ok { background:rgba(34,197,94,0.05); border:1px solid rgba(34,197,94,0.15); }
   .r-health-warn { background:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.15); }
+  .r-health-checking { background:rgba(124,111,255,0.05); border:1px solid rgba(124,111,255,0.20); }
   .r-hh-icon { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(34,197,94,0.10); flex-shrink:0; }
   .r-hh-icon.warn { background:rgba(245,158,11,0.10); }
+  .r-hh-icon.checking { background:rgba(124,111,255,0.12); }
   .r-hh-icon svg { width:20px; height:20px; stroke:var(--green); fill:none; stroke-width:2; stroke-linecap:round; }
   .r-hh-icon.warn svg { stroke:var(--amber); }
+  .r-hh-icon.checking svg { stroke:var(--accent); }
   .r-hh-title { font-size:16px; font-weight:700; color:var(--text-1); }
   .r-hh-sub { font-size:12px; color:var(--text-3); margin-top:3px; }
 

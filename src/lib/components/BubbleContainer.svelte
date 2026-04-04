@@ -83,17 +83,22 @@
   {/each}
 
   {#each $uploadTasks as task (task.id)}
-    <div class="bubble upload-bubble" class:done={task.status === 'done'} class:error={task.status === 'error'}
+    <div class="bubble upload-bubble b-{task.status === 'done' ? 'success' : task.status === 'error' ? 'error' : 'info'}"
+      class:persistent={task.status !== 'uploading'}
       in:fly={{ x: 100, duration: 300 }}
       out:fly={{ x: 100, duration: 220 }}>
-      <div class="b-stripe" class:b-success={task.status === 'done'} class:b-error={task.status === 'error'} class:b-info={task.status === 'uploading'}></div>
-      <div class="b-ico" class:b-success={task.status === 'done'} class:b-error={task.status === 'error'} class:b-info={task.status === 'uploading'}>
+      <div class="b-stripe"></div>
+      <div class="b-ico">
         {#if task.status === 'done'}
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
         {:else if task.status === 'error'}
           <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         {:else}
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <div class="upload-dots">
+            <span class="dot dot1"></span>
+            <span class="dot dot2"></span>
+            <span class="dot dot3"></span>
+          </div>
         {/if}
       </div>
       <div class="b-body">
@@ -157,6 +162,11 @@
   .b-close:hover { color:var(--red); }
   .b-close svg { width:10px; height:10px; }
   .upload-bubble { animation: none; }
+  .upload-dots { display:flex; align-items:center; justify-content:center; gap:3px; width:100%; height:100%; }
+  .dot { width:4px; height:4px; border-radius:50%; background:var(--accent); animation:dotBounce 1.2s ease-in-out infinite; }
+  .dot2 { animation-delay:0.2s; }
+  .dot3 { animation-delay:0.4s; }
+  @keyframes dotBounce { 0%,100%{opacity:0.2;transform:scale(0.7)} 50%{opacity:1;transform:scale(1)} }
   .up-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:6px; }
   .up-fill { height:100%; background:var(--accent); border-radius:2px; transition:width .3s ease; }
   .up-pct { font-size:9px; color:var(--text-3); font-family:"DM Mono",monospace; margin-top:3px; }

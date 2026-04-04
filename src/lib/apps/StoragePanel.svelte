@@ -375,7 +375,7 @@
             <div class="r-activity-card">
               <div class="r-sec">Actividad reciente</div>
               {#if recentActivity.length > 0}
-                {#each recentActivity as act}
+                {#each recentActivity.slice(0, 4) as act}
                   <div class="r-act-item">
                     <span class="r-act-time">{act.time}</span>
                     <span class="r-act-dot" style="background:{act.color}"></span>
@@ -1137,11 +1137,11 @@
   .r-alert-ok { background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.15); color:var(--green); }
   .r-alert-warn { background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.15); color:var(--amber); }
 
-  .r-grid { display:grid; grid-template-columns:2fr 1fr; gap:14px; }
+  .r-grid { display:grid; grid-template-columns:2fr 1fr; gap:14px; align-items:start; }
   .r-vols { display:flex; flex-direction:column; gap:10px; }
   .r-sec { font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); margin-bottom:4px; }
 
-  .r-vol-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; border-left:4px solid var(--green); transition:all .2s; cursor:pointer; }
+  .r-vol-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; border-left:4px solid var(--green); transition:all .2s; cursor:pointer; min-height:130px; display:flex; flex-direction:column; justify-content:space-between; }
   .r-vol-card:hover { border-color:var(--border-hi); border-left-color:var(--green); }
   .r-vol-card.degraded { border-left-color:var(--amber); }
   .r-vol-card.error { border-left-color:var(--red); }
@@ -1159,12 +1159,12 @@
   .r-bar-fill { height:100%; border-radius:4px; background:linear-gradient(90deg, var(--accent), var(--accent2)); transition:width .6s ease; }
   .r-bar-text { display:flex; justify-content:space-between; font-size:10px; color:var(--text-3); font-family:'DM Mono',monospace; }
 
-  .r-activity-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; }
-  .r-act-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .r-activity-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; max-height:220px; overflow:hidden; }
+  .r-act-item { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .r-act-item:last-child { border:none; }
-  .r-act-time { font-size:9px; color:var(--text-3); font-family:'DM Mono',monospace; min-width:50px; }
+  .r-act-time { font-size:9px; color:var(--text-3); font-family:'DM Mono',monospace; min-width:50px; flex-shrink:0; }
   .r-act-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
-  .r-act-msg { color:var(--text-2); }
+  .r-act-msg { color:var(--text-2); overflow:hidden; text-overflow:ellipsis; }
 
   .r-disk-list { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
   .r-disk-row { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .1s; }

@@ -83,7 +83,9 @@
   {/each}
 
   {#each $uploadTasks as task (task.id)}
-    <div class="bubble upload-bubble" class:done={task.status === 'done'} class:error={task.status === 'error'}>
+    <div class="bubble upload-bubble" class:done={task.status === 'done'} class:error={task.status === 'error'}
+      in:fly={{ x: 100, duration: 300 }}
+      out:fly={{ x: 100, duration: 220 }}>
       <div class="b-stripe" class:b-success={task.status === 'done'} class:b-error={task.status === 'error'} class:b-info={task.status === 'uploading'}></div>
       <div class="b-ico" class:b-success={task.status === 'done'} class:b-error={task.status === 'error'} class:b-info={task.status === 'uploading'}>
         {#if task.status === 'done'}

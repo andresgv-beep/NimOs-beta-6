@@ -696,10 +696,6 @@ func parseZfsSize(s string) int64 {
 
 // initScrubScheduleTable creates the scrub_schedule table if it doesn't exist
 func initScrubScheduleTable() {
-	db := getDB()
-	if db == nil {
-		return
-	}
 	db.Exec(`CREATE TABLE IF NOT EXISTS scrub_schedule (
 		pool_name    TEXT PRIMARY KEY,
 		frequency    TEXT NOT NULL DEFAULT 'off',
@@ -719,13 +715,7 @@ func initScrubScheduleTable() {
 // GET /api/storage/scrub/schedule?pool=NAME
 func getScrubSchedule(poolName string) map[string]interface{} {
 	if poolName == "" {
-		// Return all schedules
 		return getAllScrubSchedules()
-	}
-
-	db := getDB()
-	if db == nil {
-		return map[string]interface{}{"frequency": "off", "pool": poolName}
 	}
 
 	var freq, lastRun, nextRun string
@@ -774,11 +764,6 @@ func getScrubSchedule(poolName string) map[string]interface{} {
 }
 
 func getAllScrubSchedules() map[string]interface{} {
-	db := getDB()
-	if db == nil {
-		return map[string]interface{}{"schedules": []interface{}{}}
-	}
-
 	rows, err := db.Query(`SELECT pool_name, frequency, hour, minute, day_of_week, day_of_month, 
 		COALESCE(last_run,''), COALESCE(next_run,''), enabled FROM scrub_schedule`)
 	if err != nil {
@@ -845,11 +830,6 @@ func saveScrubSchedule(body map[string]interface{}) map[string]interface{} {
 	}
 
 	nextRun := calculateNextRun(freq, hour, minute, dow, dom)
-
-	db := getDB()
-	if db == nil {
-		return map[string]interface{}{"ok": false, "error": "Database unavailable"}
-	}
 
 	_, err := db.Exec(`INSERT INTO scrub_schedule (pool_name, frequency, hour, minute, day_of_week, day_of_month, next_run, enabled, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
@@ -947,11 +927,6 @@ func startScrubScheduler() {
 }
 
 func checkAndRunScheduledScrubs() {
-	db := getDB()
-	if db == nil {
-		return
-	}
-
 	rows, err := db.Query(`SELECT pool_name, frequency, hour, minute, day_of_week, day_of_month, 
 		COALESCE(last_run,'') FROM scrub_schedule WHERE enabled = 1 AND frequency != 'off'`)
 	if err != nil {

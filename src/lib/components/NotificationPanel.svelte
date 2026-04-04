@@ -67,6 +67,7 @@
       <span class="np-tab" class:on={activeTab === 'tasks'} on:click={() => activeTab = 'tasks'}>Tareas{#if $uploadTasks.length > 0} <span class="tab-badge">{$uploadTasks.length}</span>{/if}</span>
     </div>
 
+    {#if activeTab !== 'tasks'}
     <div class="np-list">
       {#if current.length === 0}
         <div class="np-empty">Sin notificaciones</div>
@@ -96,6 +97,7 @@
         {/each}
       {/if}
     </div>
+    {/if}
 
     {#if activeTab === 'tasks'}
       <div class="np-list">

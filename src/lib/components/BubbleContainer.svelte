@@ -2,13 +2,17 @@
   import { fly } from 'svelte/transition';
   import { notifications, hideBubble } from '$lib/stores/notifications.js';
   import { uploadTasks, removeTask } from '$lib/stores/uploadTasks.js';
+  import { openWindow } from '$lib/stores/windows.js';
 
   $: activeTasks = $uploadTasks.filter(t => t.status === 'uploading' || t.status === 'done');
 
   const DURATION = 5000;
-  const MAX = 2;
+  const MAX = 3;
 
   $: bubbles = $notifications.filter(n => n.showBubble).slice(0, MAX);
+
+  // Persistent types: warning, error, security — no auto-hide
+  const PERSISTENT_TYPES = new Set(['warning', 'error', 'security']);
 
   const ICONS = {
     success:  '<polyline points="20 6 9 17 4 12"/>',
@@ -27,20 +31,33 @@
     return `hace ${Math.floor(diff/3600)}h`;
   }
 
-  // auto-hide action
-  function autoHide(node, id) {
+  // auto-hide action — only for non-persistent types
+  function autoHide(node, { id, type }) {
+    if (PERSISTENT_TYPES.has(type)) return { destroy() {} };
     const t = setTimeout(() => hideBubble(id), DURATION);
     return { destroy() { clearTimeout(t); } };
+  }
+
+  // Click on bubble body — open relevant app
+  function onBubbleClick(n) {
+    // SMART / disk / storage related
+    if (n.category === 'system' && (n.title?.includes('Disco') || n.title?.includes('SMART') || n.title?.includes('Verificación') || n.message?.includes('disco'))) {
+      openWindow('storage');
+      hideBubble(n.id);
+    }
   }
 </script>
 
 <div class="bubble-container">
   {#each bubbles as n (n.id)}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="bubble b-{n.type}"
+      class="bubble b-{n.type}" class:persistent={PERSISTENT_TYPES.has(n.type)}
       in:fly={{ x: 100, duration: 300 }}
       out:fly={{ x: 100, duration: 220 }}
-      use:autoHide={n.id}
+      use:autoHide={{ id: n.id, type: n.type }}
+      on:click={() => onBubbleClick(n)}
     >
       <div class="b-stripe"></div>
       <div class="b-ico">
@@ -51,11 +68,13 @@
       <div class="b-body">
         {#if n.title}<div class="b-title">{n.title}</div>{/if}
         <div class="b-msg" class:solo={!n.title}>{n.message}</div>
-        <div class="b-prog"><div class="b-bar" style="animation-duration:{DURATION}ms"></div></div>
+        {#if !PERSISTENT_TYPES.has(n.type)}
+          <div class="b-prog"><div class="b-bar" style="animation-duration:{DURATION}ms"></div></div>
+        {/if}
       </div>
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="b-close" on:click={() => hideBubble(n.id)}>
+      <div class="b-close" on:click|stopPropagation={() => hideBubble(n.id)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
@@ -100,7 +119,8 @@
 <style>
   .bubble-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; align-items:flex-end; }
 
-  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1px solid var(--glass-border); border-radius:11px; padding:11px 12px 0; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; }
+  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1px solid var(--glass-border); border-radius:11px; padding:11px 12px 0; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
+  .bubble.persistent { padding-bottom:11px; border-width:2px; }
 
   .b-stripe { position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:0 2px 2px 0; }
   .b-success .b-stripe  { background:var(--green); }

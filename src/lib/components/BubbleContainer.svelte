@@ -88,19 +88,21 @@
       in:fly={{ x: 100, duration: 300 }}
       out:fly={{ x: 100, duration: 220 }}>
       <div class="b-stripe"></div>
-      <div class="b-ico">
-        {#if task.status === 'done'}
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-        {:else if task.status === 'error'}
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        {:else}
-          <div class="upload-dots">
-            <span class="dot dot1"></span>
-            <span class="dot dot2"></span>
-            <span class="dot dot3"></span>
-          </div>
-        {/if}
-      </div>
+      {#if task.status === 'uploading'}
+        <div class="upload-dots">
+          <span class="dot"></span>
+          <span class="dot dot2"></span>
+          <span class="dot dot3"></span>
+        </div>
+      {:else}
+        <div class="b-ico">
+          {#if task.status === 'done'}
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          {:else}
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          {/if}
+        </div>
+      {/if}
       <div class="b-body">
         <div class="b-title">{task.name}</div>
         {#if task.status === 'uploading'}
@@ -126,8 +128,7 @@
 <style>
   .bubble-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; align-items:flex-end; }
 
-  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:2px solid var(--glass-border); border-radius:11px; padding:11px 12px 0; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
-  .bubble.persistent { padding-bottom:11px; }
+  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:2px solid var(--glass-border); border-radius:11px; padding:11px 12px 11px; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
 
   .b-stripe { position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:0 2px 2px 0; }
   .b-success .b-stripe  { background:var(--green); }
@@ -144,7 +145,7 @@
   .b-info .b-ico     { background:rgba(124,111,255,0.12); } .b-info .b-ico svg     { stroke:var(--accent); }
   .b-security .b-ico { background:rgba(248,113,113,0.12); } .b-security .b-ico svg { stroke:var(--red); }
 
-  .b-body { flex:1; min-width:0; padding-bottom:10px; }
+  .b-body { flex:1; min-width:0; }
   .b-title { font-size:11px; font-weight:700; color:var(--text-1); }
   .b-msg { font-size:11px; color:var(--text-2); margin-top:2px; line-height:1.4; }
   .b-msg.solo { font-weight:600; color:var(--text-1); margin-top:0; }
@@ -161,12 +162,13 @@
   .b-close { width:16px; height:16px; flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-3); border-radius:4px; transition:color .15s; margin-top:1px; }
   .b-close:hover { color:var(--red); }
   .b-close svg { width:10px; height:10px; }
-  .upload-bubble { animation: none; }
-  .upload-dots { display:flex; align-items:center; justify-content:center; gap:3px; width:100%; height:100%; }
+
+  .upload-dots { width:24px; height:24px; flex-shrink:0; margin-left:6px; margin-top:1px; display:flex; align-items:center; justify-content:center; gap:3px; }
   .dot { width:4px; height:4px; border-radius:50%; background:var(--accent); animation:dotBounce 1.2s ease-in-out infinite; }
   .dot2 { animation-delay:0.2s; }
   .dot3 { animation-delay:0.4s; }
   @keyframes dotBounce { 0%,100%{opacity:0.2;transform:scale(0.7)} 50%{opacity:1;transform:scale(1)} }
+
   .up-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:6px; }
   .up-fill { height:100%; background:var(--accent); border-radius:2px; transition:width .3s ease; }
   .up-pct { font-size:9px; color:var(--text-3); font-family:"DM Mono",monospace; margin-top:3px; }

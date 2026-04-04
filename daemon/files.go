@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,6 +52,10 @@ func handleFilesRoutes(w http.ResponseWriter, r *http.Request) {
 		filesRename(w, r, session)
 	case urlPath == "/api/files/paste" && method == "POST":
 		filesPaste(w, r, session)
+	case urlPath == "/api/files/zip" && method == "POST":
+		filesZip(w, r, session)
+	case urlPath == "/api/files/unzip" && method == "POST":
+		filesUnzip(w, r, session)
 	default:
 		jsonError(w, 404, "Not found")
 	}
@@ -851,6 +856,329 @@ func handleChunkedUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Not the last chunk — acknowledge
 	jsonOk(w, map[string]interface{}{"ok": true, "chunk": idx})
+}
+
+// ═══════════════════════════════════
+// POST /api/files/zip — compress selected files/folders into a .zip
+// ═══════════════════════════════════
+// Body: { share, paths: ["/file1", "/dir1", ...], name?: "archive.zip" }
+// Creates the zip in the same directory as the first path.
+
+func filesZip(w http.ResponseWriter, r *http.Request, session *DBSession) {
+	body, err := readBody(r)
+	if err != nil {
+		jsonError(w, 400, "Invalid request")
+		return
+	}
+
+	shareName := bodyStr(body, "share")
+	zipName := bodyStr(body, "name")
+
+	rawPaths, ok := body["paths"].([]interface{})
+	if !ok || len(rawPaths) == 0 || shareName == "" {
+		jsonError(w, 400, "Missing share or paths")
+		return
+	}
+
+	share, _ := resolveShare(shareName)
+	if share == nil {
+		jsonError(w, 404, "Share not found")
+		return
+	}
+	if !requireShareMounted(w, share) {
+		return
+	}
+	if getSharePermission(session, share) != "rw" {
+		jsonError(w, 403, "Write access denied")
+		return
+	}
+
+	sharePath := share.Path
+
+	// Collect and validate paths
+	var absPaths []string
+	var relNames []string
+	for _, rp := range rawPaths {
+		p, ok := rp.(string)
+		if !ok || p == "" {
+			continue
+		}
+		if strings.Contains(p, "..") {
+			jsonError(w, 400, "Invalid path")
+			return
+		}
+		abs, err := validatePathWithinShare(sharePath, p)
+		if err != nil {
+			jsonError(w, 400, err.Error())
+			return
+		}
+		if _, err := os.Stat(abs); err != nil {
+			jsonError(w, 404, fmt.Sprintf("Not found: %s", filepath.Base(p)))
+			return
+		}
+		absPaths = append(absPaths, abs)
+		relNames = append(relNames, filepath.Base(p))
+	}
+
+	if len(absPaths) == 0 {
+		jsonError(w, 400, "No valid paths")
+		return
+	}
+
+	// Determine zip file destination (same dir as first path)
+	destDir := filepath.Dir(absPaths[0])
+	if zipName == "" {
+		if len(absPaths) == 1 {
+			zipName = relNames[0] + ".zip"
+		} else {
+			zipName = "archive.zip"
+		}
+	}
+	if !strings.HasSuffix(strings.ToLower(zipName), ".zip") {
+		zipName += ".zip"
+	}
+	zipName = sanitizeFileName(zipName)
+	zipPath := filepath.Join(destDir, zipName)
+
+	// Avoid overwriting — add suffix if exists
+	if _, err := os.Stat(zipPath); err == nil {
+		base := strings.TrimSuffix(zipName, ".zip")
+		for i := 1; i < 100; i++ {
+			candidate := filepath.Join(destDir, fmt.Sprintf("%s (%d).zip", base, i))
+			if _, err := os.Stat(candidate); err != nil {
+				zipPath = candidate
+				zipName = filepath.Base(candidate)
+				break
+			}
+		}
+	}
+
+	// Create zip file
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		jsonError(w, 500, "Cannot create zip file")
+		return
+	}
+
+	zw := zip.NewWriter(zipFile)
+
+	var walkErr error
+	for i, absPath := range absPaths {
+		info, _ := os.Stat(absPath)
+		baseName := relNames[i]
+
+		if info.IsDir() {
+			// Walk directory
+			prefix := absPath
+			walkErr = filepath.Walk(absPath, func(path string, fi os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				// Skip the zip file itself
+				if path == zipPath {
+					return nil
+				}
+				// Skip .nimchunks
+				if fi.IsDir() && fi.Name() == ".nimchunks" {
+					return filepath.SkipDir
+				}
+
+				relPath, _ := filepath.Rel(prefix, path)
+				entryName := filepath.Join(baseName, relPath)
+
+				if fi.IsDir() {
+					_, err := zw.Create(entryName + "/")
+					return err
+				}
+
+				header, err := zip.FileInfoHeader(fi)
+				if err != nil {
+					return err
+				}
+				header.Name = entryName
+				header.Method = zip.Deflate
+
+				writer, err := zw.CreateHeader(header)
+				if err != nil {
+					return err
+				}
+
+				f, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				_, err = io.Copy(writer, f)
+				f.Close()
+				return err
+			})
+		} else {
+			// Single file
+			header, err := zip.FileInfoHeader(info)
+			if err != nil {
+				walkErr = err
+				break
+			}
+			header.Name = baseName
+			header.Method = zip.Deflate
+
+			writer, err := zw.CreateHeader(header)
+			if err != nil {
+				walkErr = err
+				break
+			}
+
+			f, err := os.Open(absPath)
+			if err != nil {
+				walkErr = err
+				break
+			}
+			_, err = io.Copy(writer, f)
+			f.Close()
+			if err != nil {
+				walkErr = err
+				break
+			}
+		}
+
+		if walkErr != nil {
+			break
+		}
+	}
+
+	zw.Close()
+	zipFile.Close()
+
+	if walkErr != nil {
+		os.Remove(zipPath)
+		jsonError(w, 500, fmt.Sprintf("Zip failed: %v", walkErr))
+		return
+	}
+
+	logMsg("zip: created %s", zipPath)
+	jsonOk(w, map[string]interface{}{"ok": true, "name": zipName})
+}
+
+// ═══════════════════════════════════
+// POST /api/files/unzip — extract a .zip file
+// ═══════════════════════════════════
+// Body: { share, path: "/path/to/file.zip" }
+// Extracts into a folder with the same name (without .zip) in the same directory.
+
+func filesUnzip(w http.ResponseWriter, r *http.Request, session *DBSession) {
+	body, err := readBody(r)
+	if err != nil {
+		jsonError(w, 400, "Invalid request")
+		return
+	}
+
+	shareName := bodyStr(body, "share")
+	filePath := bodyStr(body, "path")
+
+	if shareName == "" || filePath == "" {
+		jsonError(w, 400, "Missing share or path")
+		return
+	}
+	if strings.Contains(filePath, "..") {
+		jsonError(w, 400, "Invalid path")
+		return
+	}
+
+	share, _ := resolveShare(shareName)
+	if share == nil {
+		jsonError(w, 404, "Share not found")
+		return
+	}
+	if !requireShareMounted(w, share) {
+		return
+	}
+	if getSharePermission(session, share) != "rw" {
+		jsonError(w, 403, "Write access denied")
+		return
+	}
+
+	sharePath := share.Path
+	absPath, err := validatePathWithinShare(sharePath, filePath)
+	if err != nil {
+		jsonError(w, 400, err.Error())
+		return
+	}
+
+	// Verify it's a zip file
+	if !strings.HasSuffix(strings.ToLower(absPath), ".zip") {
+		jsonError(w, 400, "Not a zip file")
+		return
+	}
+
+	zr, err := zip.OpenReader(absPath)
+	if err != nil {
+		jsonError(w, 400, fmt.Sprintf("Cannot open zip: %v", err))
+		return
+	}
+	defer zr.Close()
+
+	// Create destination folder
+	baseName := strings.TrimSuffix(filepath.Base(absPath), ".zip")
+	baseName = strings.TrimSuffix(baseName, ".ZIP")
+	destDir := filepath.Join(filepath.Dir(absPath), baseName)
+
+	// Avoid overwriting existing folder
+	if _, err := os.Stat(destDir); err == nil {
+		for i := 1; i < 100; i++ {
+			candidate := filepath.Join(filepath.Dir(absPath), fmt.Sprintf("%s (%d)", baseName, i))
+			if _, err := os.Stat(candidate); err != nil {
+				destDir = candidate
+				break
+			}
+		}
+	}
+
+	os.MkdirAll(destDir, 0755)
+
+	var count int
+	for _, f := range zr.File {
+		// Security: prevent zip slip
+		name := f.Name
+		if strings.Contains(name, "..") {
+			continue
+		}
+
+		target := filepath.Join(destDir, name)
+
+		// Verify the target is within destDir
+		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) && filepath.Clean(target) != filepath.Clean(destDir) {
+			continue
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(target, 0755)
+			continue
+		}
+
+		// Ensure parent exists
+		os.MkdirAll(filepath.Dir(target), 0755)
+
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+
+		dst, err := os.Create(target)
+		if err != nil {
+			rc.Close()
+			continue
+		}
+
+		_, err = io.Copy(dst, rc)
+		dst.Close()
+		rc.Close()
+
+		if err == nil {
+			count++
+		}
+	}
+
+	logMsg("unzip: extracted %d files to %s", count, destDir)
+	jsonOk(w, map[string]interface{}{"ok": true, "count": count, "folder": filepath.Base(destDir)})
 }
 
 func hashStr(s string) uint32 {

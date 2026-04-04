@@ -347,10 +347,10 @@
             {pools.length} volumen{pools.length > 1 ? 'es' : ''} activo{pools.length > 1 ? 's' : ''} · {allDisks.length} disco{allDisks.length > 1 ? 's' : ''} sano{allDisks.length > 1 ? 's' : ''}
           </div>
 
+          <div class="r-sec">Volúmenes</div>
           <div class="r-grid">
             <!-- Volume cards -->
             <div class="r-vols">
-              <div class="r-sec">Volúmenes</div>
               {#each sortedPools as pool}
                 <div class="r-vol-card {pool.status === 'DEGRADED' ? 'degraded' : pool.status === 'FAULTED' ? 'error' : ''}">
                   <div class="r-vol-top">
@@ -366,6 +366,10 @@
                   <div class="r-bar-text"><span>{fmt(pool.used || 0)} usados</span><span>{fmt(pool.size || 0)} · {poolUsedPct(pool)}%</span></div>
                   <div class="r-vol-info">
                     <span>📁 {pool.shares?.length || 0} carpetas</span>
+                  </div>
+                  <div class="r-vol-actions">
+                    <button class="r-btn" on:click|stopPropagation={() => {}}>Gestionar</button>
+                    <button class="r-btn r-btn-primary" on:click|stopPropagation={() => {}}>+ Punto de restauración</button>
                   </div>
                 </div>
               {/each}
@@ -1141,14 +1145,20 @@
   .r-vols { display:flex; flex-direction:column; gap:10px; }
   .r-sec { font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); margin-bottom:4px; }
 
-  .r-vol-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; border-left:4px solid var(--green); transition:all .2s; cursor:pointer; min-height:130px; display:flex; flex-direction:column; justify-content:space-between; }
-  .r-vol-card:hover { border-color:var(--border-hi); border-left-color:var(--green); }
-  .r-vol-card.degraded { border-left-color:var(--amber); }
-  .r-vol-card.error { border-left-color:var(--red); }
+  .r-vol-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; transition:all .2s; cursor:pointer; display:flex; flex-direction:column; gap:6px; }
+  .r-vol-card:hover { border-color:var(--border-hi); }
+  .r-vol-card.degraded { border-color:rgba(245,158,11,0.3); }
+  .r-vol-card.error { border-color:rgba(239,68,68,0.3); }
   .r-vol-top { display:flex; justify-content:space-between; align-items:flex-start; }
   .r-vol-name { font-size:14px; font-weight:700; color:var(--text-1); }
   .r-vol-meta { font-size:11px; color:var(--text-3); margin-top:2px; }
-  .r-vol-info { display:flex; gap:14px; font-size:11px; color:var(--text-2); margin-top:8px; }
+  .r-vol-info { display:flex; gap:14px; font-size:11px; color:var(--text-2); margin-top:4px; }
+
+  .r-vol-actions { display:flex; gap:8px; margin-top:8px; }
+  .r-btn { padding:7px 14px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-1); font-family:inherit; font-size:11px; font-weight:600; cursor:pointer; transition:all .15s; }
+  .r-btn:hover { border-color:var(--border-hi); background:rgba(124,111,255,0.08); }
+  .r-btn-primary { background:linear-gradient(135deg, var(--accent), var(--accent2, #a855f7)); border:none; color:#fff; box-shadow:0 2px 10px rgba(124,111,255,0.2); }
+  .r-btn-primary:hover { opacity:.88; }
 
   .r-badge { padding:4px 12px; border-radius:20px; font-size:10px; font-weight:600; }
   .r-badge-ok { background:rgba(34,197,94,0.10); color:var(--green); border:1px solid rgba(34,197,94,0.25); }

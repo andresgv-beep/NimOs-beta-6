@@ -42,9 +42,15 @@ export function addTask(name, size, file, share, path, totalChunks, chunkSize) {
     error: '',
     speed: 0,
     startedAt: null,
+    showBubble: true,
   }]);
   processQueue();
   return id;
+}
+
+// ── Hide bubble (visual only — does NOT stop the upload) ──
+export function hideBubbleTask(id) {
+  uploadTasks.update(t => t.map(x => x.id === id ? { ...x, showBubble: false } : x));
 }
 
 // ── Get signal for fetch abort ──

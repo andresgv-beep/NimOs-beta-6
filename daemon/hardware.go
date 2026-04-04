@@ -1094,6 +1094,13 @@ func handleHardwareRoutes(w http.ResponseWriter, r *http.Request) {
 		jsonOk(w, getNetwork())
 	case "/api/disks":
 		jsonOk(w, getDisks())
+	case "/api/disks/smart":
+		disk := r.URL.Query().Get("disk")
+		if disk == "" {
+			jsonError(w, 400, "Provide disk name (e.g. ?disk=sda)")
+			return
+		}
+		jsonOk(w, getDiskSmart(disk))
 	case "/api/uptime":
 		jsonOk(w, map[string]interface{}{"uptime": getUptime()})
 	case "/api/containers":
@@ -1299,4 +1306,159 @@ func handleSystemInfo(w http.ResponseWriter) {
 			"interfaces": interfaces,
 		},
 	})
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SMART — Disk health data via smartctl
+// GET /api/disks/smart?disk=sda
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func getDiskSmart(diskName string) map[string]interface{} {
+	// Sanitize — only allow alphanumeric
+	safe := regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(diskName, "")
+	if safe == "" {
+		return map[string]interface{}{"error": "Invalid disk name"}
+	}
+
+	result := map[string]interface{}{
+		"disk":       safe,
+		"healthy":    true,
+		"status":     "ok",     // ok | warning | critical
+		"temperature": nil,
+		"powerOnHours": nil,
+		"powerCycles": nil,
+		"reallocated": 0,
+		"pending":     0,
+		"uncorrectable": 0,
+		"attributes":  []map[string]interface{}{},
+		"smartSupported": false,
+		"model":      "",
+		"serial":     "",
+		"firmware":   "",
+	}
+
+	if !hasSmartctl {
+		result["error"] = "smartctl not installed"
+		return result
+	}
+
+	// Get SMART info
+	out, ok := run(fmt.Sprintf("smartctl -i -A -H /dev/%s 2>/dev/null", safe))
+	if !ok || out == "" {
+		result["error"] = "Could not read SMART data"
+		return result
+	}
+
+	result["smartSupported"] = true
+
+	// Parse health status
+	if strings.Contains(out, "PASSED") {
+		result["status"] = "ok"
+		result["healthy"] = true
+	} else if strings.Contains(out, "FAILED") {
+		result["status"] = "critical"
+		result["healthy"] = false
+	}
+
+	// Parse info section
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Model Family:") || strings.HasPrefix(line, "Device Model:") {
+			result["model"] = strings.TrimSpace(line[strings.Index(line, ":")+1:])
+		}
+		if strings.HasPrefix(line, "Serial Number:") {
+			result["serial"] = strings.TrimSpace(line[strings.Index(line, ":")+1:])
+		}
+		if strings.HasPrefix(line, "Firmware Version:") {
+			result["firmware"] = strings.TrimSpace(line[strings.Index(line, ":")+1:])
+		}
+	}
+
+	// Parse SMART attributes table
+	// Format: "ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE"
+	var attrs []map[string]interface{}
+	inTable := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "ID#") && strings.Contains(line, "ATTRIBUTE_NAME") {
+			inTable = true
+			continue
+		}
+		if inTable && strings.TrimSpace(line) == "" {
+			break
+		}
+		if !inTable {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 10 {
+			continue
+		}
+
+		id := fields[0]
+		name := fields[1]
+		value := parseIntDefault(fields[3], 0)
+		worst := parseIntDefault(fields[4], 0)
+		thresh := parseIntDefault(fields[5], 0)
+		rawVal := fields[9]
+		// Some raw values have extra info like "32 (Min/Max 20/45)"
+		// Just take the first number
+		rawNum := parseIntDefault(strings.Split(rawVal, " ")[0], 0)
+
+		attrStatus := "ok"
+		if thresh > 0 && value <= thresh {
+			attrStatus = "critical"
+		} else if thresh > 0 && value <= thresh+10 {
+			attrStatus = "warning"
+		}
+
+		attr := map[string]interface{}{
+			"id":     id,
+			"name":   name,
+			"value":  value,
+			"worst":  worst,
+			"thresh": thresh,
+			"raw":    rawNum,
+			"rawStr": rawVal,
+			"status": attrStatus,
+		}
+		attrs = append(attrs, attr)
+
+		// Extract key metrics
+		switch name {
+		case "Temperature_Celsius", "Temperature_Internal", "Airflow_Temperature_Cel":
+			result["temperature"] = rawNum
+		case "Power_On_Hours", "Power_On_Hours_and_Msec":
+			result["powerOnHours"] = rawNum
+		case "Power_Cycle_Count":
+			result["powerCycles"] = rawNum
+		case "Reallocated_Sector_Ct":
+			result["reallocated"] = rawNum
+			if rawNum > 0 {
+				if result["status"] == "ok" {
+					result["status"] = "warning"
+				}
+			}
+		case "Current_Pending_Sector":
+			result["pending"] = rawNum
+			if rawNum > 0 {
+				if result["status"] == "ok" {
+					result["status"] = "warning"
+				}
+			}
+		case "Offline_Uncorrectable":
+			result["uncorrectable"] = rawNum
+			if rawNum > 0 {
+				result["status"] = "critical"
+				result["healthy"] = false
+			}
+		}
+	}
+
+	if attrs == nil {
+		attrs = []map[string]interface{}{}
+	}
+	result["attributes"] = attrs
+
+	return result
 }

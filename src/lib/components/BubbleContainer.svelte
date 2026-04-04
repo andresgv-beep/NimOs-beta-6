@@ -14,7 +14,9 @@
     ...n, _kind: 'notif', _priority: PRIORITY[n.type] ?? 2
   }));
 
-  $: taskBubbles = $uploadTasks.map(t => ({
+  $: taskBubbles = $uploadTasks
+    .filter(t => t.status === 'uploading' || t.status === 'done' || t.status === 'error')
+    .map(t => ({
     ...t, _kind: 'task', _priority: PRIORITY.task,
     type: t.status === 'done' ? 'success' : t.status === 'error' ? 'error' : 'info'
   }));

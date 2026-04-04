@@ -92,8 +92,24 @@
       body: JSON.stringify({ pool: snapPool, name: newSnapName || undefined }),
     });
     const data = await res.json();
-    if (data.ok) { snapMsg = 'Snapshot creado'; snapMsgError = false; newSnapName = ''; loadSnapshots(snapPool); }
+    if (data.ok) { snapMsg = 'Punto de restauración creado'; snapMsgError = false; newSnapName = ''; loadSnapshots(snapPool); }
     else { snapMsg = data.error || 'Error'; snapMsgError = true; }
+  }
+
+  async function quickSnapshot(poolName) {
+    try {
+      const res = await fetch('/api/storage/snapshot', {
+        method: 'POST',
+        headers: { ...hdrs(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pool: poolName }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        loadRecentActivity();
+      } else {
+        alert(data.error || 'Error al crear punto de restauración');
+      }
+    } catch(e) { alert('Error: ' + e.message); }
   }
 
   async function deleteSnap(snapshot) {
@@ -644,7 +660,7 @@
                   </div>
                   <div class="r-vol-actions">
                     <button class="r-btn" on:click|stopPropagation={() => openDetail(pool)}>Gestionar</button>
-                    <button class="r-btn r-btn-primary" on:click|stopPropagation={() => {}}>+ Punto de restauración</button>
+                    <button class="r-btn r-btn-primary" on:click|stopPropagation={() => quickSnapshot(pool.name)}>+ Punto de restauración</button>
                   </div>
                 </div>
               {/each}
@@ -785,7 +801,7 @@
         <div class="r-sec" style="margin-top:14px">Acciones</div>
         <div class="r-actions-row">
           <button class="r-btn" on:click={() => startScrubForPool(detailPool.name)}>Verificar integridad</button>
-          <button class="r-btn r-btn-primary">Crear punto de restauración</button>
+          <button class="r-btn r-btn-primary" on:click={() => quickSnapshot(detailPool.name)}>Crear punto de restauración</button>
           <button class="r-btn r-btn-danger" on:click={openDestroy}>Destruir volumen</button>
         </div>
       </div>

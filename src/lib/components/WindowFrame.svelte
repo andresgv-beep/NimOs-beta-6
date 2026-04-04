@@ -126,14 +126,6 @@
       {#await import('$lib/apps/Settings.svelte') then module}
         <svelte:component this={module.default} />
       {/await}
-    {:else if win.appId === 'storage'}
-      {#await import('$lib/apps/StorageApp.svelte') then module}
-        <svelte:component this={module.default} />
-      {/await}
-    {:else if win.appId === 'network'}
-      {#await import('$lib/apps/NetworkApp.svelte') then module}
-        <svelte:component this={module.default} />
-      {/await}
     {:else if win.appId === 'nimtorrent'}
       {#await import('$lib/apps/NimTorrent.svelte') then module}
         <svelte:component this={module.default} />
@@ -142,20 +134,8 @@
       {#await import('$lib/apps/AppStore.svelte') then module}
         <svelte:component this={module.default} />
       {/await}
-    {:else if win.appId === 'mediaplayer'}
-      {#await import('$lib/apps/MediaPlayer.svelte') then module}
-        <svelte:component this={module.default} />
-      {/await}
-    {:else if win.appId === 'nimbackup'}
-      {#await import('$lib/apps/NimBackup.svelte') then module}
-        <svelte:component this={module.default} />
-      {/await}
-    {:else if win.appId === 'texteditor'}
-      {#await import('$lib/apps/Notes.svelte') then module}
-        <svelte:component this={module.default} />
-      {/await}
-    {:else if win.appId === 'nimhealth'}
-      {#await import('$lib/apps/NimHealth.svelte') then module}
+    {:else if win.appId === 'transfermanager'}
+      {#await import('$lib/apps/TransferManager.svelte') then module}
         <svelte:component this={module.default} />
       {/await}
     {:else}

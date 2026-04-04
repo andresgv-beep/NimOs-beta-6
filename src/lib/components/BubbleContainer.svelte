@@ -4,15 +4,24 @@
   import { uploadTasks, removeTask } from '$lib/stores/uploadTasks.js';
   import { openWindow } from '$lib/stores/windows.js';
 
-  $: activeTasks = $uploadTasks.filter(t => t.status === 'uploading' || t.status === 'done');
-
   const DURATION = 5000;
-  const MAX = 3;
+  const MAX = 5;
 
-  $: bubbles = $notifications.filter(n => n.showBubble).slice(0, MAX);
-
-  // Persistent types: warning, error, security — no auto-hide
   const PERSISTENT_TYPES = new Set(['warning', 'error', 'security']);
+  const PRIORITY = { error: 0, security: 0, warning: 1, info: 2, success: 2, task: 3 };
+
+  $: notifBubbles = $notifications.filter(n => n.showBubble).map(n => ({
+    ...n, _kind: 'notif', _priority: PRIORITY[n.type] ?? 2
+  }));
+
+  $: taskBubbles = $uploadTasks.map(t => ({
+    ...t, _kind: 'task', _priority: PRIORITY.task,
+    type: t.status === 'done' ? 'success' : t.status === 'error' ? 'error' : 'info'
+  }));
+
+  $: allBubbles = [...notifBubbles, ...taskBubbles]
+    .sort((a, b) => a._priority - b._priority)
+    .slice(0, MAX);
 
   const ICONS = {
     success:  '<polyline points="20 6 9 17 4 12"/>',
@@ -24,69 +33,38 @@
 
   function getIcon(type) { return ICONS[type] || ICONS.info; }
 
-  function fmtTime(iso) {
-    const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
-    if (diff < 60) return 'ahora';
-    if (diff < 3600) return `hace ${Math.floor(diff/60)}m`;
-    return `hace ${Math.floor(diff/3600)}h`;
-  }
-
-  // auto-hide action — only for non-persistent types
-  function autoHide(node, { id, type }) {
-    if (PERSISTENT_TYPES.has(type)) return { destroy() {} };
+  function autoHide(node, { id, type, kind }) {
+    if (PERSISTENT_TYPES.has(type) || kind === 'task') return { destroy() {} };
     const t = setTimeout(() => hideBubble(id), DURATION);
     return { destroy() { clearTimeout(t); } };
   }
 
-  // Click on bubble body — open relevant app
   function onBubbleClick(n) {
-    // SMART / disk / storage related
+    if (n._kind !== 'notif') return;
     if (n.category === 'system' && (n.title?.includes('Disco') || n.title?.includes('SMART') || n.title?.includes('Verificación') || n.message?.includes('disco'))) {
       openWindow('storage');
       hideBubble(n.id);
     }
   }
+
+  function closeBubble(b) {
+    if (b._kind === 'task') removeTask(b.id);
+    else hideBubble(b.id);
+  }
 </script>
 
 <div class="bubble-container">
-  {#each bubbles as n (n.id)}
+  {#each allBubbles as b (b._kind + '-' + b.id)}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="bubble b-{n.type}" class:persistent={PERSISTENT_TYPES.has(n.type)}
+      class="bubble b-{b.type}"
       in:fly={{ x: 100, duration: 300 }}
       out:fly={{ x: 100, duration: 220 }}
-      use:autoHide={{ id: n.id, type: n.type }}
-      on:click={() => onBubbleClick(n)}
+      use:autoHide={{ id: b.id, type: b.type, kind: b._kind }}
+      on:click={() => onBubbleClick(b)}
     >
-      <div class="b-ico">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round">
-          {@html getIcon(n.type)}
-        </svg>
-      </div>
-      <div class="b-body">
-        {#if n.title}<div class="b-title">{n.title}</div>{/if}
-        <div class="b-msg" class:solo={!n.title}>{n.message}</div>
-        {#if !PERSISTENT_TYPES.has(n.type)}
-          <div class="b-prog"><div class="b-bar" style="animation-duration:{DURATION}ms"></div></div>
-        {/if}
-      </div>
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="b-close" on:click|stopPropagation={() => hideBubble(n.id)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
-      </div>
-    </div>
-  {/each}
-
-  {#each $uploadTasks as task (task.id)}
-    <div class="bubble upload-bubble b-{task.status === 'done' ? 'success' : task.status === 'error' ? 'error' : 'info'}"
-      class:persistent={task.status !== 'uploading'}
-      in:fly={{ x: 100, duration: 300 }}
-      out:fly={{ x: 100, duration: 220 }}>
-      {#if task.status === 'uploading'}
+      {#if b._kind === 'task' && b.status === 'uploading'}
         <div class="upload-dots">
           <span class="dot"></span>
           <span class="dot dot2"></span>
@@ -94,29 +72,37 @@
         </div>
       {:else}
         <div class="b-ico">
-          {#if task.status === 'done'}
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-          {:else}
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          {/if}
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round">
+            {@html getIcon(b.type)}
+          </svg>
         </div>
       {/if}
       <div class="b-body">
-        <div class="b-title">{task.name}</div>
-        {#if task.status === 'uploading'}
-          <div class="up-track"><div class="up-fill" style="width:{task.progress}%"></div></div>
-          <div class="up-pct">{task.progress}%</div>
-        {:else if task.status === 'done'}
-          <div class="b-msg" style="color:var(--green)">Subido correctamente</div>
+        {#if b._kind === 'task'}
+          <div class="b-title">{b.name}</div>
+          {#if b.status === 'uploading'}
+            <div class="up-track"><div class="up-fill" style="width:{b.progress}%"></div></div>
+            <div class="up-pct">{b.progress}%</div>
+          {:else if b.status === 'done'}
+            <div class="b-msg" style="color:var(--green)">Subido correctamente</div>
+          {:else}
+            <div class="b-msg" style="color:var(--red)">{b.error || 'Error al subir'}</div>
+          {/if}
         {:else}
-          <div class="b-msg" style="color:var(--red)">{task.error || 'Error al subir'}</div>
+          {#if b.title}<div class="b-title">{b.title}</div>{/if}
+          <div class="b-msg" class:solo={!b.title}>{b.message}</div>
+          {#if !PERSISTENT_TYPES.has(b.type)}
+            <div class="b-prog"><div class="b-bar" style="animation-duration:{DURATION}ms"></div></div>
+          {/if}
         {/if}
       </div>
-      {#if task.status !== 'uploading'}
+      {#if b._kind !== 'task' || b.status !== 'uploading'}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="b-close" on:click={() => removeTask(task.id)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <div class="b-close" on:click|stopPropagation={() => closeBubble(b)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
         </div>
       {/if}
     </div>
@@ -126,13 +112,13 @@
 <style>
   .bubble-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; align-items:flex-end; }
 
-  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1px solid var(--window-border); border-radius:11px; padding:11px 12px 11px; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; border-left:3px solid transparent; }
+  .bubble { width:310px; background:var(--glass-bg); backdrop-filter:blur(20px) saturate(1.4); -webkit-backdrop-filter:blur(20px) saturate(1.4); border:1.5px solid var(--window-border); border-radius:11px; padding:11px 12px 11px; display:flex; gap:9px; align-items:flex-start; pointer-events:auto; position:relative; overflow:hidden; cursor:pointer; }
 
-  .b-success { border-left-color:var(--green); }
-  .b-error   { border-left-color:var(--red); }
-  .b-warning { border-left-color:var(--amber); }
-  .b-info    { border-left-color:var(--accent); }
-  .b-security{ border-left-color:var(--red); }
+  .b-success { border-color:var(--green); }
+  .b-error   { border-color:var(--red); }
+  .b-warning { border-color:var(--amber); }
+  .b-info    { border-color:var(--accent); }
+  .b-security{ border-color:var(--red); }
 
   .b-ico { width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-left:6px; margin-top:1px; }
   .b-ico svg { width:11px; height:11px; fill:none; stroke-width:2.5; stroke-linecap:round; }

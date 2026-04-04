@@ -20,7 +20,7 @@
   $: userRole = $user?.role     || 'user';
 
   // Tab label for titlebar subtitle
-  const tabLabel = { resumen:'Resumen', disks:'Discos', health:'Salud', restore:'Restaurar volumen', snapshots:'Puntos de restauración' };
+  const tabLabel = { resumen:'Resumen', detalle:'Gestionar', disks:'Discos', health:'Salud', restore:'Restaurar volumen', snapshots:'Puntos de restauración' };
 </script>
 
 <div class="storage-app-root">

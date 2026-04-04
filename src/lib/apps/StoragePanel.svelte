@@ -8,6 +8,8 @@
 
   let loading = true;
   let pools = [];
+  let detailPool = null;  // selected pool for detail view
+  let poolServices = [];  // services for the selected pool
   let eligible = [];
   let provisioned = [];
   let nvme = [];
@@ -201,6 +203,32 @@
     return (bytes / 1e9).toFixed(1) + ' GB';
   }
 
+  function openDetail(pool) {
+    detailPool = pool;
+    activeTab = 'detalle';
+    loadPoolServices(pool.name);
+  }
+
+  function closeDetail() {
+    detailPool = null;
+    activeTab = 'resumen';
+  }
+
+  async function loadPoolServices(poolName) {
+    try {
+      const r = await fetch(`/api/services?pool=${encodeURIComponent(poolName)}`, { headers: hdrs() });
+      const d = await r.json();
+      poolServices = d.services || [];
+    } catch { poolServices = []; }
+  }
+
+  // Get disks that belong to a specific pool
+  function poolDisks(pool) {
+    if (pool.disks && pool.disks.length > 0) return pool.disks;
+    // Fallback: match provisioned disks by pool name
+    return provisioned.filter(d => d.pool === pool.name || d.poolName === pool.name);
+  }
+
   function selectDisk(d) {
     selectedDisk = selectedDisk?.name === d.name ? null : d;
   }
@@ -368,7 +396,7 @@
                     <span>📁 {pool.shares?.length || 0} carpetas</span>
                   </div>
                   <div class="r-vol-actions">
-                    <button class="r-btn" on:click|stopPropagation={() => {}}>Gestionar</button>
+                    <button class="r-btn" on:click|stopPropagation={() => openDetail(pool)}>Gestionar</button>
                     <button class="r-btn r-btn-primary" on:click|stopPropagation={() => {}}>+ Punto de restauración</button>
                   </div>
                 </div>
@@ -414,6 +442,98 @@
             <div class="r-bar-text"><span>{fmt(usedBytes)} usados de {fmt(totalPoolBytes)}</span><span>{usedPct.toFixed(0)}%</span></div>
           </div>
         {/if}
+      </div>
+
+    {:else if activeTab === 'detalle' && detailPool}
+
+      <!-- ══ DETALLE VOLUMEN ══ -->
+      <div class="resumen-scroll">
+        <!-- Back button -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="r-back" on:click={closeDetail}>← Volver a Resumen</div>
+
+        <!-- Info + Space grid -->
+        <div class="r-detail-grid">
+          <div class="r-detail-card">
+            <div class="r-sec">Información</div>
+            <div class="r-detail-rows">
+              <div class="r-detail-row">
+                <span class="r-detail-key">Estado</span>
+                <span class="r-detail-val" style="color:var(--green);font-weight:600">
+                  {detailPool.status === 'ONLINE' || detailPool.status === 'active' ? '● Normal' : detailPool.status === 'DEGRADED' ? '● Degradado' : detailPool.status || '—'}
+                </span>
+              </div>
+              <div class="r-detail-row">
+                <span class="r-detail-key">Protección</span>
+                <span class="r-detail-val">{translateProtection(detailPool.profile || detailPool.vdevType)} ({detailPool.disks?.length || '?'} discos)</span>
+              </div>
+              <div class="r-detail-row">
+                <span class="r-detail-key">Sistema</span>
+                <span class="r-detail-val">{detailPool.type?.toUpperCase() || '—'}</span>
+              </div>
+              <div class="r-detail-row">
+                <span class="r-detail-key">Nombre</span>
+                <span class="r-detail-val">{detailPool.name}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="r-detail-card">
+            <div class="r-sec">Espacio</div>
+            <div class="r-bar"><div class="r-bar-fill" style="width:{poolUsedPct(detailPool)}%"></div></div>
+            <div class="r-bar-text"><span>{fmt(detailPool.used || 0)}</span><span>{fmt(detailPool.size || 0)} · {poolUsedPct(detailPool)}%</span></div>
+            {#if detailPool.shares && detailPool.shares.length > 0}
+              <div style="margin-top:14px">
+                {#each detailPool.shares as share}
+                  <div class="r-use-row">
+                    <span class="r-use-name">{share.name || share}</span>
+                    <span class="r-use-size">{fmt(share.used || 0)}</span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Disks in this volume -->
+        <div class="r-detail-card" style="margin-top:14px">
+          <div class="r-sec">Discos en este volumen</div>
+          {#each poolDisks(detailPool) as d}
+            <div class="r-disk-row">
+              <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
+              <div class="r-disk-info">
+                <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
+                <div class="r-disk-model">{fmt(d.size)}</div>
+              </div>
+              <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+            </div>
+          {:else}
+            <div style="font-size:11px;color:var(--text-3);padding:8px 0">Información de discos no disponible</div>
+          {/each}
+        </div>
+
+        <!-- Services -->
+        {#if poolServices.length > 0}
+          <div class="r-detail-card" style="margin-top:14px">
+            <div class="r-sec">Servicios que usan este volumen</div>
+            {#each poolServices as svc}
+              <div class="r-svc-row">
+                <span class="r-svc-dot" style="background:{svc.status === 'running' ? 'var(--green)' : 'var(--text-3)'}"></span>
+                <span class="r-svc-name">{svc.appName || svc.appId}</span>
+                <span class="r-svc-status">{svc.status === 'running' ? 'activo' : svc.status}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <!-- Actions -->
+        <div class="r-sec" style="margin-top:14px">Acciones</div>
+        <div class="r-actions-row">
+          <button class="r-btn">Verificar integridad</button>
+          <button class="r-btn r-btn-primary">Crear punto de restauración</button>
+          <button class="r-btn r-btn-danger">Destruir volumen</button>
+        </div>
       </div>
 
     {:else if activeTab === 'disks'}
@@ -1198,4 +1318,31 @@
   .o-dot { width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0; }
   .btn-cta { padding:12px 28px; border-radius:10px; border:none; cursor:pointer; background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; font-size:14px; font-weight:600; font-family:inherit; margin-top:8px; box-shadow:0 4px 16px rgba(124,111,255,0.25); transition:opacity .15s; }
   .btn-cta:hover { opacity:.88; }
+
+  /* ── DETAIL VIEW ── */
+  .r-back { font-size:12px; color:var(--accent); cursor:pointer; padding:4px 0; margin-bottom:4px; }
+  .r-back:hover { text-decoration:underline; }
+
+  .r-detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .r-detail-card { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:12px; padding:16px 18px; }
+  .r-detail-rows { display:flex; flex-direction:column; gap:8px; font-size:12px; }
+  .r-detail-row { display:flex; justify-content:space-between; align-items:center; padding:3px 0; }
+  .r-detail-row + .r-detail-row { border-top:1px solid var(--border); padding-top:8px; }
+  .r-detail-key { color:var(--text-3); }
+  .r-detail-val { color:var(--text-1); font-family:'DM Mono',monospace; }
+
+  .r-use-row { display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .r-use-row:last-child { border:none; }
+  .r-use-name { color:var(--text-2); }
+  .r-use-size { font-family:'DM Mono',monospace; font-weight:500; color:var(--text-1); }
+
+  .r-svc-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .r-svc-row:last-child { border:none; }
+  .r-svc-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .r-svc-name { font-weight:500; color:var(--text-1); }
+  .r-svc-status { margin-left:auto; font-size:11px; color:var(--text-3); }
+
+  .r-actions-row { display:flex; gap:8px; margin-top:4px; }
+  .r-btn-danger { background:rgba(239,68,68,0.10); border-color:rgba(239,68,68,0.3); color:var(--red); }
+  .r-btn-danger:hover { background:rgba(239,68,68,0.18); }
 </style>

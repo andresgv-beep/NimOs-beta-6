@@ -101,6 +101,8 @@
   let scrubLoading = false;
   let scrubMsg = ''; let scrubMsgError = false;
   let scrubInterval = null;
+  let scrubSchedule = { frequency: 'off', hour: 2, minute: 0, dayOfWeek: 0, dayOfMonth: 1 };
+  let savingSchedule = false;
 
   async function loadScrubStatus(pool) {
     if (!pool) return;
@@ -144,6 +146,48 @@
     }
   }
 
+  async function loadScrubSchedule(poolName) {
+    if (!poolName) return;
+    try {
+      const r = await fetch(`/api/storage/scrub/schedule?pool=${encodeURIComponent(poolName)}`, { headers: hdrs() });
+      const d = await r.json();
+      scrubSchedule = {
+        frequency: d.frequency || 'off',
+        hour: d.hour ?? 2,
+        minute: d.minute ?? 0,
+        dayOfWeek: d.dayOfWeek ?? 0,
+        dayOfMonth: d.dayOfMonth ?? 1,
+        lastRun: d.lastRun || null,
+        nextRun: d.nextRun || null,
+      };
+    } catch {
+      scrubSchedule = { frequency: 'off', hour: 2, minute: 0, dayOfWeek: 0, dayOfMonth: 1 };
+    }
+  }
+
+  async function saveScrubSchedule() {
+    savingSchedule = true;
+    try {
+      const r = await fetch('/api/storage/scrub/schedule', {
+        method: 'POST',
+        headers: { ...hdrs(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pool: scrubPool,
+          frequency: scrubSchedule.frequency,
+          hour: scrubSchedule.hour,
+          minute: scrubSchedule.minute,
+          dayOfWeek: scrubSchedule.dayOfWeek,
+          dayOfMonth: scrubSchedule.dayOfMonth,
+        }),
+      });
+      const d = await r.json();
+      if (d.ok && d.nextRun) scrubSchedule.nextRun = d.nextRun;
+    } catch {}
+    savingSchedule = false;
+  }
+
+  const dayNames = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+
   // ── Reactive: load ZFS data when tab changes ────────────────────────────────
   $: if (activeTab === 'snapshots' && pools.length > 0) {
     if (!snapPool) snapPool = pools[0]?.name || '';
@@ -152,6 +196,7 @@
   $: if ((activeTab === 'health' || activeTab === 'scrub') && pools.length > 0) {
     if (!scrubPool) scrubPool = pools[0]?.name || '';
     loadScrubStatus(scrubPool);
+    loadScrubSchedule(scrubPool);
   }
   $: if (snapPool && activeTab === 'snapshots') loadSnapshots(snapPool);
   $: if (scrubPool && (activeTab === 'health' || activeTab === 'scrub')) loadScrubStatus(scrubPool);
@@ -1033,6 +1078,73 @@
                 </div>
               {/each}
             {/if}
+
+            <!-- Schedule -->
+            {#if isActive}
+              <div class="r-sec" style="margin-top:14px">Programación</div>
+              <div class="r-sched-wrap">
+                <div class="r-sched-row">
+                  <span class="r-sched-label">Frecuencia</span>
+                  <select class="r-sched-select" bind:value={scrubSchedule.frequency} on:change={saveScrubSchedule}>
+                    <option value="off">Desactivado</option>
+                    <option value="daily">Diaria</option>
+                    <option value="weekly">Semanal</option>
+                    <option value="monthly">Mensual</option>
+                  </select>
+                </div>
+
+                {#if scrubSchedule.frequency !== 'off'}
+                  <div class="r-sched-row">
+                    <span class="r-sched-label">Hora</span>
+                    <div class="r-sched-time">
+                      <select class="r-sched-select r-sched-sm" bind:value={scrubSchedule.hour} on:change={saveScrubSchedule}>
+                        {#each Array(24) as _, i}<option value={i}>{String(i).padStart(2,'0')}</option>{/each}
+                      </select>
+                      <span>:</span>
+                      <select class="r-sched-select r-sched-sm" bind:value={scrubSchedule.minute} on:change={saveScrubSchedule}>
+                        {#each [0,15,30,45] as m}<option value={m}>{String(m).padStart(2,'0')}</option>{/each}
+                      </select>
+                    </div>
+                  </div>
+
+                  {#if scrubSchedule.frequency === 'weekly'}
+                    <div class="r-sched-row">
+                      <span class="r-sched-label">Día de la semana</span>
+                      <select class="r-sched-select" bind:value={scrubSchedule.dayOfWeek} on:change={saveScrubSchedule}>
+                        {#each dayNames as name, i}<option value={i}>{name}</option>{/each}
+                      </select>
+                    </div>
+                  {/if}
+
+                  {#if scrubSchedule.frequency === 'monthly'}
+                    <div class="r-sched-row">
+                      <span class="r-sched-label">Día del mes</span>
+                      <select class="r-sched-select" bind:value={scrubSchedule.dayOfMonth} on:change={saveScrubSchedule}>
+                        {#each Array(28) as _, i}<option value={i+1}>{i+1}</option>{/each}
+                      </select>
+                    </div>
+                  {/if}
+
+                  {#if scrubSchedule.nextRun}
+                    <div class="r-sched-row">
+                      <span class="r-sched-label">Próxima verificación</span>
+                      <span class="r-sched-val">{fmtDate(scrubSchedule.nextRun)}</span>
+                    </div>
+                  {/if}
+
+                  {#if scrubSchedule.lastRun}
+                    <div class="r-sched-row">
+                      <span class="r-sched-label">Última ejecución</span>
+                      <span class="r-sched-val">{fmtDate(scrubSchedule.lastRun)}</span>
+                    </div>
+                  {/if}
+                {/if}
+
+                {#if savingSchedule}
+                  <div class="r-sched-saving">Guardando...</div>
+                {/if}
+              </div>
+            {/if}
           </div>
         {/each}
 
@@ -1679,4 +1791,16 @@
   .r-scrub-disk-errs { font-family:'DM Mono',monospace; color:var(--text-3); font-size:10px; }
 
   .r-scrub-note { font-size:11px; color:var(--text-3); line-height:1.6; margin-top:10px; padding:12px 14px; background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:9px; }
+
+  /* ── SCHEDULE ── */
+  .r-sched-wrap { display:flex; flex-direction:column; gap:8px; }
+  .r-sched-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
+  .r-sched-row:last-child { border:none; }
+  .r-sched-label { color:var(--text-3); flex-shrink:0; }
+  .r-sched-val { color:var(--text-1); font-family:'DM Mono',monospace; font-size:11px; }
+  .r-sched-select { padding:5px 10px; border-radius:6px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-1); font-family:inherit; font-size:11px; cursor:pointer; outline:none; }
+  .r-sched-select:focus { border-color:var(--accent); }
+  .r-sched-sm { width:56px; }
+  .r-sched-time { display:flex; align-items:center; gap:4px; color:var(--text-3); }
+  .r-sched-saving { font-size:10px; color:var(--accent); padding:4px 0; }
 </style>

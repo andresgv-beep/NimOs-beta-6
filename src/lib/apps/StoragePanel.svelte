@@ -261,10 +261,32 @@
     return map[profile?.toLowerCase()] || profile || '—';
   }
 
-  // Simulated recent activity (from notifications in future)
-  $: recentActivity = pools.length > 0 ? [
-    { time: 'Reciente', color: 'var(--green)', message: `${pools.length} volumen${pools.length > 1 ? 'es' : ''} activo${pools.length > 1 ? 's' : ''}` },
-  ] : [];
+  // Real activity from notifications
+  let recentActivity = [];
+
+  async function loadRecentActivity() {
+    try {
+      const r = await fetch(`/api/notifications?category=system&limit=4`, { headers: hdrs() });
+      const d = await r.json();
+      const notifs = d.notifications || [];
+      recentActivity = notifs.map(n => {
+        const colorMap = { info: 'var(--blue, #60a5fa)', success: 'var(--green)', warning: 'var(--amber, #f59e0b)', error: 'var(--red, #ef4444)' };
+        let timeAgo = '—';
+        if (n.timestamp) {
+          const diff = Date.now() - new Date(n.timestamp).getTime();
+          const mins = Math.floor(diff / 60000);
+          if (mins < 1) timeAgo = 'Ahora';
+          else if (mins < 60) timeAgo = `${mins}m`;
+          else if (mins < 1440) timeAgo = `${Math.floor(mins / 60)}h`;
+          else timeAgo = `${Math.floor(mins / 1440)}d`;
+        }
+        return { time: timeAgo, color: colorMap[n.type] || 'var(--text-3)', message: n.title || n.message };
+      });
+    } catch { recentActivity = []; }
+  }
+
+  // Load activity when resumen tab is active
+  $: if (activeTab === 'resumen' && !loading) loadRecentActivity();
 
   function fmt(bytes) {
     if (!bytes) return '—';
@@ -1085,43 +1107,47 @@
               <div class="r-sched-wrap">
                 <div class="r-sched-row">
                   <span class="r-sched-label">Frecuencia</span>
-                  <select class="r-sched-select" bind:value={scrubSchedule.frequency} on:change={saveScrubSchedule}>
-                    <option value="off">Desactivado</option>
-                    <option value="daily">Diaria</option>
-                    <option value="weekly">Semanal</option>
-                    <option value="monthly">Mensual</option>
-                  </select>
+                  <div class="r-sched-btns">
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    {#each [{v:'off',l:'Off'},{v:'daily',l:'Diaria'},{v:'weekly',l:'Semanal'},{v:'monthly',l:'Mensual'}] as opt}
+                      <div class="r-sched-btn" class:active={scrubSchedule.frequency === opt.v}
+                        on:click={() => { scrubSchedule.frequency = opt.v; saveScrubSchedule(); }}>{opt.l}</div>
+                    {/each}
+                  </div>
                 </div>
 
                 {#if scrubSchedule.frequency !== 'off'}
                   <div class="r-sched-row">
                     <span class="r-sched-label">Hora</span>
-                    <div class="r-sched-time">
-                      <select class="r-sched-select r-sched-sm" bind:value={scrubSchedule.hour} on:change={saveScrubSchedule}>
-                        {#each Array(24) as _, i}<option value={i}>{String(i).padStart(2,'0')}</option>{/each}
-                      </select>
-                      <span>:</span>
-                      <select class="r-sched-select r-sched-sm" bind:value={scrubSchedule.minute} on:change={saveScrubSchedule}>
-                        {#each [0,15,30,45] as m}<option value={m}>{String(m).padStart(2,'0')}</option>{/each}
-                      </select>
+                    <div class="r-sched-time-wrap">
+                      <input class="r-sched-input" type="number" min="0" max="23"
+                        bind:value={scrubSchedule.hour} on:change={saveScrubSchedule}>
+                      <span class="r-sched-colon">:</span>
+                      <input class="r-sched-input" type="number" min="0" max="59" step="15"
+                        bind:value={scrubSchedule.minute} on:change={saveScrubSchedule}>
                     </div>
                   </div>
 
                   {#if scrubSchedule.frequency === 'weekly'}
                     <div class="r-sched-row">
-                      <span class="r-sched-label">Día de la semana</span>
-                      <select class="r-sched-select" bind:value={scrubSchedule.dayOfWeek} on:change={saveScrubSchedule}>
-                        {#each dayNames as name, i}<option value={i}>{name}</option>{/each}
-                      </select>
+                      <span class="r-sched-label">Día</span>
+                      <div class="r-sched-btns">
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        {#each ['D','L','M','X','J','V','S'] as d, i}
+                          <div class="r-sched-btn r-sched-day" class:active={scrubSchedule.dayOfWeek === i}
+                            on:click={() => { scrubSchedule.dayOfWeek = i; saveScrubSchedule(); }}>{d}</div>
+                        {/each}
+                      </div>
                     </div>
                   {/if}
 
                   {#if scrubSchedule.frequency === 'monthly'}
                     <div class="r-sched-row">
                       <span class="r-sched-label">Día del mes</span>
-                      <select class="r-sched-select" bind:value={scrubSchedule.dayOfMonth} on:change={saveScrubSchedule}>
-                        {#each Array(28) as _, i}<option value={i+1}>{i+1}</option>{/each}
-                      </select>
+                      <input class="r-sched-input r-sched-input-wide" type="number" min="1" max="28"
+                        bind:value={scrubSchedule.dayOfMonth} on:change={saveScrubSchedule}>
                     </div>
                   {/if}
 
@@ -1798,9 +1824,18 @@
   .r-sched-row:last-child { border:none; }
   .r-sched-label { color:var(--text-3); flex-shrink:0; }
   .r-sched-val { color:var(--text-1); font-family:'DM Mono',monospace; font-size:11px; }
-  .r-sched-select { padding:5px 10px; border-radius:6px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-1); font-family:inherit; font-size:11px; cursor:pointer; outline:none; }
-  .r-sched-select:focus { border-color:var(--accent); }
-  .r-sched-sm { width:56px; }
-  .r-sched-time { display:flex; align-items:center; gap:4px; color:var(--text-3); }
+
+  .r-sched-btns { display:flex; gap:4px; }
+  .r-sched-btn { padding:5px 11px; border-radius:6px; border:1px solid var(--border); background:rgba(255,255,255,0.03); color:var(--text-3); font-size:10px; font-weight:600; cursor:pointer; transition:all .15s; font-family:inherit; }
+  .r-sched-btn:hover { border-color:var(--border-hi); color:var(--text-1); }
+  .r-sched-btn.active { background:rgba(124,111,255,0.15); border-color:var(--accent); color:var(--accent); }
+  .r-sched-day { width:28px; height:28px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:50%; font-size:10px; }
+
+  .r-sched-time-wrap { display:flex; align-items:center; gap:4px; }
+  .r-sched-colon { color:var(--text-3); font-weight:700; font-size:14px; }
+  .r-sched-input { width:48px; padding:5px 8px; border-radius:6px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-1); font-family:'DM Mono',monospace; font-size:12px; text-align:center; outline:none; -moz-appearance:textfield; }
+  .r-sched-input::-webkit-outer-spin-button, .r-sched-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  .r-sched-input:focus { border-color:var(--accent); }
+  .r-sched-input-wide { width:56px; }
   .r-sched-saving { font-size:10px; color:var(--accent); padding:4px 0; }
 </style>

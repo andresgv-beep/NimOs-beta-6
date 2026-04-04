@@ -1401,9 +1401,9 @@ func getDiskSmart(diskName string) map[string]interface{} {
 		worst := parseIntDefault(fields[4], 0)
 		thresh := parseIntDefault(fields[5], 0)
 		rawVal := fields[9]
-		// Some raw values have extra info like "32 (Min/Max 20/45)"
-		// Just take the first number
-		rawNum := parseIntDefault(strings.Split(rawVal, " ")[0], 0)
+		// Raw values can be: "0", "32 (Min/Max 20/45)", "17551h+03m+04.440s"
+		// Extract the leading number
+		rawNum := parseRawSmartValue(rawVal)
 
 		attrStatus := "ok"
 		if thresh > 0 && value <= thresh {
@@ -1452,6 +1452,18 @@ func getDiskSmart(diskName string) map[string]interface{} {
 				result["status"] = "critical"
 				result["healthy"] = false
 			}
+		case "Reported_Uncorrect":
+			if rawNum > 0 {
+				if result["status"] == "ok" {
+					result["status"] = "warning"
+				}
+			}
+		case "Runtime_Bad_Block":
+			if rawNum > 0 {
+				if result["status"] == "ok" {
+					result["status"] = "warning"
+				}
+			}
 		}
 	}
 
@@ -1461,4 +1473,26 @@ func getDiskSmart(diskName string) map[string]interface{} {
 	result["attributes"] = attrs
 
 	return result
+}
+
+// parseRawSmartValue extracts the leading integer from SMART raw values
+// Handles formats like: "0", "17551h+03m+04.440s", "32 (Min/Max 20/45)", "36"
+func parseRawSmartValue(raw string) int {
+	if raw == "" {
+		return 0
+	}
+	// Extract leading digits
+	numStr := ""
+	for _, c := range raw {
+		if c >= '0' && c <= '9' {
+			numStr += string(c)
+		} else {
+			break
+		}
+	}
+	if numStr == "" {
+		return 0
+	}
+	n, _ := strconv.Atoi(numStr)
+	return n
 }

@@ -644,6 +644,9 @@ func main() {
 		reconcileServices()
 	}()
 
+	// Start scrub scheduler — checks every 60s if a scheduled verification is due
+	go startScrubScheduler()
+
 	// Clean up stale socket
 	os.Remove(socketPath)
 

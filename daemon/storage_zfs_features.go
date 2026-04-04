@@ -689,3 +689,341 @@ func parseZfsSize(s string) int64 {
 	}
 	return int64(val * float64(multiplier))
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCRUB SCHEDULE — Automated integrity verification
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// initScrubScheduleTable creates the scrub_schedule table if it doesn't exist
+func initScrubScheduleTable() {
+	db := getDB()
+	if db == nil {
+		return
+	}
+	db.Exec(`CREATE TABLE IF NOT EXISTS scrub_schedule (
+		pool_name    TEXT PRIMARY KEY,
+		frequency    TEXT NOT NULL DEFAULT 'off',
+		hour         INTEGER NOT NULL DEFAULT 2,
+		minute       INTEGER NOT NULL DEFAULT 0,
+		day_of_week  INTEGER NOT NULL DEFAULT 0,
+		day_of_month INTEGER NOT NULL DEFAULT 1,
+		last_run     TEXT,
+		next_run     TEXT,
+		enabled      INTEGER NOT NULL DEFAULT 1,
+		created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+	)`)
+}
+
+// getScrubSchedule returns the schedule config for a pool
+// GET /api/storage/scrub/schedule?pool=NAME
+func getScrubSchedule(poolName string) map[string]interface{} {
+	if poolName == "" {
+		// Return all schedules
+		return getAllScrubSchedules()
+	}
+
+	db := getDB()
+	if db == nil {
+		return map[string]interface{}{"frequency": "off", "pool": poolName}
+	}
+
+	var freq, lastRun, nextRun string
+	var hour, minute, dow, dom int
+	var enabled int
+	err := db.QueryRow(`SELECT frequency, hour, minute, day_of_week, day_of_month, 
+		COALESCE(last_run,''), COALESCE(next_run,''), enabled 
+		FROM scrub_schedule WHERE pool_name = ?`, poolName).
+		Scan(&freq, &hour, &minute, &dow, &dom, &lastRun, &nextRun, &enabled)
+
+	if err != nil {
+		return map[string]interface{}{
+			"pool":      poolName,
+			"frequency": "off",
+			"hour":      2,
+			"minute":    0,
+			"dayOfWeek": 0,
+			"dayOfMonth": 1,
+			"lastRun":   nil,
+			"nextRun":   nil,
+			"enabled":   false,
+		}
+	}
+
+	result := map[string]interface{}{
+		"pool":       poolName,
+		"frequency":  freq,
+		"hour":       hour,
+		"minute":     minute,
+		"dayOfWeek":  dow,
+		"dayOfMonth": dom,
+		"enabled":    enabled == 1,
+	}
+	if lastRun != "" {
+		result["lastRun"] = lastRun
+	} else {
+		result["lastRun"] = nil
+	}
+	if nextRun != "" {
+		result["nextRun"] = nextRun
+	} else {
+		result["nextRun"] = calculateNextRun(freq, hour, minute, dow, dom)
+	}
+
+	return result
+}
+
+func getAllScrubSchedules() map[string]interface{} {
+	db := getDB()
+	if db == nil {
+		return map[string]interface{}{"schedules": []interface{}{}}
+	}
+
+	rows, err := db.Query(`SELECT pool_name, frequency, hour, minute, day_of_week, day_of_month, 
+		COALESCE(last_run,''), COALESCE(next_run,''), enabled FROM scrub_schedule`)
+	if err != nil {
+		return map[string]interface{}{"schedules": []interface{}{}}
+	}
+	defer rows.Close()
+
+	var schedules []interface{}
+	for rows.Next() {
+		var pool, freq, lastRun, nextRun string
+		var hour, minute, dow, dom, enabled int
+		rows.Scan(&pool, &freq, &hour, &minute, &dow, &dom, &lastRun, &nextRun, &enabled)
+		s := map[string]interface{}{
+			"pool": pool, "frequency": freq, "hour": hour, "minute": minute,
+			"dayOfWeek": dow, "dayOfMonth": dom, "enabled": enabled == 1,
+		}
+		if lastRun != "" { s["lastRun"] = lastRun } else { s["lastRun"] = nil }
+		if nextRun != "" { s["nextRun"] = nextRun } else { s["nextRun"] = nil }
+		schedules = append(schedules, s)
+	}
+	if schedules == nil {
+		schedules = []interface{}{}
+	}
+	return map[string]interface{}{"schedules": schedules}
+}
+
+// saveScrubSchedule saves or updates a scrub schedule
+// POST /api/storage/scrub/schedule { pool, frequency, hour, minute, dayOfWeek, dayOfMonth }
+// frequency: "off" | "daily" | "weekly" | "monthly"
+func saveScrubSchedule(body map[string]interface{}) map[string]interface{} {
+	pool := bodyStr(body, "pool")
+	freq := bodyStr(body, "frequency")
+	if pool == "" {
+		return map[string]interface{}{"ok": false, "error": "Pool name required"}
+	}
+	if freq == "" {
+		freq = "off"
+	}
+
+	// Validate frequency
+	validFreqs := map[string]bool{"off": true, "daily": true, "weekly": true, "monthly": true}
+	if !validFreqs[freq] {
+		return map[string]interface{}{"ok": false, "error": "Invalid frequency. Use: off, daily, weekly, monthly"}
+	}
+
+	hour := int(bodyFloat(body, "hour", 2))
+	minute := int(bodyFloat(body, "minute", 0))
+	dow := int(bodyFloat(body, "dayOfWeek", 0))   // 0=Sunday
+	dom := int(bodyFloat(body, "dayOfMonth", 1))   // 1-28
+
+	// Clamp values
+	if hour < 0 { hour = 0 }
+	if hour > 23 { hour = 23 }
+	if minute < 0 { minute = 0 }
+	if minute > 59 { minute = 59 }
+	if dow < 0 { dow = 0 }
+	if dow > 6 { dow = 6 }
+	if dom < 1 { dom = 1 }
+	if dom > 28 { dom = 28 }
+
+	enabled := 1
+	if freq == "off" {
+		enabled = 0
+	}
+
+	nextRun := calculateNextRun(freq, hour, minute, dow, dom)
+
+	db := getDB()
+	if db == nil {
+		return map[string]interface{}{"ok": false, "error": "Database unavailable"}
+	}
+
+	_, err := db.Exec(`INSERT INTO scrub_schedule (pool_name, frequency, hour, minute, day_of_week, day_of_month, next_run, enabled, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		ON CONFLICT(pool_name) DO UPDATE SET 
+			frequency=excluded.frequency, hour=excluded.hour, minute=excluded.minute,
+			day_of_week=excluded.day_of_week, day_of_month=excluded.day_of_month,
+			next_run=excluded.next_run, enabled=excluded.enabled, updated_at=datetime('now')`,
+		pool, freq, hour, minute, dow, dom, nextRun, enabled)
+
+	if err != nil {
+		return map[string]interface{}{"ok": false, "error": fmt.Sprintf("Failed to save: %s", err)}
+	}
+
+	logMsg("Scrub schedule updated: pool=%s freq=%s hour=%d:%02d", pool, freq, hour, minute)
+
+	return map[string]interface{}{
+		"ok":       true,
+		"pool":     pool,
+		"frequency": freq,
+		"hour":     hour,
+		"minute":   minute,
+		"nextRun":  nextRun,
+		"enabled":  enabled == 1,
+	}
+}
+
+// calculateNextRun computes the next scheduled run time
+func calculateNextRun(freq string, hour, minute, dow, dom int) interface{} {
+	if freq == "off" {
+		return nil
+	}
+
+	now := time.Now()
+	var next time.Time
+
+	switch freq {
+	case "daily":
+		next = time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+		if next.Before(now) {
+			next = next.Add(24 * time.Hour)
+		}
+	case "weekly":
+		next = time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+		// Move to the target day of week
+		daysUntil := (dow - int(next.Weekday()) + 7) % 7
+		if daysUntil == 0 && next.Before(now) {
+			daysUntil = 7
+		}
+		next = next.Add(time.Duration(daysUntil) * 24 * time.Hour)
+	case "monthly":
+		next = time.Date(now.Year(), now.Month(), dom, hour, minute, 0, 0, now.Location())
+		if next.Before(now) {
+			next = next.AddDate(0, 1, 0)
+		}
+	default:
+		return nil
+	}
+
+	return next.Format(time.RFC3339)
+}
+
+// bodyFloat extracts a float64 from body with default
+func bodyFloat(body map[string]interface{}, key string, def float64) float64 {
+	if v, ok := body[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return val
+		case int:
+			return float64(val)
+		case string:
+			if f, err := strconv.ParseFloat(val, 64); err == nil {
+				return f
+			}
+		}
+	}
+	return def
+}
+
+// ─── Scrub Scheduler Goroutine ──────────────────────────────────────────────
+
+// startScrubScheduler runs in background, checks every 60 seconds if a scrub is due
+func startScrubScheduler() {
+	// Wait for DB to be ready
+	time.Sleep(10 * time.Second)
+	initScrubScheduleTable()
+
+	logMsg("Scrub scheduler started")
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		checkAndRunScheduledScrubs()
+	}
+}
+
+func checkAndRunScheduledScrubs() {
+	db := getDB()
+	if db == nil {
+		return
+	}
+
+	rows, err := db.Query(`SELECT pool_name, frequency, hour, minute, day_of_week, day_of_month, 
+		COALESCE(last_run,'') FROM scrub_schedule WHERE enabled = 1 AND frequency != 'off'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	now := time.Now()
+
+	for rows.Next() {
+		var pool, freq, lastRun string
+		var hour, minute, dow, dom int
+		rows.Scan(&pool, &freq, &hour, &minute, &dow, &dom, &lastRun)
+
+		// Check if it's time to run
+		if !shouldRunNow(freq, hour, minute, dow, dom, lastRun, now) {
+			continue
+		}
+
+		// Check if scrub is already running
+		status := getScrubStatus(pool)
+		if s, _ := status["status"].(string); s == "scrubbing" {
+			continue
+		}
+
+		// Start the scrub
+		logMsg("Scheduled scrub starting for pool %s (freq=%s)", pool, freq)
+		result := startScrub(map[string]interface{}{"pool": pool})
+		if ok, _ := result["ok"].(bool); ok {
+			// Update last_run and next_run
+			nextRun := calculateNextRun(freq, hour, minute, dow, dom)
+			db.Exec(`UPDATE scrub_schedule SET last_run = datetime('now'), next_run = ?, updated_at = datetime('now') WHERE pool_name = ?`,
+				nextRun, pool)
+
+			addNotification("info", "system", "Verificación programada iniciada",
+				fmt.Sprintf("Verificación de integridad automática iniciada en volumen %s", pool))
+		}
+	}
+}
+
+func shouldRunNow(freq string, hour, minute, dow, dom int, lastRun string, now time.Time) bool {
+	// Check if current time matches the schedule (within 60 second window)
+	if now.Hour() != hour || now.Minute() != minute {
+		return false
+	}
+
+	// Check day constraints
+	switch freq {
+	case "weekly":
+		if int(now.Weekday()) != dow {
+			return false
+		}
+	case "monthly":
+		if now.Day() != dom {
+			return false
+		}
+	}
+
+	// Check if already ran today (prevent double runs)
+	if lastRun != "" {
+		if t, err := time.Parse(time.RFC3339, lastRun); err == nil {
+			if now.Sub(t) < 23*time.Hour {
+				return false
+			}
+		}
+		// Try other date format
+		if t, err := time.Parse("2006-01-02 15:04:05", lastRun); err == nil {
+			if now.Sub(t) < 23*time.Hour {
+				return false
+			}
+		}
+	}
+
+	return true
+}

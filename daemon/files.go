@@ -31,6 +31,14 @@ func handleFilesRoutes(w http.ResponseWriter, r *http.Request) {
 		handleChunkedUpload(w, r)
 		return
 	}
+	if urlPath == "/api/files/upload-status" && method == "GET" {
+		handleUploadStatus(w, r)
+		return
+	}
+	if urlPath == "/api/files/upload-cancel" && method == "POST" {
+		handleUploadCancel(w, r)
+		return
+	}
 	if strings.HasPrefix(urlPath, "/api/files/download") && method == "GET" {
 		handleFileDownload(w, r)
 		return
@@ -1191,6 +1199,85 @@ func hashStr(s string) uint32 {
 
 func cleanupChunks(dir string) {
 	os.RemoveAll(dir)
+}
+
+// GET /api/files/upload-status?share=X&path=Y&filename=Z
+// Returns which chunks already exist for a partial upload (for resume).
+func handleUploadStatus(w http.ResponseWriter, r *http.Request) {
+	session := requireAuth(w, r)
+	if session == nil {
+		return
+	}
+
+	shareName := r.URL.Query().Get("share")
+	uploadPath := r.URL.Query().Get("path")
+	fileName := sanitizeFileName(r.URL.Query().Get("filename"))
+
+	if shareName == "" || fileName == "" {
+		jsonError(w, 400, "Missing share or filename")
+		return
+	}
+
+	share, _ := resolveShare(shareName)
+	if share == nil {
+		jsonError(w, 404, "Share not found")
+		return
+	}
+
+	tmpDir := filepath.Join(share.Path, ".nimchunks", fmt.Sprintf("%x", hashStr(uploadPath+fileName)))
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		// No chunks exist — fresh upload
+		jsonOk(w, map[string]interface{}{"ok": true, "chunks": []int{}, "count": 0})
+		return
+	}
+
+	var existing []int
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "chunk_") {
+			idx, err := strconv.Atoi(strings.TrimPrefix(e.Name(), "chunk_"))
+			if err == nil {
+				existing = append(existing, idx)
+			}
+		}
+	}
+	sort.Ints(existing)
+
+	jsonOk(w, map[string]interface{}{"ok": true, "chunks": existing, "count": len(existing)})
+}
+
+// POST /api/files/upload-cancel { share, path, filename }
+// Cleans up partial chunks for a cancelled upload.
+func handleUploadCancel(w http.ResponseWriter, r *http.Request) {
+	session := requireAuth(w, r)
+	if session == nil {
+		return
+	}
+
+	body, _ := readBody(r)
+	shareName := bodyStr(body, "share")
+	uploadPath := bodyStr(body, "path")
+	fileName := sanitizeFileName(bodyStr(body, "filename"))
+
+	if shareName == "" || fileName == "" {
+		jsonError(w, 400, "Missing share or filename")
+		return
+	}
+
+	share, _ := resolveShare(shareName)
+	if share == nil {
+		jsonError(w, 404, "Share not found")
+		return
+	}
+	if getSharePermission(session, share) != "rw" {
+		jsonError(w, 403, "Write access denied")
+		return
+	}
+
+	tmpDir := filepath.Join(share.Path, ".nimchunks", fmt.Sprintf("%x", hashStr(uploadPath+fileName)))
+	cleanupChunks(tmpDir)
+
+	jsonOk(w, map[string]interface{}{"ok": true})
 }
 
 func sanitizeFileName(name string) string {

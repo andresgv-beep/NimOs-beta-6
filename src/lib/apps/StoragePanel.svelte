@@ -19,6 +19,7 @@
   let provisioned = [];
   let nvme = [];
   let selectedDisk = null;
+  let expandedDisk = null;
 
   // Storage capabilities
   let capabilities = { zfs: false, btrfs: false, mdadm: false, recommended: 'btrfs' };
@@ -505,7 +506,7 @@
                 <div class="onboard-disk"><span class="o-dot"></span>{d.name} · {d.model || '—'} · {fmt(d.size)}</div>
               {/each}
             </div>
-            <button class="btn-cta" on:click={() => activeTab = 'pools'}>Crear mi primer volumen →</button>
+            <button class="btn-cta" on:click={() => { activeTab = 'disks'; showCreatePool = true; }}>Crear mi primer volumen →</button>
           </div>
         {:else if pools.length === 0}
           <!-- No disks at all -->
@@ -684,145 +685,161 @@
 
     {:else if activeTab === 'disks'}
 
-      <!-- HDD section -->
-      <div class="disk-section">
-        <div class="disk-section-label">Discos · HDD / SSD</div>
-        <div class="disk-slots-wrap">
-          {#each hddSlots as disk, i}
-            {#if disk}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="disk-slot" class:selected={selectedDisk?.name === disk.name} on:click={() => selectDisk(disk)}>
-                <svg width="58" height="130" viewBox="0 0 58 130" fill="none">
-                  <defs>
-                    <linearGradient id="hdd{i}bg" x1="0" y1="0" x2="0" y2="130" gradientUnits="userSpaceOnUse">
-                      <stop offset="0%" stop-color="#8b7fff"/>
-                      <stop offset="100%" stop-color="#5a48dd"/>
-                    </linearGradient>
-                  </defs>
-                  <rect x="0" y="0" width="58" height="130" rx="10" fill="url(#hdd{i}bg)"/>
-                  <rect x="4" y="4" width="50" height="104" rx="7" fill="rgba(0,0,0,0.45)"/>
-                  <text x="11" y="20" font-size="12" font-weight="700" font-family="DM Sans,sans-serif" fill="rgba(255,255,255,0.85)">{i+1}</text>
-                  <text x="29" y="100" text-anchor="middle" font-size="9" font-weight="600" font-family="DM Sans,sans-serif" fill="rgba(255,255,255,0.55)">{fmt(disk.size)}</text>
-                  <circle cx="29" cy="120" r="4" fill="#4ade80" style="animation:ledBlink 2s ease-in-out {i*0.5}s infinite"/>
-                  <circle cx="29" cy="120" r="7" fill="rgba(74,222,128,0.18)" style="animation:ledBlink 2s ease-in-out {i*0.5}s infinite"/>
-                </svg>
-                <div class="disk-label">{disk.name}</div>
-              </div>
-            {:else}
-              <div class="disk-slot empty">
-                <svg width="58" height="130" viewBox="0 0 58 130" fill="none">
-                  <rect x="0" y="0" width="58" height="130" rx="10" fill="rgba(128,128,128,0.14)"/>
-                  <rect x="0.75" y="0.75" width="56.5" height="128.5" rx="9.5" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" fill="none"/>
-                  <rect x="4" y="4" width="50" height="104" rx="7" fill="rgba(0,0,0,0.20)"/>
-                  <text x="11" y="20" font-size="12" font-weight="700" font-family="DM Sans,sans-serif" fill="rgba(255,255,255,0.35)">{i+1}</text>
-                  <circle cx="29" cy="120" r="4" fill="rgba(255,255,255,0.12)"/>
-                </svg>
-                <div class="disk-label empty-label">vacío</div>
-              </div>
-            {/if}
-          {/each}
+      <!-- ══ DISCOS — New table view ══ -->
+      <div class="resumen-scroll">
 
-          <!-- Info panel -->
-          <div class="disk-info-panel">
-            {#if selectedDisk}
-              <div class="di-name">{selectedDisk.model || selectedDisk.name}</div>
-              <div class="di-serial">{selectedDisk.serial || '—'}</div>
-              <div class="di-row"><span>Dispositivo</span><span>{selectedDisk.name}</span></div>
-              <div class="di-row"><span>Capacidad</span><span>{fmt(selectedDisk.size)}</span></div>
-              <div class="di-row"><span>Tipo</span><span>{selectedDisk.rota ? 'HDD' : 'SSD'}</span></div>
-              {#if selectedDisk.transport}
-                <div class="di-row"><span>Interfaz</span><span>{selectedDisk.transport.toUpperCase()}</span></div>
-              {/if}
-              <div class="di-tags">
-                {#if selectedDisk.provisioned}
-                  <span class="di-tag green">En pool</span>
-                {:else}
-                  <span class="di-tag">Libre</span>
+        <!-- Disk table -->
+        <div class="r-detail-card">
+          <div class="r-sec">Discos instalados</div>
+          <table class="r-disk-table">
+            <thead>
+              <tr>
+                <th>Disco</th>
+                <th>Modelo</th>
+                <th>Tamaño</th>
+                <th>Temp</th>
+                <th>Estado</th>
+                <th>Volumen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each [...provisioned, ...eligible] as disk}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <tr class="r-disk-tr" class:expanded={expandedDisk === disk.name} on:click={() => expandedDisk = expandedDisk === disk.name ? null : disk.name}>
+                  <td class="r-dt-name">{disk.name}</td>
+                  <td class="r-dt-model">{disk.model || '—'}</td>
+                  <td>{fmt(disk.size)}</td>
+                  <td class="r-dt-mono">—</td>
+                  <td>
+                    {#if disk.classification === 'provisioned'}
+                      <span class="r-dt-badge r-dt-ok">Sano</span>
+                    {:else}
+                      <span class="r-dt-badge r-dt-free">Libre</span>
+                    {/if}
+                  </td>
+                  <td class="r-dt-mono">{disk.poolName || (disk.classification === 'provisioned' ? 'En uso' : '—')}</td>
+                </tr>
+                {#if expandedDisk === disk.name}
+                  <tr class="r-disk-detail-tr">
+                    <td colspan="6">
+                      <div class="r-disk-detail">
+                        <div class="r-dd-row"><span class="r-dd-key">Serial</span><span class="r-dd-val">{disk.serial || '—'}</span></div>
+                        <div class="r-dd-row"><span class="r-dd-key">Tipo</span><span class="r-dd-val">{disk.rota ? 'HDD' : 'SSD'}</span></div>
+                        {#if disk.transport}<div class="r-dd-row"><span class="r-dd-key">Interfaz</span><span class="r-dd-val">{disk.transport?.toUpperCase()}</span></div>{/if}
+                        <div class="r-dd-row"><span class="r-dd-key">Errores SMART</span><span class="r-dd-val" style="color:var(--green)">0</span></div>
+                        <div class="r-dd-row"><span class="r-dd-key">Sectores dañados</span><span class="r-dd-val">0</span></div>
+                        {#if disk.classification !== 'provisioned'}
+                          <div style="margin-top:8px">
+                            <button class="r-btn r-btn-danger" style="font-size:10px;padding:5px 10px" on:click|stopPropagation={() => wipeDisk(disk.name)} disabled={wiping === disk.name}>
+                              {wiping === disk.name ? 'Limpiando...' : 'Limpiar disco'}
+                            </button>
+                          </div>
+                        {/if}
+                      </div>
+                    </td>
+                  </tr>
                 {/if}
-              </div>
+              {/each}
+              {#if nvme.length > 0}
+                {#each nvme as disk}
+                  <tr class="r-disk-tr">
+                    <td class="r-dt-name">{disk.name}</td>
+                    <td class="r-dt-model">{disk.model || '—'}</td>
+                    <td>{fmt(disk.size)}</td>
+                    <td class="r-dt-mono">—</td>
+                    <td><span class="r-dt-badge r-dt-ok">Sano</span></td>
+                    <td class="r-dt-mono">{disk.poolName || '—'}</td>
+                  </tr>
+                {/each}
+              {/if}
+              {#if eligible.length === 0 && provisioned.length === 0 && nvme.length === 0}
+                <tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:20px">No se detectaron discos</td></tr>
+              {/if}
+            </tbody>
+          </table>
+
+          {#if wipeMsg}
+            <div class="pool-msg" class:error={wipeMsgError} style="margin-top:8px">{wipeMsg}</div>
+          {/if}
+        </div>
+
+        <!-- Create Pool section — only if free disks -->
+        {#if eligible.length > 0}
+          <div class="r-detail-card" style="margin-top:14px">
+            {#if !showCreatePool}
+              <div class="r-sec">Crear volumen</div>
+              <div style="font-size:11px;color:var(--text-3);margin-bottom:10px">Hay {eligible.length} disco{eligible.length > 1 ? 's' : ''} disponible{eligible.length > 1 ? 's' : ''} para crear un nuevo volumen.</div>
+              <button class="r-btn r-btn-primary" on:click={() => showCreatePool = true}>+ Crear volumen</button>
             {:else}
-              <div class="di-empty">
-                <div class="di-empty-icon">⊙</div>
-                <div>Selecciona un disco</div>
+              <div class="r-sec">Nuevo volumen</div>
+              <div class="r-create-form">
+                <div class="r-form-field">
+                  <label class="r-form-label">Nombre</label>
+                  <input class="r-form-input" type="text" placeholder="mi-volumen" bind:value={newPool.name}>
+                </div>
+
+                <div class="r-form-row">
+                  <div class="r-form-field" style="flex:1">
+                    <label class="r-form-label">Sistema de archivos</label>
+                    <div class="r-sched-btns" style="margin-top:4px">
+                      <!-- svelte-ignore a11y_click_events_have_key_events -->
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      {#if capabilities.zfs}
+                        <div class="r-sched-btn" class:active={newPool.type === 'zfs'} on:click={() => newPool.type = 'zfs'}>ZFS {capabilities.recommended === 'zfs' ? '(rec.)' : ''}</div>
+                      {/if}
+                      {#if capabilities.btrfs}
+                        <div class="r-sched-btn" class:active={newPool.type === 'btrfs'} on:click={() => newPool.type = 'btrfs'}>BTRFS {capabilities.recommended === 'btrfs' ? '(rec.)' : ''}</div>
+                      {/if}
+                    </div>
+                  </div>
+                  <div class="r-form-field" style="flex:1">
+                    <label class="r-form-label">Protección</label>
+                    <div class="r-sched-btns" style="margin-top:4px">
+                      <!-- svelte-ignore a11y_click_events_have_key_events -->
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      {#if newPool.type === 'zfs'}
+                        <div class="r-sched-btn" class:active={newPool.profile === 'mirror'} on:click={() => newPool.profile = 'mirror'}>Espejo</div>
+                        <div class="r-sched-btn" class:active={newPool.profile === 'stripe'} on:click={() => newPool.profile = 'stripe'}>Sin protección</div>
+                        {#if eligible.length >= 3}<div class="r-sched-btn" class:active={newPool.profile === 'raidz1'} on:click={() => newPool.profile = 'raidz1'}>RAIDZ1</div>{/if}
+                      {:else}
+                        <div class="r-sched-btn" class:active={newPool.profile === 'raid1'} on:click={() => newPool.profile = 'raid1'}>Espejo</div>
+                        <div class="r-sched-btn" class:active={newPool.profile === 'single'} on:click={() => newPool.profile = 'single'}>Sin protección</div>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="r-form-field">
+                  <label class="r-form-label">Seleccionar discos</label>
+                  <div class="r-disk-select">
+                    {#each eligible as disk}
+                      <!-- svelte-ignore a11y_click_events_have_key_events -->
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <div class="r-dsel-row" class:selected={newPool.disks.includes(disk.path)} on:click={() => toggleDiskSelect(disk.path)}>
+                        <div class="r-dsel-chk">{newPool.disks.includes(disk.path) ? '✓' : ''}</div>
+                        <span class="r-dt-name">{disk.name}</span>
+                        <span class="r-dt-model">{disk.model || '—'}</span>
+                        <span style="margin-left:auto">{fmt(disk.size)}</span>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+
+                <div class="r-form-actions">
+                  <button class="r-btn r-btn-primary" on:click={createPool} disabled={creating}>
+                    {creating ? 'Creando...' : 'Crear volumen'}
+                  </button>
+                  <button class="r-btn" on:click={() => showCreatePool = false}>Cancelar</button>
+                </div>
+
+                {#if poolMsg}
+                  <div class="pool-msg" class:error={poolMsgError} style="margin-top:8px">{poolMsg}</div>
+                {/if}
               </div>
             {/if}
           </div>
-        </div>
-      </div>
-
-      <!-- NVMe section -->
-      <div class="disk-section" style="margin-top:18px">
-        <div class="disk-section-label">NVMe · M.2</div>
-        <div class="nvme-slots-wrap">
-          {#each nvmeSlots as disk, i}
-            {#if disk}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="disk-slot" class:selected={selectedDisk?.name === disk.name} on:click={() => selectDisk(disk)}>
-                <svg width="42" height="130" viewBox="0 0 42 130" fill="none">
-                  <defs>
-                    <linearGradient id="nv{i}bg" x1="0" y1="0" x2="0" y2="130" gradientUnits="userSpaceOnUse">
-                      <stop offset="0%" stop-color="#2e2a4a"/>
-                      <stop offset="100%" stop-color="#1e1a36"/>
-                    </linearGradient>
-                    <linearGradient id="nv{i}slot" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stop-color="rgba(124,111,255,0.22)"/>
-                      <stop offset="100%" stop-color="rgba(124,111,255,0.08)"/>
-                    </linearGradient>
-                  </defs>
-                  <rect x="0" y="0" width="42" height="130" rx="8" fill="url(#nv{i}bg)"/>
-                  <rect x="0.75" y="0.75" width="40.5" height="128.5" rx="7.5" stroke="rgba(124,111,255,0.35)" stroke-width="1.5" fill="none"/>
-                  <rect x="10" y="3" width="22" height="5" rx="1.5" fill="rgba(255,255,255,0.10)"/>
-                  <rect x="13" y="3" width="3" height="3" rx="0.5" fill="rgba(255,255,255,0.22)"/>
-                  <rect x="18" y="3" width="3" height="3" rx="0.5" fill="rgba(255,255,255,0.22)"/>
-                  <rect x="23" y="3" width="3" height="3" rx="0.5" fill="rgba(255,255,255,0.22)"/>
-                  <text x="21" y="22" text-anchor="middle" font-size="10" font-weight="700" font-family="DM Sans,sans-serif" fill="rgba(255,255,255,0.75)">{String.fromCharCode(65+i)}</text>
-                  <rect x="6" y="28" width="30" height="18" rx="3" fill="url(#nv{i}slot)" stroke="rgba(124,111,255,0.25)" stroke-width="0.75"/>
-                  <rect x="6" y="52" width="30" height="18" rx="3" fill="url(#nv{i}slot)" stroke="rgba(124,111,255,0.25)" stroke-width="0.75"/>
-                  <rect x="6" y="76" width="30" height="18" rx="3" fill="url(#nv{i}slot)" stroke="rgba(124,111,255,0.25)" stroke-width="0.75"/>
-                  <text x="21" y="112" text-anchor="middle" font-size="8" font-weight="600" font-family="DM Mono,monospace" fill="rgba(255,255,255,0.45)">{fmt(disk.size)}</text>
-                  <rect x="8" y="119" width="26" height="4" rx="2" fill="rgba(74,222,128,0.12)"/>
-                  <rect x="8" y="119" width="26" height="4" rx="2" fill="#4ade80" style="animation:ledBlink 2.2s ease-in-out {i*0.6}s infinite"/>
-                </svg>
-                <div class="disk-label">{disk.name}</div>
-              </div>
-            {:else}
-              <div class="disk-slot empty">
-                <svg width="42" height="130" viewBox="0 0 42 130" fill="none">
-                  <rect x="0" y="0" width="42" height="130" rx="8" fill="rgba(128,128,128,0.12)"/>
-                  <rect x="0.75" y="0.75" width="40.5" height="128.5" rx="7.5" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-dasharray="5 4" fill="none"/>
-                  <rect x="10" y="3" width="22" height="5" rx="1.5" fill="rgba(255,255,255,0.08)"/>
-                  <text x="21" y="22" text-anchor="middle" font-size="10" font-weight="700" font-family="DM Sans,sans-serif" fill="rgba(255,255,255,0.30)">{String.fromCharCode(65+i)}</text>
-                  <rect x="6" y="28" width="30" height="18" rx="3" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.10)" stroke-width="0.75"/>
-                  <rect x="6" y="52" width="30" height="18" rx="3" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.10)" stroke-width="0.75"/>
-                  <rect x="6" y="76" width="30" height="18" rx="3" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.10)" stroke-width="0.75"/>
-                  <rect x="8" y="119" width="26" height="4" rx="2" fill="rgba(255,255,255,0.08)"/>
-                </svg>
-                <div class="disk-label empty-label">vacío</div>
-              </div>
-            {/if}
-          {/each}
-        </div>
-      </div>
-
-      <!-- Storage bar -->
-      <div class="storage-bar-section">
-        <div class="sbs-meta">
-          <span class="sbs-label">Capacidad total · {eligible.length + nvme.length} discos</span>
-          <span class="sbs-value">{fmt(usedBytes)} / {fmt(totalBytes)} · {usedPct.toFixed(0)}%</span>
-        </div>
-        <div class="sbs-track">
-          <div class="sbs-fill" style="width:{Math.max(0.5, usedPct)}%"></div>
-        </div>
-      </div>
-
-      <!-- Legend -->
-      <div class="disk-legend">
-        <div class="dl-item"><div class="dl-dot" style="background:var(--green)"></div>Sano</div>
-        <div class="dl-item"><div class="dl-dot" style="background:var(--amber)"></div>Degradado</div>
-        <div class="dl-item"><div class="dl-dot" style="background:var(--red)"></div>Error</div>
-        <div class="dl-item"><div class="dl-dot" style="background:rgba(128,128,128,0.3)"></div>Vacío</div>
+        {/if}
       </div>
 
     {:else if activeTab === 'pools'}
@@ -1837,4 +1854,44 @@
   .r-sched-input:focus { border-color:var(--accent); }
   .r-sched-input-wide { width:56px; }
   .r-sched-saving { font-size:10px; color:var(--accent); padding:4px 0; }
+
+  /* ── DISK TABLE ── */
+  .r-disk-table { width:100%; border-collapse:collapse; }
+  .r-disk-table th { font-size:10px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); }
+  .r-disk-table td { font-size:12px; color:var(--text-1); padding:10px 10px; border-bottom:1px solid var(--border); }
+  .r-disk-tr { cursor:pointer; transition:background .1s; }
+  .r-disk-tr:hover { background:rgba(255,255,255,0.02); }
+  .r-disk-tr.expanded { background:rgba(124,111,255,0.04); }
+  .r-dt-name { font-weight:600; }
+  .r-dt-model { font-size:11px; color:var(--text-3); font-family:'DM Mono',monospace; }
+  .r-dt-mono { font-family:'DM Mono',monospace; color:var(--text-3); }
+  .r-dt-badge { padding:3px 10px; border-radius:12px; font-size:10px; font-weight:600; }
+  .r-dt-ok { background:rgba(34,197,94,0.10); color:var(--green); }
+  .r-dt-free { background:rgba(96,165,250,0.10); color:var(--blue, #60a5fa); }
+  .r-dt-warn { background:rgba(245,158,11,0.10); color:var(--amber); }
+  .r-dt-err { background:rgba(239,68,68,0.10); color:var(--red); }
+
+  .r-disk-detail-tr td { padding:0 10px 12px !important; border-bottom:1px solid var(--border); }
+  .r-disk-detail { background:rgba(0,0,0,0.15); border-radius:8px; padding:10px 14px; }
+  .r-dd-row { display:flex; justify-content:space-between; font-size:11px; padding:4px 0; border-bottom:1px solid var(--border); }
+  .r-dd-row:last-child { border:none; }
+  .r-dd-key { color:var(--text-3); }
+  .r-dd-val { color:var(--text-1); font-family:'DM Mono',monospace; }
+
+  /* ── CREATE POOL FORM ── */
+  .r-create-form { display:flex; flex-direction:column; gap:12px; }
+  .r-form-field { display:flex; flex-direction:column; gap:4px; }
+  .r-form-label { font-size:10px; font-weight:600; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; }
+  .r-form-input { padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:rgba(255,255,255,0.04); color:var(--text-1); font-family:inherit; font-size:12px; outline:none; }
+  .r-form-input:focus { border-color:var(--accent); }
+  .r-form-input::placeholder { color:var(--text-3); }
+  .r-form-row { display:flex; gap:12px; }
+  .r-form-actions { display:flex; gap:8px; margin-top:4px; }
+
+  .r-disk-select { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
+  .r-dsel-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border:1px solid var(--border); border-radius:8px; cursor:pointer; transition:.15s; font-size:12px; }
+  .r-dsel-row:hover { border-color:rgba(124,111,255,0.3); }
+  .r-dsel-row.selected { border-color:var(--accent); background:rgba(124,111,255,0.06); }
+  .r-dsel-chk { width:18px; height:18px; border-radius:5px; border:2px solid var(--text-3); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:var(--accent); flex-shrink:0; }
+  .r-dsel-row.selected .r-dsel-chk { background:var(--accent); border-color:var(--accent); color:#fff; }
 </style>

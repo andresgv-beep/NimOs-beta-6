@@ -437,7 +437,7 @@
         alert('Error: ' + d.error);
       } else {
         showReplace = false;
-        loadData();
+        load();
       }
     } catch {
       alert('Error de conexión');
@@ -1761,7 +1761,7 @@
         <div class="r-sec" style="margin-top:14px">Disco nuevo</div>
         {#if replaceCandidates.length === 0}
           <div style="font-size:11px;color:var(--text-3);padding:8px 0">No hay discos disponibles. Conecta un disco nuevo y pulsa Escanear.</div>
-          <button class="r-btn" style="margin-top:6px" on:click={loadData}>Escanear discos</button>
+          <button class="r-btn" style="margin-top:6px" on:click={load}>Escanear discos</button>
         {:else}
           {#each replaceCandidates as cd}
             <!-- svelte-ignore a11y_click_events_have_key_events -->

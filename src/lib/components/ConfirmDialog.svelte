@@ -13,11 +13,13 @@
   export let requireInput = false; // require typing "confirmar"
   export let services = []; // [{ name, status }]
   export let loading = false;
+  export let disabled = false; // externally disable confirm button
 
   let inputValue = '';
 
+  $: hasActiveServices = services.some(s => s.status === 'running' || s.status === 'starting');
   $: inputValid = inputValue.trim().toLowerCase() === 'confirmar';
-  $: canConfirm = requireInput ? inputValid : true;
+  $: canConfirm = !disabled && !hasActiveServices && (requireInput ? inputValid : true);
 
   function onConfirm() {
     if (!canConfirm || loading) return;
@@ -76,6 +78,14 @@
               </div>
             {/each}
           </div>
+          {#if hasActiveServices}
+            <div class="cd-services-block">
+              <span>Detén los servicios antes de continuar</span>
+              <button class="cd-btn cd-btn-services" on:click={() => dispatch('openServices')}>
+                Gestionar servicios →
+              </button>
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -169,6 +179,22 @@
     background:var(--green); box-shadow:0 0 5px rgba(74,222,128,0.6);
   }
   .cd-service-status { font-size:11px; color:rgba(255,255,255,0.28); }
+
+  .cd-services-block {
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    margin-top:10px; padding:10px 12px; border-radius:8px;
+    background:rgba(251,191,36,0.06); border:1px solid rgba(251,191,36,0.15);
+  }
+  .cd-services-block span {
+    font-size:11px; color:var(--amber); font-weight:500;
+  }
+  .cd-btn-services {
+    padding:5px 12px; border-radius:7px; font-size:11px; font-weight:600;
+    cursor:pointer; border:1px solid rgba(255,255,255,0.1);
+    background:rgba(255,255,255,0.08); color:var(--text-1);
+    font-family:inherit; transition:all .12s; white-space:nowrap;
+  }
+  .cd-btn-services:hover { background:rgba(255,255,255,0.14); }
 
   .cd-confirm-field { margin-top:14px; padding-left:48px; }
   .cd-confirm-label { font-size:11px; color:var(--text-2); margin-bottom:6px; line-height:1.5; }

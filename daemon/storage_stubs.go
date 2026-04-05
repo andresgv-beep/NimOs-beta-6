@@ -799,6 +799,8 @@ func handleStorageRoutes(w http.ResponseWriter, r *http.Request) {
 			jsonOk(w, handleReplaceDisk(body))
 		case "/api/storage/pool/detach-disk":
 			jsonOk(w, handleDetachDisk(body))
+		case "/api/storage/pool/attach-disk":
+			jsonOk(w, handleAttachDisk(body))
 		case "/api/storage/pool/resilver-status":
 			poolName := bodyStr(body, "pool")
 			if poolName == "" {
@@ -989,6 +991,160 @@ func removeDiskFromPoolConfig(poolName, diskName string) {
 	}
 	conf["pools"] = confPools
 	saveStorageConfigFull(conf)
+}
+
+// addDiskToPoolConfig adds a disk to the pool config
+func addDiskToPoolConfig(poolName, diskName string) {
+	conf := getStorageConfigFull()
+	confPools, _ := conf["pools"].([]interface{})
+	for _, p := range confPools {
+		pm, _ := p.(map[string]interface{})
+		if n, _ := pm["name"].(string); n == poolName {
+			disks, _ := pm["disks"].([]interface{})
+			disks = append(disks, "/dev/"+diskName)
+			pm["disks"] = disks
+			break
+		}
+	}
+	conf["pools"] = confPools
+	saveStorageConfigFull(conf)
+}
+
+// POST /api/storage/pool/attach-disk
+// Body: { pool: "valume1", newDisk: "sdc" }
+// Adds a disk to a mirror pool to restore redundancy.
+func handleAttachDisk(body map[string]interface{}) map[string]interface{} {
+	poolName := bodyStr(body, "pool")
+	newDisk := bodyStr(body, "newDisk")
+
+	if poolName == "" || newDisk == "" {
+		return map[string]interface{}{"error": "Missing pool or newDisk"}
+	}
+
+	poolConf, poolType := findPoolConfig(poolName)
+	if poolConf == nil {
+		return map[string]interface{}{"error": "Pool not found"}
+	}
+
+	// Ensure new disk is not already in any pool
+	conf := getStorageConfigFull()
+	allPools, _ := conf["pools"].([]interface{})
+	for _, p := range allPools {
+		pm, _ := p.(map[string]interface{})
+		pDisks, _ := pm["disks"].([]interface{})
+		for _, d := range pDisks {
+			ds, _ := d.(string)
+			if strings.TrimPrefix(ds, "/dev/") == newDisk {
+				pn, _ := pm["name"].(string)
+				return map[string]interface{}{"error": fmt.Sprintf("Disk %s is already in pool %s", newDisk, pn)}
+			}
+		}
+	}
+
+	newDiskPath := "/dev/" + newDisk
+	if err := preFlightCheck(newDiskPath); err != nil {
+		return map[string]interface{}{"error": fmt.Sprintf("Disk %s: %s", newDisk, err.Error())}
+	}
+
+	switch poolType {
+	case "zfs":
+		return attachDiskZfs(poolConf, newDisk)
+	case "btrfs":
+		return attachDiskBtrfs(poolConf, newDisk)
+	default:
+		return map[string]interface{}{"error": fmt.Sprintf("Unsupported pool type: %s", poolType)}
+	}
+}
+
+// attachDiskZfs runs: zpool attach <pool> <existing-disk> <new-disk>
+func attachDiskZfs(poolConf map[string]interface{}, newDisk string) map[string]interface{} {
+	poolName, _ := poolConf["name"].(string)
+	zpoolName, _ := poolConf["zpoolName"].(string)
+	if zpoolName == "" {
+		zpoolName = "nimos-" + poolName
+	}
+
+	// Get existing disk from pool
+	disks, _ := poolConf["disks"].([]interface{})
+	if len(disks) == 0 {
+		return map[string]interface{}{"error": "Pool has no disks"}
+	}
+	existingDisk := strings.TrimPrefix(disks[0].(string), "/dev/")
+	existingPart := partitionName("/dev/" + existingDisk)
+
+	opts := CmdOptions{Timeout: 60 * time.Second}
+	optsShort := CmdOptions{Timeout: 10 * time.Second}
+
+	// Wipe and partition new disk
+	runCmd("wipefs", []string{"-a", "/dev/" + newDisk}, optsShort)
+	runCmd("sgdisk", []string{"-Z", "/dev/" + newDisk}, optsShort)
+	runCmd("sgdisk", []string{"-n", "1:0:0", "-t", "1:BF01", "/dev/" + newDisk}, opts)
+	runCmd("udevadm", []string{"settle", "--timeout=5"}, optsShort)
+	time.Sleep(time.Second)
+
+	newPart := partitionName("/dev/" + newDisk)
+	waitForDevice(newPart, 10*time.Second)
+
+	// zpool attach — adds the new disk as mirror of existing
+	res, err := runCmd("zpool", []string{"attach", "-f", zpoolName, existingPart, newPart}, CmdOptions{Timeout: 30 * time.Second})
+	if err != nil || !res.OK {
+		errMsg := res.Stderr
+		if errMsg == "" {
+			errMsg = res.Stdout
+		}
+		return map[string]interface{}{"error": fmt.Sprintf("zpool attach failed: %s", errMsg)}
+	}
+
+	addDiskToPoolConfig(poolName, newDisk)
+
+	addNotification("success", "system",
+		fmt.Sprintf("Disco añadido a %s", poolName),
+		fmt.Sprintf("Se ha añadido %s al espejo. El resilver reconstruirá la redundancia.", newDisk))
+
+	logMsg("DISK ATTACH: pool %s, added %s (ZFS resilver started)", poolName, newDisk)
+
+	return map[string]interface{}{"ok": true, "message": "Disk attached, resilver started"}
+}
+
+// attachDiskBtrfs runs: btrfs device add <new-disk> <mountpoint>
+func attachDiskBtrfs(poolConf map[string]interface{}, newDisk string) map[string]interface{} {
+	poolName, _ := poolConf["name"].(string)
+	mountPoint, _ := poolConf["mountPoint"].(string)
+
+	if mountPoint == "" {
+		return map[string]interface{}{"error": "Pool mount point not found"}
+	}
+
+	opts := CmdOptions{Timeout: 60 * time.Second}
+
+	runCmd("wipefs", []string{"-a", "/dev/" + newDisk}, opts)
+
+	res, err := runCmd("btrfs", []string{"device", "add", "-f", "/dev/" + newDisk, mountPoint}, opts)
+	if err != nil || !res.OK {
+		errMsg := res.Stderr
+		if errMsg == "" {
+			errMsg = res.Stdout
+		}
+		return map[string]interface{}{"error": fmt.Sprintf("btrfs device add failed: %s", errMsg)}
+	}
+
+	// Rebalance in background
+	go func() {
+		runCmd("btrfs", []string{"balance", "start", "-dconvert=raid1", "-mconvert=raid1", mountPoint}, CmdOptions{Timeout: 0})
+		addNotification("success", "system",
+			fmt.Sprintf("Rebalanceo completado en %s", poolName),
+			fmt.Sprintf("El disco %s se ha integrado completamente.", newDisk))
+	}()
+
+	addDiskToPoolConfig(poolName, newDisk)
+
+	addNotification("info", "system",
+		fmt.Sprintf("Disco añadido a %s", poolName),
+		fmt.Sprintf("Se ha añadido %s. Rebalanceando datos para restaurar redundancia.", newDisk))
+
+	logMsg("DISK ATTACH: pool %s, added %s (BTRFS balance started)", poolName, newDisk)
+
+	return map[string]interface{}{"ok": true, "message": "Disk added, rebalance started"}
 }
 
 func handleReplaceDisk(body map[string]interface{}) map[string]interface{} {

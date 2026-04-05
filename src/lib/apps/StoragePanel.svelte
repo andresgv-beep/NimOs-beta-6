@@ -772,9 +772,10 @@
               {ph(worstPool).reason?.message || 'Atención requerida'}
             </div>
           {:else}
+            {@const totalPoolDisks = pools.reduce((sum, p) => sum + (ph(p).disksOnline || 0), 0)}
             <div class="r-alert r-alert-ok">
               <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              {pools.length} volumen{pools.length > 1 ? 'es' : ''} activo{pools.length > 1 ? 's' : ''} · {allDisks.length} disco{allDisks.length > 1 ? 's' : ''} sano{allDisks.length > 1 ? 's' : ''}
+              {pools.length} volumen{pools.length > 1 ? 'es' : ''} activo{pools.length > 1 ? 's' : ''} · {totalPoolDisks} disco{totalPoolDisks > 1 ? 's' : ''} operativo{totalPoolDisks > 1 ? 's' : ''}
             </div>
           {/if}
 
@@ -924,8 +925,10 @@
                 <span class="r-detail-key">Protección</span>
                 <span class="r-detail-val">
                   {translateProtection(detailPool.profile || detailPool.vdevType)} ({ph(detailPool).redundancy?.current ?? detailPool.disks?.length ?? '?'}/{ph(detailPool).redundancy?.expected ?? '?'} discos)
-                  {#if ph(detailPool).redundancy?.effective != null}
+                  {#if ph(detailPool).redundancy?.effective > 0}
                     <span style="font-size:11px;color:var(--text-3);margin-left:4px">· puede perder {ph(detailPool).redundancy.effective} más</span>
+                  {:else if ph(detailPool).redundancy?.effective === 0 && ph(detailPool).redundancy?.type !== 'single'}
+                    <span style="font-size:11px;color:var(--amber);margin-left:4px">· sin margen de fallo</span>
                   {/if}
                 </span>
               </div>

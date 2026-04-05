@@ -19,6 +19,7 @@
   let replaceDisk = null;   // { name, model, size, smartStatus }
   let replaceTarget = '';   // selected new disk name
   let replacing = false;
+  let selectedPoolDisk = null; // disco seleccionado en la vista de detalle
   let eligible = [];
   let provisioned = [];
   let nvme = [];
@@ -383,12 +384,14 @@
 
   function openDetail(pool) {
     detailPool = pool;
+    selectedPoolDisk = null;
     activeTab = 'detalle';
     loadPoolServices(pool.name);
   }
 
   function closeDetail() {
     detailPool = null;
+    selectedPoolDisk = null;
     activeTab = 'resumen';
   }
 
@@ -828,7 +831,9 @@
         <div class="r-detail-card" style="margin-top:14px">
           <div class="r-sec">Discos en este volumen</div>
           {#each poolDisks(detailPool) as d}
-            <div class="r-disk-row">
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="r-disk-row" class:r-disk-selected={selectedPoolDisk?.name === d.name} on:click={() => selectedPoolDisk = selectedPoolDisk?.name === d.name ? null : d}>
               <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
               <div class="r-disk-info">
                 <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
@@ -844,11 +849,6 @@
                 <span class="r-badge" style="font-size:10px;background:var(--ibtn-bg);color:var(--text-3)">Sin datos</span>
               {:else}
                 <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
-              {/if}
-              {#if (detailPool.disks?.length || 0) > 1}
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <span class="r-replace-btn" on:click|stopPropagation={() => openReplace(d)}>Reemplazar</span>
               {/if}
             </div>
           {:else}
@@ -873,6 +873,11 @@
         <!-- Actions -->
         <div class="r-sec" style="margin-top:14px">Acciones</div>
         <div class="r-actions-row">
+          {#if selectedPoolDisk && (detailPool.disks?.length || 0) > 1}
+            <button class="r-btn r-btn-warn" on:click={() => openReplace(selectedPoolDisk)}>
+              Reemplazar disco ({selectedPoolDisk.name})
+            </button>
+          {/if}
           <button class="r-btn" on:click={() => startScrubForPool(detailPool.name)}>Verificar integridad</button>
           <button class="r-btn r-btn-primary r-snap-btn" class:loading={snapCreating[detailPool.name] === 'loading'} class:done={snapCreating[detailPool.name] === 'done'} class:fail={snapCreating[detailPool.name] === 'error'} disabled={snapCreating[detailPool.name] === 'loading'} on:click={() => quickSnapshot(detailPool.name)}>
             {#if snapCreating[detailPool.name] === 'loading'}
@@ -2108,6 +2113,7 @@
   .r-disk-row { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); cursor:pointer; transition:background .1s; }
   .r-disk-row:last-child { border:none; }
   .r-disk-row:hover { background:rgba(255,255,255,0.02); }
+  .r-disk-selected { background:var(--active-bg) !important; border-left:3px solid var(--accent); }
   .r-disk-ico { width:32px; height:32px; border-radius:8px; background:rgba(96,165,250,0.08); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
   .r-disk-ico svg { width:14px; height:14px; stroke:var(--blue); fill:none; stroke-width:2; stroke-linecap:round; }
   .r-disk-info { flex:1; }
@@ -2154,6 +2160,8 @@
   .r-btn-danger { background:rgba(239,68,68,0.10); border-color:rgba(239,68,68,0.3); color:var(--red); }
   .r-btn-danger:hover { background:rgba(239,68,68,0.18); }
   .r-btn-danger:disabled { opacity:.35; cursor:not-allowed; }
+  .r-btn-warn { background:rgba(251,191,36,0.10); border-color:rgba(251,191,36,0.3); color:var(--amber); }
+  .r-btn-warn:hover { background:rgba(251,191,36,0.18); }
 
   /* ── DESTROY MODAL ── */
   .r-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:200; display:flex; align-items:center; justify-content:center; }

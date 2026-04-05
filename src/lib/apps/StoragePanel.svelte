@@ -399,11 +399,22 @@
   // Get disks that belong to a specific pool
   function poolDisks(pool) {
     if (!pool.disks || pool.disks.length === 0) return [];
-    const name = devPath => devPath.replace('/dev/', '');
-    return pool.disks.map(devPath => {
-      const n = name(devPath);
-      const found = provisioned.find(d => d.name === n);
-      return found || { name: n, model: '—', size: 0 };
+    const name = devPath => typeof devPath === 'string' ? devPath.replace('/dev/', '') : devPath.name;
+    return pool.disks.map(d => {
+      // New format: { name, model, size, smartStatus }
+      if (typeof d === 'object' && d.name) {
+        const found = provisioned.find(p => p.name === d.name);
+        return {
+          name: d.name,
+          model: d.model || found?.model || '—',
+          size: found?.size || 0,
+          smartStatus: d.smartStatus || 'unknown',
+        };
+      }
+      // Legacy format: string path "/dev/sda" or "sda"
+      const n = name(d);
+      const found = provisioned.find(p => p.name === n);
+      return { name: n, model: found?.model || '—', size: found?.size || 0, smartStatus: 'unknown' };
     });
   }
 
@@ -793,7 +804,15 @@
                 <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
                 <div class="r-disk-model">{fmt(d.size)}</div>
               </div>
-              <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+              {#if d.smartStatus === 'critical'}
+                <span class="r-badge r-badge-err" style="font-size:10px">Riesgo</span>
+              {:else if d.smartStatus === 'warning'}
+                <span class="r-badge r-badge-warn" style="font-size:10px">Atención</span>
+              {:else if d.smartStatus === 'unknown'}
+                <span class="r-badge" style="font-size:10px;background:var(--ibtn-bg);color:var(--text-3)">Sin datos</span>
+              {:else}
+                <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+              {/if}
             </div>
           {:else}
             <div style="font-size:11px;color:var(--text-3);padding:8px 0">Información de discos no disponible</div>

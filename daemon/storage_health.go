@@ -330,6 +330,21 @@ func CollectDiagnostics(input DiagnosticInput) []Diagnostic {
 			continue // No point checking SMART/IO on a missing disk
 		}
 
+		// 1b. Disk exists physically but is NOT in the pool?
+		// For ZFS: if we have pool status data and this disk isn't in it,
+		// the device at /dev/X is a different physical disk (not part of this pool)
+		if len(diskStatuses) > 0 {
+			if _, inPool := diskStatuses[name]; !inPool {
+				diagnostics = append(diagnostics, Diagnostic{
+					Code:     "disk_missing",
+					Severity: 3,
+					Disk:     name,
+					Detail:   fmt.Sprintf("Disco %s: el dispositivo no pertenece a este pool", name),
+				})
+				continue
+			}
+		}
+
 		// 2. Pool status per disk (ZFS only — BTRFS doesn't have per-device state)
 		if ds, ok := diskStatuses[name]; ok {
 			switch strings.ToUpper(ds.State) {
@@ -724,9 +739,14 @@ func enrichDisksComplete(configDisks []string, diskStatuses map[string]DiskStatu
 					poolStatus = "online"
 				}
 				ioErrors = ds
-			} else {
-				// Disk exists but not found in pool status output — might be okay for BTRFS
+			} else if len(diskStatuses) == 0 {
+				// No pool status data available (BTRFS without stats, or pool offline)
 				poolStatus = "online"
+			} else {
+				// Pool status data exists but this disk is NOT in it
+				// The device at this path is NOT part of the pool
+				// (e.g., config says /dev/sdb but that's now a different physical disk)
+				poolStatus = "missing"
 			}
 		}
 

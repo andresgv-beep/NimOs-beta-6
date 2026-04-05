@@ -796,7 +796,9 @@
                 <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
                 <div class="r-disk-model">{typeof d.size === 'string' ? d.size : fmt(d.size)}</div>
               </div>
-              {#if d.smartStatus === 'critical'}
+              {#if d.smartStatus === 'missing'}
+                <span class="r-badge r-badge-err" style="font-size:10px">No detectado</span>
+              {:else if d.smartStatus === 'critical'}
                 <span class="r-badge r-badge-err" style="font-size:10px">Riesgo</span>
               {:else if d.smartStatus === 'warning'}
                 <span class="r-badge r-badge-warn" style="font-size:10px">Atención</span>

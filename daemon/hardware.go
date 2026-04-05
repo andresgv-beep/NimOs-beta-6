@@ -1427,8 +1427,9 @@ func getDiskSmart(diskName string) map[string]interface{} {
 		attrs = append(attrs, attr)
 
 		// Only propagate threshold warnings for health-critical attributes
-		// NOT for vendor-specific rate counters (Raw_Read_Error_Rate, Seek_Error_Rate, etc.)
-		// which routinely show near-threshold values on healthy Seagate/WD drives
+		// For threshold-based warnings (near threshold but raw=0), skip —
+		// attributes like Spin_Retry_Count start at 100 with thresh 97,
+		// triggering false warnings when raw is actually 0 (no retries ever)
 		criticalAttrs := map[string]bool{
 			"Reallocated_Sector_Ct":    true,
 			"Current_Pending_Sector":   true,
@@ -1443,10 +1444,10 @@ func getDiskSmart(diskName string) map[string]interface{} {
 		}
 
 		if criticalAttrs[name] {
-			if attrStatus == "critical" {
+			if attrStatus == "critical" && (rawNum > 0 || value <= thresh) {
 				result["status"] = "critical"
 				result["healthy"] = false
-			} else if attrStatus == "warning" {
+			} else if attrStatus == "warning" && rawNum > 0 {
 				if result["status"] == "ok" {
 					result["status"] = "warning"
 				}

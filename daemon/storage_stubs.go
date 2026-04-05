@@ -577,14 +577,35 @@ func getZfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[str
 		}
 	}
 
-	var rawDisks []interface{}
+	// Extract config disk list as []string for health system
+	var configDisks []string
 	if d, ok := poolConf["disks"].([]interface{}); ok {
-		rawDisks = d
+		for _, raw := range d {
+			if s, ok := raw.(string); ok && s != "" {
+				configDisks = append(configDisks, s)
+			}
+		}
 	}
-	if rawDisks == nil {
-		rawDisks = []interface{}{}
+
+	// Parse per-disk pool status + IO errors
+	diskStatuses, _ := parseZpoolDiskStatus(zpoolName)
+
+	// Enrich disks with full info (SMART details + pool status + IO errors)
+	enrichedDisks := enrichDisksComplete(configDisks, diskStatuses)
+	disksForJSON := make([]interface{}, 0, len(enrichedDisks))
+	for _, ed := range enrichedDisks {
+		disksForJSON = append(disksForJSON, ed.ToMap())
 	}
-	disks := enrichDisksWithSmart(rawDisks)
+
+	// Build pool health
+	poolHealth := buildPoolHealth(DiagnosticInput{
+		PoolType:    "zfs",
+		VdevType:    vdevType,
+		ConfigDisks: configDisks,
+		ZpoolName:   zpoolName,
+		MountPoint:  mountPoint,
+		ZpoolHealth: health,
+	})
 
 	usagePct := 0
 	if total > 0 {
@@ -600,7 +621,7 @@ func getZfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[str
 		"vdevType":           vdevType,
 		"filesystem":         "zfs",
 		"createdAt":          createdAt,
-		"disks":              disks,
+		"disks":              disksForJSON,
 		"status":             poolStatus,
 		"health":             health,
 		"total":              total,
@@ -611,6 +632,7 @@ func getZfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[str
 		"availableFormatted": formatBytes(available),
 		"usagePercent":       usagePct,
 		"isPrimary":          poolName == primaryPool,
+		"poolHealth":         poolHealth.ToMap(),
 	}
 }
 
@@ -645,14 +667,53 @@ func getBtrfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[s
 		}
 	}
 
-	var rawDisks []interface{}
+	// Extract config disk list as []string for health system
+	var configDisks []string
 	if d, ok := poolConf["disks"].([]interface{}); ok {
-		rawDisks = d
+		for _, raw := range d {
+			if s, ok := raw.(string); ok && s != "" {
+				configDisks = append(configDisks, s)
+			}
+		}
 	}
-	if rawDisks == nil {
-		rawDisks = []interface{}{}
+
+	// Parse per-disk IO errors
+	var diskStatuses map[string]DiskStatus
+	if poolStatus == "active" {
+		diskStatuses, _ = parseBtrfsDeviceStats(mountPoint)
 	}
-	disks := enrichDisksWithSmart(rawDisks)
+
+	// Enrich disks with full info
+	enrichedDisks := enrichDisksComplete(configDisks, diskStatuses)
+	disksForJSON := make([]interface{}, 0, len(enrichedDisks))
+	for _, ed := range enrichedDisks {
+		disksForJSON = append(disksForJSON, ed.ToMap())
+	}
+
+	// Map BTRFS profile to vdev type for health system
+	btrfsVdevType := profile
+	switch strings.ToLower(profile) {
+	case "raid1":
+		btrfsVdevType = "mirror"
+	case "raid1c3":
+		btrfsVdevType = "raidz2" // 3 copies ≈ raidz2 tolerance
+	case "raid1c4":
+		btrfsVdevType = "raidz3"
+	case "raid5":
+		btrfsVdevType = "raidz1"
+	case "raid6":
+		btrfsVdevType = "raidz2"
+	}
+
+	// Build pool health
+	poolHealth := buildPoolHealth(DiagnosticInput{
+		PoolType:    "btrfs",
+		VdevType:    btrfsVdevType,
+		ConfigDisks: configDisks,
+		ZpoolName:   "",
+		MountPoint:  mountPoint,
+		ZpoolHealth: "",
+	})
 
 	usagePct := 0
 	if total > 0 {
@@ -667,7 +728,7 @@ func getBtrfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[s
 		"raidLevel":          profile,
 		"filesystem":         "btrfs",
 		"createdAt":          createdAt,
-		"disks":              disks,
+		"disks":              disksForJSON,
 		"status":             poolStatus,
 		"total":              total,
 		"used":               used,
@@ -677,6 +738,7 @@ func getBtrfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[s
 		"availableFormatted": formatBytes(available),
 		"usagePercent":       usagePct,
 		"isPrimary":          poolName == primaryPool,
+		"poolHealth":         poolHealth.ToMap(),
 	}
 }
 
@@ -890,6 +952,24 @@ func handleDetachDisk(body map[string]interface{}) map[string]interface{} {
 	// Cannot detach if only 1 disk — would destroy the pool
 	if len(disks) <= 1 {
 		return map[string]interface{}{"error": "Cannot detach the only disk in the pool. Use 'Destroy volume' instead."}
+	}
+
+	// ── Service barrier (obligatoria) ──
+	// SIEMPRE comprobar justo antes de ejecutar — el backend no confía en el frontend
+	activeSvcs, err := checkPoolDependencies(poolName)
+	if err != nil {
+		logMsg("DETACH DISK: error checking services for pool %s: %v", poolName, err)
+	}
+	if len(activeSvcs) > 0 {
+		svcNames := make([]string, 0, len(activeSvcs))
+		for _, s := range activeSvcs {
+			svcNames = append(svcNames, s.AppName)
+		}
+		return map[string]interface{}{
+			"error":    "services_active",
+			"message":  fmt.Sprintf("No se puede desconectar el disco: %d servicios activos en el pool", len(activeSvcs)),
+			"services": svcNames,
+		}
 	}
 
 	switch poolType {
@@ -1187,6 +1267,24 @@ func handleReplaceDisk(body map[string]interface{}) map[string]interface{} {
 				pn, _ := pm["name"].(string)
 				return map[string]interface{}{"error": fmt.Sprintf("Disk %s is already in pool %s", newDisk, pn)}
 			}
+		}
+	}
+
+	// ── Service barrier (obligatoria) ──
+	// SIEMPRE comprobar justo antes de ejecutar
+	activeSvcs, err := checkPoolDependencies(poolName)
+	if err != nil {
+		logMsg("REPLACE DISK: error checking services for pool %s: %v", poolName, err)
+	}
+	if len(activeSvcs) > 0 {
+		svcNames := make([]string, 0, len(activeSvcs))
+		for _, s := range activeSvcs {
+			svcNames = append(svcNames, s.AppName)
+		}
+		return map[string]interface{}{
+			"error":    "services_active",
+			"message":  fmt.Sprintf("No se puede reemplazar el disco: %d servicios activos en el pool", len(activeSvcs)),
+			"services": svcNames,
 		}
 	}
 

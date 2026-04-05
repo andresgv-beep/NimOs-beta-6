@@ -302,3 +302,195 @@ func (d PoolDependencyInfo) ToMap() map[string]interface{} {
 		"required": d.Required,
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Storage Health — Diagnostic Layer + State Reducer types
+//
+// CollectDiagnostics() generates []Diagnostic (all signals, no priority)
+// ComputePoolHealth() reduces them to a single PoolHealth (deterministic)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Diagnostic ──────────────────────────────────────────────────────────────
+
+// Diagnostic is a single health signal detected during pool inspection.
+// CollectDiagnostics generates ALL signals without prioritizing — the reducer
+// (ComputePoolHealth) decides what matters.
+type Diagnostic struct {
+	Code     string // "smart_warning", "smart_critical", "io_errors", "disk_missing",
+	//                 "disk_faulted", "disk_unavailable", "disk_removed",
+	//                 "temp_high", "pool_faulted"
+	Severity int    // 1=info, 2=warning, 3=error, 4=critical
+	Disk     string // affected disk (empty if pool-level)
+	Detail   string // human-readable detail
+}
+
+func (d Diagnostic) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"code":     d.Code,
+		"severity": d.Severity,
+		"disk":     d.Disk,
+		"detail":   d.Detail,
+	}
+}
+
+// ─── DiskStatus (from zpool status / btrfs device stats parsing) ─────────────
+
+// DiskStatus holds the per-disk state parsed from zpool status or btrfs device stats.
+type DiskStatus struct {
+	State          string // ONLINE, DEGRADED, FAULTED, OFFLINE, REMOVED, UNAVAIL
+	ReadErrors     int
+	WriteErrors    int
+	ChecksumErrors int
+}
+
+// ─── SmartDetails (extracted from getDiskSmart for poolHealth) ───────────────
+
+// SmartDetails holds the SMART metrics relevant to pool health diagnostics.
+// Sourced from getDiskSmart() in hardware.go via the smartHistory cache.
+type SmartDetails struct {
+	ReallocatedSectors int
+	PendingSectors     int
+	Uncorrectable      int
+	PowerOnHours       int
+	Temperature        int
+	Partial            bool // true if NVMe with incomplete data
+}
+
+func (s SmartDetails) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"reallocatedSectors": s.ReallocatedSectors,
+		"pendingSectors":     s.PendingSectors,
+		"uncorrectable":      s.Uncorrectable,
+		"powerOnHours":       s.PowerOnHours,
+		"temperature":        s.Temperature,
+		"partial":            s.Partial,
+	}
+}
+
+// ─── PoolHealthReason ────────────────────────────────────────────────────────
+
+// PoolHealthReason holds the primary reason for the pool's status plus any
+// secondary signals that were present but not the deciding factor.
+type PoolHealthReason struct {
+	Primary   string   // diagnostic code that determined the status
+	Message   string   // human-readable explanation
+	Secondary []string // other diagnostic codes present
+}
+
+func (r PoolHealthReason) ToMap() map[string]interface{} {
+	secondary := r.Secondary
+	if secondary == nil {
+		secondary = []string{}
+	}
+	return map[string]interface{}{
+		"primary":   r.Primary,
+		"message":   r.Message,
+		"secondary": secondary,
+	}
+}
+
+// ─── PoolRedundancy ──────────────────────────────────────────────────────────
+
+// PoolRedundancy describes the redundancy characteristics of the pool.
+type PoolRedundancy struct {
+	Type      string // none | mirror | raidz1 | raidz2 | raidz3 | raid1 | raid10 | single
+	Expected  int    // disks according to config
+	Current   int    // disks online now
+	CanLose   int    // tolerance of the vdev type
+	Effective int    // canLose - disksMissing (how many MORE it can lose)
+}
+
+func (r PoolRedundancy) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"type":      r.Type,
+		"expected":  r.Expected,
+		"current":   r.Current,
+		"canLose":   r.CanLose,
+		"effective": r.Effective,
+	}
+}
+
+// ─── PoolHealth ──────────────────────────────────────────────────────────────
+
+// PoolHealth is the final reduced state of a storage pool.
+// status: healthy | at_risk | unstable | degraded | critical
+// intent: normal | rebuilding | replacing
+type PoolHealth struct {
+	Version int // schema version for future compatibility
+
+	Status string         // healthy | at_risk | unstable | degraded | critical
+	Reason PoolHealthReason
+
+	Redundancy PoolRedundancy
+
+	DisksTotal           int
+	DisksOnline          int
+	DisksMissing         int
+	DisksWithSmartIssues int
+	DisksWithIoErrors    int
+
+	ResilverActive   bool
+	ResilverProgress float64
+	ResilverEta      string
+
+	Intent string // normal | rebuilding
+
+	Diagnostics []Diagnostic
+}
+
+func (h PoolHealth) ToMap() map[string]interface{} {
+	diags := make([]map[string]interface{}, 0, len(h.Diagnostics))
+	for _, d := range h.Diagnostics {
+		diags = append(diags, d.ToMap())
+	}
+	if diags == nil {
+		diags = []map[string]interface{}{}
+	}
+
+	return map[string]interface{}{
+		"version":              h.Version,
+		"status":               h.Status,
+		"reason":               h.Reason.ToMap(),
+		"redundancy":           h.Redundancy.ToMap(),
+		"disksTotal":           h.DisksTotal,
+		"disksOnline":          h.DisksOnline,
+		"disksMissing":         h.DisksMissing,
+		"disksWithSmartIssues": h.DisksWithSmartIssues,
+		"disksWithIoErrors":    h.DisksWithIoErrors,
+		"resilverActive":       h.ResilverActive,
+		"resilverProgress":     h.ResilverProgress,
+		"resilverEta":          h.ResilverEta,
+		"intent":               h.Intent,
+		"diagnostics":          diags,
+	}
+}
+
+// ─── EnrichedDisk (full disk info for pool detail view) ──────────────────────
+
+// EnrichedDisk is the complete per-disk view returned inside pool info.
+// Combines physical info (model, size), SMART status+details, and pool status.
+type EnrichedDisk struct {
+	Name        string       // "sda"
+	Model       string       // "ST4000DM004-2CV104"
+	Size        string       // "3,6T"
+	SmartStatus string       // ok | warning | critical | partial | missing | unknown
+	Smart       SmartDetails // detailed SMART metrics
+	PoolStatus  string       // online | degraded | faulted | offline | removed | unavailable | missing
+	IoErrors    DiskStatus   // read/write/checksum error counts
+}
+
+func (d EnrichedDisk) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"name":        d.Name,
+		"model":       d.Model,
+		"size":        d.Size,
+		"smartStatus": d.SmartStatus,
+		"smart":       d.Smart.ToMap(),
+		"poolStatus":  d.PoolStatus,
+		"ioErrors": map[string]interface{}{
+			"read":     d.IoErrors.ReadErrors,
+			"write":    d.IoErrors.WriteErrors,
+			"checksum": d.IoErrors.ChecksumErrors,
+		},
+	}
+}

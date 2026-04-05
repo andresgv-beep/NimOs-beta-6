@@ -1940,10 +1940,9 @@
                     <div class="rb-disk-name">{cd.name} · {cd.model || '—'}</div>
                     <div class="rb-disk-meta">{cd.sizeFormatted || fmt(cd.size)}{cd.partitions?.length > 0 ? ' · con particiones' : ' · sin particiones'}</div>
                   </div>
-                  {@const csd = smartData[cd.name]}
-                  {#if csd?.status === 'critical'}
+                  {#if smartData[cd.name]?.status === 'critical'}
                     <span class="rb-disk-badge rb-badge-err">Riesgo</span>
-                  {:else if csd?.status === 'warning'}
+                  {:else if smartData[cd.name]?.status === 'warning'}
                     <span class="rb-disk-badge rb-badge-warn">Atención</span>
                   {:else}
                     <span class="rb-disk-badge rb-badge-ok">Sano</span>

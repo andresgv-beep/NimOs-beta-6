@@ -506,15 +506,12 @@ func enrichDisksWithSmart(diskNames []interface{}) []interface{} {
 		// Strip /dev/ prefix — config stores "/dev/sda", smartHistory uses "sda"
 		name := strings.TrimPrefix(raw, "/dev/")
 
-		smartStatus := "unknown"
-		if s, ok := smartHistory[name]; ok {
-			smartStatus = s
-		}
-
-		// Get disk model and size from lsblk (fast, no smartctl)
+		// Check if disk physically exists
 		model := ""
 		sizeStr := ""
+		diskExists := false
 		if out, ok := run(fmt.Sprintf("lsblk -d -n -o MODEL,SIZE /dev/%s 2>/dev/null", name)); ok && out != "" {
+			diskExists = true
 			parts := strings.Fields(strings.TrimSpace(out))
 			if len(parts) >= 2 {
 				sizeStr = parts[len(parts)-1]
@@ -524,11 +521,19 @@ func enrichDisksWithSmart(diskNames []interface{}) []interface{} {
 			}
 		}
 
+		// Determine status
+		smartStatus := "unknown"
+		if !diskExists {
+			smartStatus = "missing"
+		} else if s, ok := smartHistory[name]; ok {
+			smartStatus = s
+		}
+
 		enriched = append(enriched, map[string]interface{}{
 			"name":        name,
 			"model":       model,
 			"size":        sizeStr,
-			"smartStatus": smartStatus, // "ok" | "warning" | "critical" | "unknown"
+			"smartStatus": smartStatus, // "ok" | "warning" | "critical" | "missing" | "unknown"
 		})
 	}
 	return enriched

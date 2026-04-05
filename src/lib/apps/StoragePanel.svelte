@@ -1877,61 +1877,94 @@
   </div>
 {/if}
 
-{#if showReplace && detailPool && replaceDisk}
+{#if showReplace && detailPool}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="r-modal-overlay" on:click|self={() => showReplace = false}>
-    <div class="r-modal">
+    <div class="r-modal rb-modal">
       <div class="r-modal-header">
-        <span class="r-modal-title">Reemplazar disco</span>
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span class="r-modal-close" on:click={() => showReplace = false}>✕</span>
+        <span class="r-modal-title">Reconstruir volumen</span>
+        <button class="rb-close" on:click={() => showReplace = false}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
-      <div class="r-modal-body">
-        <div class="r-sec">Disco a reemplazar</div>
-        <div class="r-replace-old">
-          <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
-          <div class="r-disk-info">
-            <div class="r-disk-name">{replaceDisk.name} · {replaceDisk.model || '—'}</div>
-            <div class="r-disk-model">{typeof replaceDisk.size === 'string' ? replaceDisk.size : fmt(replaceDisk.size)}</div>
+      <div class="r-modal-body" style="display:flex;flex-direction:column;gap:18px">
+
+        <!-- Pool degradado -->
+        <div>
+          <div class="rb-label">Volumen a reconstruir</div>
+          <div class="rb-pool-card">
+            <div class="rb-pool-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3S3 13.66 3 12"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+              </svg>
+            </div>
+            <div class="rb-pool-info">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="rb-pool-name">{detailPool.name}</span>
+                <span class="rb-pool-badge">{poolHealthLabel(detailPool)}</span>
+              </div>
+              <div class="rb-pool-meta">{translateProtection(detailPool.profile || detailPool.vdevType)} · {fmt(detailPool.used || 0)} usados de {fmt(detailPool.total || 0)}</div>
+              <div class="rb-pool-disks">
+                {#each poolDisks(detailPool) as d}
+                  <span class="rb-chip">
+                    <span class="rb-dot" class:ok={d.poolStatus !== 'missing' && d.smartStatus !== 'missing'} class:missing={d.poolStatus === 'missing' || d.smartStatus === 'missing'}></span>
+                    {d.name} · {d.model || '—'} {typeof d.size === 'string' ? d.size : fmt(d.size)}
+                  </span>
+                {/each}
+                {#if replaceDisk && !poolDisks(detailPool).find(d => d.name === replaceDisk.name)}
+                  <span class="rb-chip"><span class="rb-dot missing"></span>disco faltante</span>
+                {/if}
+              </div>
+            </div>
           </div>
-          {#if replaceDisk.smartStatus === 'warning'}
-            <span class="r-badge r-badge-warn" style="font-size:10px">Atención</span>
-          {:else if replaceDisk.smartStatus === 'critical' || replaceDisk.smartStatus === 'missing'}
-            <span class="r-badge r-badge-err" style="font-size:10px">{replaceDisk.smartStatus === 'missing' ? 'No detectado' : 'Riesgo'}</span>
+        </div>
+
+        <!-- Selector de discos -->
+        <div>
+          <div class="rb-label">Selecciona un disco para reconstruir</div>
+          {#if replaceCandidates.length === 0}
+            <div style="font-size:12px;color:var(--text-3);padding:12px 0">No hay discos disponibles. Conecta un disco nuevo y pulsa Escanear.</div>
+            <button class="r-btn" on:click={load}>Escanear discos</button>
           {:else}
-            <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+            <div class="rb-disk-list">
+              {#each replaceCandidates as cd}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="rb-disk-opt" class:selected={replaceTarget === cd.name} on:click={() => replaceTarget = cd.name}>
+                  <div class="rb-radio"><div class="rb-radio-dot"></div></div>
+                  <div class="rb-disk-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                  </div>
+                  <div class="rb-disk-info">
+                    <div class="rb-disk-name">{cd.name} · {cd.model || '—'}</div>
+                    <div class="rb-disk-meta">{cd.sizeFormatted || fmt(cd.size)}{cd.partitions?.length > 0 ? ' · con particiones' : ' · sin particiones'}</div>
+                  </div>
+                  {@const csd = smartData[cd.name]}
+                  {#if csd?.status === 'critical'}
+                    <span class="rb-disk-badge rb-badge-err">Riesgo</span>
+                  {:else if csd?.status === 'warning'}
+                    <span class="rb-disk-badge rb-badge-warn">Atención</span>
+                  {:else}
+                    <span class="rb-disk-badge rb-badge-ok">Sano</span>
+                  {/if}
+                </div>
+              {/each}
+            </div>
           {/if}
         </div>
 
-        <div class="r-sec" style="margin-top:14px">Disco nuevo</div>
-        {#if replaceCandidates.length === 0}
-          <div style="font-size:11px;color:var(--text-3);padding:8px 0">No hay discos disponibles. Conecta un disco nuevo y pulsa Escanear.</div>
-          <button class="r-btn" style="margin-top:6px" on:click={load}>Escanear discos</button>
-        {:else}
-          {#each replaceCandidates as cd}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="r-replace-candidate" class:selected={replaceTarget === cd.name} on:click={() => replaceTarget = cd.name}>
-              <div class="r-replace-radio">{replaceTarget === cd.name ? '●' : '○'}</div>
-              <div class="r-disk-info">
-                <div class="r-disk-name">{cd.name} · {cd.model || '—'}</div>
-                <div class="r-disk-model">{cd.sizeFormatted || fmt(cd.size)}</div>
-              </div>
-            </div>
-          {/each}
-        {/if}
-
-        <div class="r-replace-warn" style="margin-top:14px">
-          <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:var(--amber);fill:none;stroke-width:2;stroke-linecap:round;flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <span style="font-size:11px;color:var(--text-2)">El disco nuevo se formateará completamente. El proceso de reconstrucción puede tardar horas.</span>
+        <!-- Aviso -->
+        <div class="rb-warning">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <p>El disco seleccionado se <strong>formateará completamente</strong>. La reconstrucción puede tardar varias horas según el tamaño del volumen.</p>
         </div>
       </div>
+
       <div class="r-modal-footer">
         <button class="r-btn" on:click={() => showReplace = false}>Cancelar</button>
-        <button class="r-btn r-btn-primary" disabled={!replaceTarget || replacing} on:click={doReplace}>
-          {replacing ? 'Reemplazando...' : 'Iniciar reemplazo'}
+        <button class="rb-btn-go" class:active={replaceTarget && !replacing} disabled={!replaceTarget || replacing} on:click={doReplace}>
+          {replacing ? 'Reconstruyendo...' : 'Iniciar reconstrucción'}
         </button>
       </div>
     </div>
@@ -2461,4 +2494,103 @@
   .r-dsel-row.selected { border-color:var(--accent); background:rgba(124,111,255,0.06); }
   .r-dsel-chk { width:18px; height:18px; border-radius:5px; border:2px solid var(--text-3); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:var(--accent); flex-shrink:0; }
   .r-dsel-row.selected .r-dsel-chk { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  /* ── REBUILD MODAL ── */
+  .rb-modal { width:480px; }
+  .rb-close {
+    width:28px; height:28px; border-radius:8px;
+    background:rgba(255,255,255,0.04); border:1px solid var(--border);
+    color:var(--text-3); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; transition:all .12s;
+  }
+  .rb-close:hover { background:rgba(255,255,255,0.08); color:var(--text-1); }
+  .rb-close svg { width:13px; height:13px; }
+
+  .rb-label { font-size:10.5px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:rgba(255,255,255,0.22); margin-bottom:10px; }
+
+  .rb-pool-card {
+    background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:12px;
+    padding:14px 16px; display:flex; align-items:flex-start; gap:14px;
+  }
+  .rb-pool-icon {
+    width:42px; height:42px; border-radius:11px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(224,90,90,0.1); border:1px solid rgba(224,90,90,0.2);
+  }
+  .rb-pool-icon svg { width:20px; height:20px; color:var(--red, #e05a5a); }
+  .rb-pool-info { flex:1; min-width:0; }
+  .rb-pool-name { font-size:14px; font-weight:600; color:var(--text-1); }
+  .rb-pool-badge {
+    padding:3px 9px; border-radius:20px; font-size:11px; font-weight:600;
+    background:rgba(224,90,90,0.1); color:var(--red, #e05a5a); border:1px solid rgba(224,90,90,0.2);
+  }
+  .rb-pool-meta { font-size:12px; color:var(--text-3); margin-top:3px; }
+  .rb-pool-disks { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+  .rb-chip {
+    display:inline-flex; align-items:center; gap:5px;
+    padding:3px 8px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.07);
+    border-radius:6px; font-size:11px; color:var(--text-3);
+  }
+  .rb-dot { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+  .rb-dot.ok { background:var(--green); box-shadow:0 0 4px rgba(74,222,128,0.5); }
+  .rb-dot.missing { background:var(--red, #e05a5a); box-shadow:0 0 4px rgba(224,90,90,0.5); }
+
+  .rb-disk-list { display:flex; flex-direction:column; gap:6px; }
+  .rb-disk-opt {
+    display:flex; align-items:center; gap:12px;
+    padding:12px 14px; background:rgba(255,255,255,0.04); border:1px solid var(--border);
+    border-radius:11px; cursor:pointer; transition:all .14s; user-select:none;
+  }
+  .rb-disk-opt:hover { background:rgba(255,255,255,0.06); border-color:rgba(255,255,255,0.12); }
+  .rb-disk-opt.selected { background:rgba(91,138,245,0.12); border-color:rgba(91,138,245,0.25); }
+
+  .rb-radio {
+    width:17px; height:17px; border-radius:50%;
+    border:2px solid rgba(255,255,255,0.2); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; transition:all .14s;
+  }
+  .rb-disk-opt.selected .rb-radio { border-color:var(--accent); background:var(--accent); }
+  .rb-radio-dot {
+    width:6px; height:6px; border-radius:50%; background:#fff;
+    opacity:0; transform:scale(0.4); transition:all .14s;
+  }
+  .rb-disk-opt.selected .rb-radio-dot { opacity:1; transform:scale(1); }
+
+  .rb-disk-icon {
+    width:36px; height:36px; border-radius:9px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.07);
+  }
+  .rb-disk-opt.selected .rb-disk-icon { background:rgba(91,138,245,0.12); border-color:rgba(91,138,245,0.25); }
+  .rb-disk-icon svg { width:17px; height:17px; color:var(--text-3); }
+  .rb-disk-opt.selected .rb-disk-icon svg { color:var(--accent); }
+
+  .rb-disk-info { flex:1; min-width:0; }
+  .rb-disk-name { font-size:13px; font-weight:600; color:var(--text-1); }
+  .rb-disk-meta { font-size:11.5px; color:var(--text-3); margin-top:2px; }
+
+  .rb-disk-badge { padding:3px 9px; border-radius:20px; font-size:11px; font-weight:600; flex-shrink:0; }
+  .rb-badge-ok { background:rgba(76,175,130,0.12); color:var(--green); }
+  .rb-badge-warn { background:rgba(224,168,90,0.1); color:var(--amber); }
+  .rb-badge-err { background:rgba(224,90,90,0.1); color:var(--red, #e05a5a); }
+
+  .rb-warning {
+    display:flex; align-items:flex-start; gap:10px;
+    padding:11px 13px; background:rgba(224,168,90,0.06);
+    border:1px solid rgba(224,168,90,0.18); border-radius:10px;
+  }
+  .rb-warning svg { width:14px; height:14px; color:var(--amber); flex-shrink:0; margin-top:1px; stroke-linecap:round; stroke-linejoin:round; fill:none; }
+  .rb-warning p { font-size:12px; color:rgba(255,255,255,0.5); line-height:1.55; }
+  .rb-warning strong { color:var(--amber); font-weight:600; }
+
+  .rb-btn-go {
+    padding:9px 20px; border-radius:10px; font-size:13px; font-weight:600;
+    cursor:pointer; border:none; outline:none; font-family:inherit;
+    background:linear-gradient(135deg, #e05a8a 0%, #a060e0 100%);
+    color:#fff; box-shadow:0 4px 16px rgba(160,90,224,0.3);
+    opacity:0.35; pointer-events:none; transition:all .13s;
+  }
+  .rb-btn-go.active { opacity:1; pointer-events:all; }
+  .rb-btn-go.active:hover { box-shadow:0 6px 22px rgba(160,90,224,0.45); transform:translateY(-1px); }
+  .rb-btn-go:disabled { opacity:0.35; pointer-events:none; }
 </style>

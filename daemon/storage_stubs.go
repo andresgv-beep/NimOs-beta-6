@@ -498,10 +498,13 @@ func enrichDisksWithSmart(diskNames []interface{}) []interface{} {
 
 	enriched := make([]interface{}, 0, len(diskNames))
 	for _, d := range diskNames {
-		name, _ := d.(string)
-		if name == "" {
+		raw, _ := d.(string)
+		if raw == "" {
 			continue
 		}
+
+		// Strip /dev/ prefix — config stores "/dev/sda", smartHistory uses "sda"
+		name := strings.TrimPrefix(raw, "/dev/")
 
 		smartStatus := "unknown"
 		if s, ok := smartHistory[name]; ok {

@@ -21,6 +21,11 @@ func resolveZpoolName(poolName string) string {
 	for _, p := range confPools {
 		pm, _ := p.(map[string]interface{})
 		if n, _ := pm["name"].(string); n == poolName {
+			// Only return zpool name for ZFS pools
+			poolType, _ := pm["type"].(string)
+			if poolType != "zfs" {
+				return ""
+			}
 			if zn, _ := pm["zpoolName"].(string); zn != "" {
 				return zn
 			}
@@ -166,8 +171,23 @@ func startScrub(body map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{"ok": true, "type": "zfs"}
 	}
 
-	// Try BTRFS
-	mountPoint := nimbusPoolsDir + "/" + pool
+	// Try BTRFS — read mount point from config
+	mountPoint := ""
+	conf := getStorageConfigFull()
+	confPools, _ := conf["pools"].([]interface{})
+	for _, p := range confPools {
+		pm, _ := p.(map[string]interface{})
+		if n, _ := pm["name"].(string); n == pool {
+			poolType, _ := pm["type"].(string)
+			if poolType == "btrfs" {
+				mountPoint, _ = pm["mountPoint"].(string)
+			}
+			break
+		}
+	}
+	if mountPoint == "" {
+		mountPoint = nimbusPoolsDir + "/" + pool
+	}
 	if _, err := runCmd("btrfs", []string{"filesystem", "show", mountPoint}, CmdOptions{Timeout: 5 * time.Second}); err == nil {
 		// BTRFS scrub runs in background by default
 		_, err := runCmd("btrfs", []string{"scrub", "start", mountPoint}, CmdOptions{Timeout: 15 * time.Second})
@@ -210,10 +230,25 @@ func getScrubStatus(poolName string) map[string]interface{} {
 		return getZfsScrubStatus(zpoolName, poolName)
 	}
 
-	// Try BTRFS
-	mountPoint := nimbusPoolsDir + "/" + poolName
-	if _, err := runCmd("btrfs", []string{"filesystem", "show", mountPoint}, CmdOptions{Timeout: 5 * time.Second}); err == nil {
-		return getBtrfsScrubStatus(mountPoint, poolName)
+	// Try BTRFS — read mount point from config
+	btrfsMountPoint := ""
+	btrfsConf := getStorageConfigFull()
+	btrfsPools, _ := btrfsConf["pools"].([]interface{})
+	for _, p := range btrfsPools {
+		pm, _ := p.(map[string]interface{})
+		if n, _ := pm["name"].(string); n == poolName {
+			poolType, _ := pm["type"].(string)
+			if poolType == "btrfs" {
+				btrfsMountPoint, _ = pm["mountPoint"].(string)
+			}
+			break
+		}
+	}
+	if btrfsMountPoint == "" {
+		btrfsMountPoint = nimbusPoolsDir + "/" + poolName
+	}
+	if _, err := runCmd("btrfs", []string{"filesystem", "show", btrfsMountPoint}, CmdOptions{Timeout: 5 * time.Second}); err == nil {
+		return getBtrfsScrubStatus(btrfsMountPoint, poolName)
 	}
 
 	return map[string]interface{}{"status": "error", "error": "Pool not found", "filesystem": "unknown"}

@@ -1426,6 +1426,17 @@ func getDiskSmart(diskName string) map[string]interface{} {
 		}
 		attrs = append(attrs, attr)
 
+		// Propagate attribute-level warnings to disk-level status
+		// Any attribute near its threshold is a concern, regardless of name
+		if attrStatus == "critical" {
+			result["status"] = "critical"
+			result["healthy"] = false
+		} else if attrStatus == "warning" {
+			if result["status"] == "ok" {
+				result["status"] = "warning"
+			}
+		}
+
 		// Extract key metrics
 		switch name {
 		case "Temperature_Celsius", "Temperature_Internal", "Airflow_Temperature_Cel":
@@ -1505,6 +1516,7 @@ func parseRawSmartValue(raw string) int {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 var smartHistory = map[string]string{} // disk name -> last known status ("ok"/"warning"/"critical")
+var smartDetailsCache = map[string]SmartDetails{} // disk name -> cached SMART detail metrics
 var smartMu sync.Mutex
 
 func startSmartMonitor() {
@@ -1554,9 +1566,28 @@ func checkAllDisksSmart() {
 			continue
 		}
 
+		// Cache detail metrics for getSmartDetailsForDisk (used by pool health)
+		details := SmartDetails{}
+		if v, ok := smartResult["reallocated"].(int); ok {
+			details.ReallocatedSectors = v
+		}
+		if v, ok := smartResult["pending"].(int); ok {
+			details.PendingSectors = v
+		}
+		if v, ok := smartResult["uncorrectable"].(int); ok {
+			details.Uncorrectable = v
+		}
+		if v, ok := smartResult["powerOnHours"].(int); ok {
+			details.PowerOnHours = v
+		}
+		if v, ok := smartResult["temperature"].(int); ok {
+			details.Temperature = v
+		}
+
 		smartMu.Lock()
 		prevStatus, existed := smartHistory[diskName]
 		smartHistory[diskName] = currentStatus
+		smartDetailsCache[diskName] = details
 		smartMu.Unlock()
 
 		// Only notify on status changes (not on first scan unless bad)

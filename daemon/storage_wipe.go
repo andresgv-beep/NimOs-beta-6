@@ -458,49 +458,59 @@ func wipeDiskInternal(diskPath string) map[string]interface{} {
 			runCmd("partx", []string{"-d", diskPath}, optsNoFail)
 			runCmd("blockdev", []string{"--rereadpt", diskPath}, optsNoFail)
 			runCmd("partprobe", []string{diskPath}, optsNoFail)
-			runCmd("udevadm", []string{"settle", "--timeout=5"}, optsNoFail)
+			runCmd("udevadm", []string{"settle", "--timeout=10"}, optsNoFail)
 			time.Sleep(2 * time.Second)
 			return nil
 		}},
 
-		// 9. VERIFY — partitions must be gone. If not, aggressive retry.
+		// 9. VERIFY — disk must be clean.
+		// Uses wipefs (reads disk directly) instead of lsblk (kernel cache)
+		// to avoid false failures when the kernel hasn't updated yet.
 		{Name: "verify_clean", Policy: FailFast, Do: func() error {
 			for attempt := 0; attempt < 3; attempt++ {
-				res, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
-				lines := strings.Split(strings.TrimSpace(res.Stdout), "\n")
+				// Primary check: wipefs reads signatures directly from disk
+				wipeRes, _ := runCmd("wipefs", []string{"--list", "--noheadings", diskPath}, optsNoFail)
+				sigCount := 0
+				for _, line := range strings.Split(strings.TrimSpace(wipeRes.Stdout), "\n") {
+					if strings.TrimSpace(line) != "" {
+						sigCount++
+					}
+				}
+
+				// Secondary check: lsblk for partitions (kernel view)
+				lsRes, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
 				partCount := 0
-				for _, line := range lines {
+				for _, line := range strings.Split(strings.TrimSpace(lsRes.Stdout), "\n") {
 					line = strings.TrimSpace(line)
 					if line != "" && line != diskBase {
 						partCount++
 					}
 				}
-				if partCount == 0 {
-					logMsg("Wipe verified: %s is clean (0 partitions)", diskPath)
+
+				// Clean if no signatures on disk — partitions in lsblk may be stale kernel cache
+				if sigCount == 0 {
+					if partCount > 0 {
+						logMsg("Wipe verified: %s clean (0 signatures, %d stale partitions in kernel cache — will clear on next reread)", diskPath, partCount)
+						// One more attempt to clear kernel cache
+						runCmd("blockdev", []string{"--rereadpt", diskPath}, optsNoFail)
+					} else {
+						logMsg("Wipe verified: %s is clean (0 signatures, 0 partitions)", diskPath)
+					}
 					return nil
 				}
 
 				if attempt < 2 {
-					logMsg("Wipe verify attempt %d: %d partitions remain on %s — retrying aggressively", attempt+1, partCount, diskPath)
-					// Aggressive retry: wipe remaining partitions, re-zero, re-partx
-					retryParts, _ := runCmd("lsblk", []string{"-ln", "-o", "NAME", diskPath}, optsNoFail)
-					for _, line := range strings.Split(retryParts.Stdout, "\n") {
-						p := strings.TrimSpace(line)
-						if p != "" && p != diskBase {
-							runCmd("wipefs", []string{"-af", "/dev/" + p}, optsNoFail)
-							runCmd("dd", []string{"if=/dev/zero", "of=/dev/" + p, "bs=1M", "count=1", "conv=fsync,notrunc"}, optsNoFail)
-						}
-					}
-					runCmd("partx", []string{"-d", diskPath}, optsNoFail)
-					runCmd("sgdisk", []string{"-Z", diskPath}, optsNoFail)
+					logMsg("Wipe verify attempt %d: %d signatures remain on %s — retrying", attempt+1, sigCount, diskPath)
 					runCmd("wipefs", []string{"-af", diskPath}, optsNoFail)
+					runCmd("dd", []string{"if=/dev/zero", "of=" + diskPath, "bs=1M", "count=1", "conv=fsync,notrunc"}, optsNoFail)
+					runCmd("sgdisk", []string{"-Z", diskPath}, optsNoFail)
 					runCmd("blockdev", []string{"--rereadpt", diskPath}, optsNoFail)
 					runCmd("partprobe", []string{diskPath}, optsNoFail)
-					runCmd("udevadm", []string{"settle", "--timeout=5"}, optsNoFail)
+					runCmd("udevadm", []string{"settle", "--timeout=10"}, optsNoFail)
 					time.Sleep(3 * time.Second)
 				}
 			}
-			return fmt.Errorf("wipe verification failed: partitions still on %s after 3 attempts", diskPath)
+			return fmt.Errorf("wipe verification failed: signatures still on %s after 3 attempts", diskPath)
 		}},
 	}
 

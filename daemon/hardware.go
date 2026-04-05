@@ -1426,14 +1426,30 @@ func getDiskSmart(diskName string) map[string]interface{} {
 		}
 		attrs = append(attrs, attr)
 
-		// Propagate attribute-level warnings to disk-level status
-		// Any attribute near its threshold is a concern, regardless of name
-		if attrStatus == "critical" {
-			result["status"] = "critical"
-			result["healthy"] = false
-		} else if attrStatus == "warning" {
-			if result["status"] == "ok" {
-				result["status"] = "warning"
+		// Only propagate threshold warnings for health-critical attributes
+		// NOT for vendor-specific rate counters (Raw_Read_Error_Rate, Seek_Error_Rate, etc.)
+		// which routinely show near-threshold values on healthy Seagate/WD drives
+		criticalAttrs := map[string]bool{
+			"Reallocated_Sector_Ct":    true,
+			"Current_Pending_Sector":   true,
+			"Offline_Uncorrectable":    true,
+			"Reported_Uncorrect":       true,
+			"Runtime_Bad_Block":        true,
+			"Spin_Retry_Count":         true,
+			"End-to-End_Error":         true,
+			"Command_Timeout":          true,
+			"Reallocated_Event_Count":  true,
+			"UDMA_CRC_Error_Count":     true,
+		}
+
+		if criticalAttrs[name] {
+			if attrStatus == "critical" {
+				result["status"] = "critical"
+				result["healthy"] = false
+			} else if attrStatus == "warning" {
+				if result["status"] == "ok" {
+					result["status"] = "warning"
+				}
 			}
 		}
 

@@ -229,16 +229,16 @@ func parseBtrfsDeviceStats(mountPoint string) (map[string]DiskStatus, error) {
 
 // ─── getSmartDetailsForDisk ──────────────────────────────────────────────────
 //
-// Extracts SmartDetails from getDiskSmart() for a specific disk.
-// This calls getDiskSmart which is the full smartctl parser in hardware.go.
-// For pool health diagnostics, we also check the smartHistory cache first
-// to avoid redundant smartctl calls during the same monitoring cycle.
+// Returns SMART status and details for a disk using ONLY the cached data.
+// NEVER calls smartctl directly — that runs in the background monitor every 30min.
+// This function is called on every API request (pool listing), so it must be fast.
 // ─────────────────────────────────────────────────────────────────────────────
 
 func getSmartDetailsForDisk(diskName string) (smartStatus string, details SmartDetails) {
-	// Check cache first
+	// Read from cache only — no smartctl calls
 	smartMu.Lock()
 	cachedStatus, hasCached := smartHistory[diskName]
+	cachedData, hasData := smartDetailsCache[diskName]
 	smartMu.Unlock()
 
 	if hasCached {
@@ -247,44 +247,8 @@ func getSmartDetailsForDisk(diskName string) (smartStatus string, details SmartD
 		smartStatus = "unknown"
 	}
 
-	// Get full SMART data for the detail metrics
-	smartData := getDiskSmart(diskName)
-
-	// Update status from full data if we got it
-	if s, ok := smartData["status"].(string); ok && s != "" {
-		smartStatus = s
-	}
-
-	// Check if NVMe with partial data
-	partial := false
-	if attrs, ok := smartData["attributes"].([]map[string]interface{}); ok && len(attrs) == 0 {
-		if smartData["smartSupported"] == true {
-			// Has SMART support but no standard attributes — likely NVMe partial
-			partial = true
-			if smartStatus == "ok" || smartStatus == "unknown" {
-				smartStatus = "partial"
-			}
-		}
-	}
-
-	// Extract detail metrics
-	details = SmartDetails{
-		Partial: partial,
-	}
-	if v, ok := smartData["reallocated"].(int); ok {
-		details.ReallocatedSectors = v
-	}
-	if v, ok := smartData["pending"].(int); ok {
-		details.PendingSectors = v
-	}
-	if v, ok := smartData["uncorrectable"].(int); ok {
-		details.Uncorrectable = v
-	}
-	if v, ok := smartData["powerOnHours"].(int); ok {
-		details.PowerOnHours = v
-	}
-	if v, ok := smartData["temperature"].(int); ok {
-		details.Temperature = v
+	if hasData {
+		details = cachedData
 	}
 
 	return smartStatus, details

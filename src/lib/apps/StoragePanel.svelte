@@ -332,26 +332,33 @@
   async function load(silent = false) {
     if (!silent) loading = true;
     try {
-      const [statusRes, disksRes, capRes] = await Promise.all([
-        fetch('/api/storage/status', { headers: hdrs() }),
-        fetch('/api/storage/disks',  { headers: hdrs() }),
-        fetch('/api/storage/capabilities', { headers: hdrs() }),
-      ]);
-      const status = await statusRes.json();
-      const disks  = await disksRes.json();
-      const caps   = await capRes.json();
-      pools       = status.pools       || [];
-      eligible    = disks.eligible     || [];
-      provisioned = disks.provisioned  || [];
-      nvme        = disks.nvme         || [];
-      capabilities = caps;
-      // Set default pool type from recommended
-      if (caps.recommended) newPool.type = caps.recommended;
+      if (silent) {
+        // Silent refresh: only pool status — lightweight, no disk scan, no smartctl
+        const statusRes = await fetch('/api/storage/status', { headers: hdrs() });
+        const status = await statusRes.json();
+        pools = status.pools || [];
+      } else {
+        // Full load: everything
+        const [statusRes, disksRes, capRes] = await Promise.all([
+          fetch('/api/storage/status', { headers: hdrs() }),
+          fetch('/api/storage/disks',  { headers: hdrs() }),
+          fetch('/api/storage/capabilities', { headers: hdrs() }),
+        ]);
+        const status = await statusRes.json();
+        const disks  = await disksRes.json();
+        const caps   = await capRes.json();
+        pools       = status.pools       || [];
+        eligible    = disks.eligible     || [];
+        provisioned = disks.provisioned  || [];
+        nvme        = disks.nvme         || [];
+        capabilities = caps;
+        if (caps.recommended) newPool.type = caps.recommended;
+      }
       // Refresh detailPool if open
       if (detailPool) {
         detailPool = pools.find(p => p.name === detailPool.name) || null;
         if (!detailPool) activeTab = 'resumen';
-        else loadPoolServices(detailPool.name);
+        else if (silent) loadPoolServices(detailPool.name);
       }
     } catch (e) {
       console.error('[Storage] load failed', e);

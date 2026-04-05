@@ -560,10 +560,19 @@ func getZfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[str
 	if ok && out != "" {
 		parts := strings.Fields(strings.TrimSpace(out))
 		if len(parts) >= 5 {
-			total = parseInt64(parts[1])
+			rawSize := parseInt64(parts[1])
 			used = parseInt64(parts[2])
 			available = parseInt64(parts[3])
 			health = parts[4]
+
+			// For RAIDZ, 'size' is raw capacity (all disks), but 'alloc + free'
+			// reflects actual usable space after parity overhead.
+			// Use alloc + free as total so the UI shows real usable capacity.
+			if used+available > 0 {
+				total = used + available
+			} else {
+				total = rawSize
+			}
 			switch strings.ToUpper(health) {
 			case "ONLINE":
 				poolStatus = "active"

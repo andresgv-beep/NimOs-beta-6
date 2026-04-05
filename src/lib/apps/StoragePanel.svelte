@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { getToken } from '$lib/stores/auth.js';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -39,8 +39,10 @@
         body: JSON.stringify({ pool: detailPool.name, disk: detachDisk.name }),
       });
       const d = await r.json();
-      if (d.error) {
-        alert('Error: ' + d.error);
+      if (d.error === 'services_active') {
+        alert('No se puede desmontar: ' + (d.services?.join(', ') || 'servicios activos') + '. Detén los servicios primero.');
+      } else if (d.error) {
+        alert('Error: ' + (d.message || d.error));
       } else {
         showDetachDialog = false;
         selectedPoolDisk = null;
@@ -355,6 +357,7 @@
   }
 
   onMount(load);
+  onDestroy(stopRefreshLoop);
 
   $: totalBytes = [...eligible, ...provisioned, ...nvme].reduce((a, d) => a + (d.size || 0), 0);
   $: usedBytes  = pools.reduce((a, p) => a + (p.used || 0), 0);
@@ -364,10 +367,10 @@
   // All physical disks (for resumen)
   $: allDisks = [...provisioned.filter(d => !d.name?.startsWith('nvme')), ...eligible, ...nvme.filter(d => d.name)];
 
-  // Sort pools: degraded/error first
+  // Sort pools: worst health first
   $: sortedPools = [...pools].sort((a, b) => {
-    const order = { 'FAULTED': 0, 'DEGRADED': 1, 'ONLINE': 2, 'active': 2 };
-    return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+    const order = { critical: 0, degraded: 1, unstable: 2, at_risk: 3, healthy: 4 };
+    return (order[ph(a).status] ?? 5) - (order[ph(b).status] ?? 5);
   });
 
   function poolUsedPct(pool) {
@@ -416,6 +419,57 @@
     const tb = bytes / 1e12;
     if (tb >= 1) return tb.toFixed(1) + ' TB';
     return (bytes / 1e9).toFixed(1) + ' GB';
+  }
+
+  // ── poolHealth helpers ──────────────────────────────────────────────────────
+  function ph(pool) { return pool?.poolHealth || {}; }
+
+  function poolHealthLabel(pool) {
+    const s = ph(pool).status;
+    const labels = { healthy:'Normal', at_risk:'En riesgo', unstable:'Inestable', degraded:'Degradado', critical:'Crítico' };
+    return labels[s] || s || '—';
+  }
+
+  function poolHealthColor(pool) {
+    const s = ph(pool).status;
+    if (s === 'healthy') return 'var(--green)';
+    if (s === 'at_risk' || s === 'unstable' || s === 'degraded') return 'var(--amber)';
+    if (s === 'critical') return 'var(--red)';
+    return 'var(--text-3)';
+  }
+
+  function poolHealthBadgeClass(pool) {
+    const s = ph(pool).status;
+    if (s === 'healthy') return 'r-badge-ok';
+    if (s === 'critical') return 'r-badge-err';
+    return 'r-badge-warn';
+  }
+
+  // ── Adaptive refresh loop ─────────────────────────────────────────────────
+  let refreshTimer = null;
+
+  function getRefreshInterval(poolList) {
+    const anyResilver = poolList.some(p => ph(p).resilverActive);
+    const anyCritical = poolList.some(p => ph(p).status === 'critical');
+    const anyDegraded = poolList.some(p => ['degraded','unstable'].includes(ph(p).status));
+    if (anyResilver || anyCritical) return 8000;
+    if (anyDegraded) return 15000;
+    return 30000;
+  }
+
+  function startRefreshLoop() {
+    stopRefreshLoop();
+    const interval = getRefreshInterval(pools);
+    refreshTimer = setInterval(() => { load(); }, interval);
+  }
+
+  function stopRefreshLoop() {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+
+  // Restart loop when pools change (interval may need adjusting)
+  $: if (pools.length > 0 && !loading) {
+    startRefreshLoop();
   }
 
   function openDetail(pool) {
@@ -480,8 +534,10 @@
         body: JSON.stringify(body),
       });
       const d = await r.json();
-      if (d.error) {
-        alert('Error: ' + d.error);
+      if (d.error === 'services_active') {
+        alert('No se puede reemplazar: ' + (d.services?.join(', ') || 'servicios activos') + '. Detén los servicios primero.');
+      } else if (d.error) {
+        alert('Error: ' + (d.message || d.error));
       } else {
         showReplace = false;
         selectedPoolDisk = null;
@@ -690,21 +746,26 @@
           </div>
         {:else}
           <!-- Normal resumen with volumes -->
-          <!-- Alert banner — dynamic based on SMART + pool status -->
-          {#if worstSmartStatus === 'critical'}
+          <!-- Alert banner — driven by poolHealth from backend -->
+          {@const worstPool = pools.reduce((w, p) => {
+            const order = { critical:0, degraded:1, unstable:2, at_risk:3, healthy:4 };
+            return (order[ph(p).status] ?? 5) < (order[ph(w).status] ?? 5) ? p : w;
+          }, pools[0])}
+          {@const ws = ph(worstPool).status}
+          {#if ws === 'critical'}
             <div class="r-alert r-alert-err">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-              Disco en riesgo — {problemDisks.length} disco{problemDisks.length > 1 ? 's' : ''} con errores críticos
+              {ph(worstPool).reason?.message || 'Estado crítico detectado'}
             </div>
-          {:else if worstSmartStatus === 'warning'}
+          {:else if ws === 'degraded' || ws === 'unstable'}
             <div class="r-alert r-alert-warn">
               <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              Atención — {problemDisks.length} disco{problemDisks.length > 1 ? 's' : ''} con alertas SMART
+              {ph(worstPool).reason?.message || 'Volumen degradado'}
             </div>
-          {:else if !pools.every(p => p.status === 'active' || p.health === 'ONLINE')}
+          {:else if ws === 'at_risk'}
             <div class="r-alert r-alert-warn">
               <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              Atención — volumen degradado
+              {ph(worstPool).reason?.message || 'Atención requerida'}
             </div>
           {:else}
             <div class="r-alert r-alert-ok">
@@ -748,8 +809,8 @@
                       <div class="r-vol-name">{pool.displayName || pool.name}</div>
                       <div class="r-vol-meta">{translateProtection(pool.profile || pool.vdevType)} · {pool.type?.toUpperCase()} · {pool.disks?.length || '?'} disco{(pool.disks?.length || 0) > 1 ? 's' : ''}</div>
                     </div>
-                    <span class="r-badge {pool.status === 'ONLINE' || pool.status === 'active' ? 'r-badge-ok' : pool.status === 'DEGRADED' ? 'r-badge-warn' : 'r-badge-err'}">
-                      {pool.status === 'ONLINE' || pool.status === 'active' ? 'Normal' : pool.status === 'DEGRADED' ? 'Degradado' : pool.status || 'Desconocido'}
+                    <span class="{poolHealthBadgeClass(pool)} r-badge">
+                      {poolHealthLabel(pool)}
                     </span>
                   </div>
                   <div class="r-bar"><div class="r-bar-fill" style="width:{poolUsedPct(pool)}%"></div></div>
@@ -839,21 +900,30 @@
             <div class="r-detail-rows">
               <div class="r-detail-row">
                 <span class="r-detail-key">Estado</span>
-                <span class="r-detail-val" style="color:var(--green);font-weight:600">
-                  {#if (detailPool.vdevType === 'mirror' || detailPool.profile === 'raid1') && (detailPool.disks?.length || 0) <= 1}
-                    <span style="color:var(--amber)">● Sin redundancia</span>
-                  {:else if detailPool.status === 'ONLINE' || detailPool.status === 'active'}
-                    ● Normal
-                  {:else if detailPool.status === 'DEGRADED'}
-                    <span style="color:var(--amber)">● Degradado</span>
-                  {:else}
-                    {detailPool.status || '—'}
+                <span class="r-detail-val" style="color:{poolHealthColor(detailPool)};font-weight:600">
+                  ● {poolHealthLabel(detailPool)}
+                  {#if ph(detailPool).reason?.message}
+                    <span style="font-weight:400;font-size:11px;color:var(--text-2);margin-left:4px">— {ph(detailPool).reason.message}</span>
                   {/if}
                 </span>
               </div>
+              {#if ph(detailPool).resilverActive}
+                <div class="r-detail-row">
+                  <span class="r-detail-key">Reconstruyendo</span>
+                  <span class="r-detail-val" style="color:var(--accent)">
+                    {ph(detailPool).resilverProgress?.toFixed(1) || 0}%
+                    {#if ph(detailPool).resilverEta} · ~{ph(detailPool).resilverEta} restante{/if}
+                  </span>
+                </div>
+              {/if}
               <div class="r-detail-row">
                 <span class="r-detail-key">Protección</span>
-                <span class="r-detail-val">{translateProtection(detailPool.profile || detailPool.vdevType)} ({detailPool.disks?.length || '?'} discos)</span>
+                <span class="r-detail-val">
+                  {translateProtection(detailPool.profile || detailPool.vdevType)} ({ph(detailPool).redundancy?.current ?? detailPool.disks?.length ?? '?'}/{ph(detailPool).redundancy?.expected ?? '?'} discos)
+                  {#if ph(detailPool).redundancy?.effective != null}
+                    <span style="font-size:11px;color:var(--text-3);margin-left:4px">· puede perder {ph(detailPool).redundancy.effective} más</span>
+                  {/if}
+                </span>
               </div>
               <div class="r-detail-row">
                 <span class="r-detail-key">Sistema</span>
@@ -893,14 +963,24 @@
               <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
               <div class="r-disk-info">
                 <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
-                <div class="r-disk-model">{typeof d.size === 'string' ? d.size : fmt(d.size)}</div>
+                <div class="r-disk-model">
+                  {typeof d.size === 'string' ? d.size : fmt(d.size)}
+                  {#if d.smart?.temperature} · {d.smart.temperature}°C{/if}
+                  {#if d.ioErrors && (d.ioErrors.read > 0 || d.ioErrors.write > 0 || d.ioErrors.checksum > 0)}
+                    <span style="color:var(--amber)"> · IO: R:{d.ioErrors.read} W:{d.ioErrors.write} C:{d.ioErrors.checksum}</span>
+                  {/if}
+                </div>
               </div>
-              {#if d.smartStatus === 'missing'}
+              {#if d.poolStatus === 'missing' || d.smartStatus === 'missing'}
                 <span class="r-badge r-badge-err" style="font-size:10px">No detectado</span>
+              {:else if d.poolStatus === 'faulted' || d.poolStatus === 'unavailable'}
+                <span class="r-badge r-badge-err" style="font-size:10px">Fallo</span>
               {:else if d.smartStatus === 'critical'}
                 <span class="r-badge r-badge-err" style="font-size:10px">Riesgo</span>
               {:else if d.smartStatus === 'warning'}
                 <span class="r-badge r-badge-warn" style="font-size:10px">Atención</span>
+              {:else if d.smartStatus === 'partial'}
+                <span class="r-badge" style="font-size:10px;background:var(--ibtn-bg);color:var(--text-3)">SMART parcial</span>
               {:else if d.smartStatus === 'unknown'}
                 <span class="r-badge" style="font-size:10px;background:var(--ibtn-bg);color:var(--text-3)">Sin datos</span>
               {:else}
@@ -1333,6 +1413,11 @@
       <!-- ══ SALUD ══ -->
       <div class="resumen-scroll">
         <!-- Health overview hero -->
+        {@const healthWorst = pools.reduce((w, p) => {
+          const order = { critical:0, degraded:1, unstable:2, at_risk:3, healthy:4 };
+          return (order[ph(p).status] ?? 5) < (order[ph(w).status] ?? 5) ? p : w;
+        }, pools[0])}
+        {@const hs = ph(healthWorst).status}
         {#if scrubStatus.status === 'scrubbing'}
           <div class="r-health-hero r-health-checking">
             <div class="r-hh-icon checking">
@@ -1343,30 +1428,24 @@
               <div class="r-hh-sub">Comprobando datos... {scrubStatus.progress || 0}% completado</div>
             </div>
           </div>
-        {:else if worstSmartStatus === 'critical'}
+        {:else if hs === 'critical'}
           <div class="r-health-hero r-health-err">
             <div class="r-hh-icon err">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             </div>
             <div>
-              <div class="r-hh-title">Disco en riesgo</div>
-              <div class="r-hh-sub">{problemDisks.length} disco{problemDisks.length > 1 ? 's' : ''} con errores críticos — planifica su reemplazo</div>
+              <div class="r-hh-title">Estado crítico</div>
+              <div class="r-hh-sub">{ph(healthWorst).reason?.message || 'Riesgo de pérdida de datos'}</div>
             </div>
           </div>
-        {:else if worstSmartStatus === 'warning' || !pools.every(p => p.status === 'active' || p.health === 'ONLINE')}
+        {:else if hs === 'degraded' || hs === 'unstable' || hs === 'at_risk'}
           <div class="r-health-hero r-health-warn">
             <div class="r-hh-icon warn">
               <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             </div>
             <div>
               <div class="r-hh-title">Atención requerida</div>
-              <div class="r-hh-sub">
-                {#if problemDisks.length > 0}
-                  {problemDisks.length} disco{problemDisks.length > 1 ? 's' : ''} con alertas SMART
-                {:else}
-                  Uno o más volúmenes necesitan revisión
-                {/if}
-              </div>
+              <div class="r-hh-sub">{ph(healthWorst).reason?.message || 'Uno o más volúmenes necesitan revisión'}</div>
             </div>
           </div>
         {:else}
@@ -1413,8 +1492,8 @@
                 <div style="font-size:14px;font-weight:600;color:var(--text-1)">{pool.name}</div>
                 <div style="font-size:11px;color:var(--text-3);margin-top:2px">{translateProtection(pool.vdevType)} · {pool.disks?.length || '?'} discos · {fmt(pool.used || 0)} / {fmt(pool.total || 0)}</div>
               </div>
-              <span class="r-badge {pool.status === 'active' || pool.health === 'ONLINE' ? 'r-badge-ok' : 'r-badge-warn'}">
-                {pool.status === 'active' || pool.health === 'ONLINE' ? 'Normal' : pool.status || '—'}
+              <span class="{poolHealthBadgeClass(pool)} r-badge">
+                {poolHealthLabel(pool)}
               </span>
             </div>
 

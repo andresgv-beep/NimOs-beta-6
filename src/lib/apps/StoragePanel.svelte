@@ -891,159 +891,194 @@
 
     {:else if activeTab === 'detalle' && detailPool}
 
-      <!-- ══ DETALLE VOLUMEN ══ -->
+      <!-- ══ DETALLE VOLUMEN — Redesign ══ -->
       <div class="resumen-scroll">
-        <!-- Back button -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="r-back" on:click={closeDetail}>← Volver a Resumen</div>
+        <div class="r-back" on:click={closeDetail}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:13px;height:13px"><polyline points="15 18 9 12 15 6"/></svg>
+          Volver a Resumen
+        </div>
 
-        <!-- Info + Space grid -->
-        <div class="r-detail-grid">
-          <div class="r-detail-card">
-            <div class="r-sec">Información</div>
-            <div class="r-detail-rows">
-              <div class="r-detail-row">
-                <span class="r-detail-key">Estado</span>
-                <span class="r-detail-val" style="color:{poolHealthColor(detailPool)};font-weight:600">
-                  ● {poolHealthLabel(detailPool)}
-                  {#if ph(detailPool).reason?.message}
-                    <span style="font-weight:400;font-size:11px;color:var(--text-2);margin-left:4px">— {ph(detailPool).reason.message}</span>
-                  {/if}
-                </span>
-              </div>
-              {#if ph(detailPool).resilverActive}
-                <div class="r-detail-row">
-                  <span class="r-detail-key">Reconstruyendo</span>
-                  <span class="r-detail-val" style="color:var(--accent)">
-                    {ph(detailPool).resilverProgress?.toFixed(1) || 0}%
-                    {#if ph(detailPool).resilverEta} · ~{ph(detailPool).resilverEta} restante{/if}
-                  </span>
+        <div class="dt-grid">
+
+          <!-- Información -->
+          <div class="dt-card">
+            <div class="dt-label">Información</div>
+
+            <div class="dt-row">
+              <span class="dt-key">Estado</span>
+              <div class="dt-estado-wrap">
+                <div class="dt-estado-main" style="color:{poolHealthColor(detailPool)}">
+                  <span class="dt-estado-dot" style="background:{poolHealthColor(detailPool)};box-shadow:0 0 6px {poolHealthColor(detailPool)}"></span>
+                  {poolHealthLabel(detailPool)}
                 </div>
-              {/if}
-              <div class="r-detail-row">
-                <span class="r-detail-key">Protección</span>
-                <span class="r-detail-val">
-                  {translateProtection(detailPool.profile || detailPool.vdevType)} ({ph(detailPool).redundancy?.current ?? detailPool.disks?.length ?? '?'}/{ph(detailPool).redundancy?.expected ?? '?'} discos)
-                  {#if ph(detailPool).redundancy?.effective > 0}
-                    <span style="font-size:11px;color:var(--text-3);margin-left:4px">· puede perder {ph(detailPool).redundancy.effective} más</span>
-                  {:else if ph(detailPool).redundancy?.effective === 0 && ph(detailPool).redundancy?.type !== 'single'}
-                    <span style="font-size:11px;color:var(--amber);margin-left:4px">· sin margen de fallo</span>
-                  {/if}
-                </span>
-              </div>
-              <div class="r-detail-row">
-                <span class="r-detail-key">Sistema</span>
-                <span class="r-detail-val">{detailPool.type?.toUpperCase() || '—'}</span>
-              </div>
-              <div class="r-detail-row">
-                <span class="r-detail-key">Nombre</span>
-                <span class="r-detail-val">{detailPool.name}</span>
+                {#if ph(detailPool).reason?.message}
+                  <span class="dt-estado-sub">{ph(detailPool).reason.message}</span>
+                {/if}
               </div>
             </div>
-          </div>
 
-          <div class="r-detail-card">
-            <div class="r-sec">Espacio</div>
-            <div class="r-bar"><div class="r-bar-fill" style="width:{poolUsedPct(detailPool)}%"></div></div>
-            <div class="r-bar-text"><span>{fmt(detailPool.used || 0)}</span><span>{fmt(detailPool.total || detailPool.size || 0)} · {poolUsedPct(detailPool)}%</span></div>
-            {#if detailPool.shares && detailPool.shares.length > 0}
-              <div style="margin-top:14px">
-                {#each detailPool.shares as share}
-                  <div class="r-use-row">
-                    <span class="r-use-name">{share.name || share}</span>
-                    <span class="r-use-size">{fmt(share.used || 0)}</span>
-                  </div>
-                {/each}
+            {#if ph(detailPool).resilverActive}
+              <div class="dt-row">
+                <span class="dt-key">Reconstruyendo</span>
+                <div class="dt-estado-wrap">
+                  <span class="dt-estado-main" style="color:var(--accent)">{ph(detailPool).resilverProgress?.toFixed(1) || 0}%</span>
+                  {#if ph(detailPool).resilverEta}
+                    <span class="dt-estado-sub">~{ph(detailPool).resilverEta} restante</span>
+                  {/if}
+                </div>
               </div>
             {/if}
-          </div>
-        </div>
 
-        <!-- Disks in this volume -->
-        <div class="r-detail-card" style="margin-top:14px">
-          <div class="r-sec">Discos en este volumen</div>
-          {#each poolDisks(detailPool) as d}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="r-disk-row" class:r-disk-selected={selectedPoolDisk?.name === d.name} on:click={() => selectedPoolDisk = selectedPoolDisk?.name === d.name ? null : d}>
-              <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
-              <div class="r-disk-info">
-                <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
-                <div class="r-disk-model">
-                  {typeof d.size === 'string' ? d.size : fmt(d.size)}
-                  {#if d.smart?.temperature} · {d.smart.temperature}°C{/if}
-                  {#if d.ioErrors && (d.ioErrors.read > 0 || d.ioErrors.write > 0 || d.ioErrors.checksum > 0)}
-                    <span style="color:var(--amber)"> · IO: R:{d.ioErrors.read} W:{d.ioErrors.write} C:{d.ioErrors.checksum}</span>
-                  {/if}
-                </div>
+            <div class="dt-row">
+              <span class="dt-key">Protección</span>
+              <div class="dt-prot-wrap">
+                <span class="dt-prot-main">{translateProtection(detailPool.profile || detailPool.vdevType)} ({ph(detailPool).redundancy?.current ?? detailPool.disks?.length ?? '?'}/{ph(detailPool).redundancy?.expected ?? '?'} discos)</span>
+                {#if ph(detailPool).redundancy?.effective > 0}
+                  <span class="dt-prot-sub">puede perder {ph(detailPool).redundancy.effective} más</span>
+                {:else if ph(detailPool).redundancy?.effective === 0 && ph(detailPool).redundancy?.type !== 'single'}
+                  <span class="dt-prot-sub" style="color:var(--amber)">sin margen de fallo</span>
+                {/if}
               </div>
-              {#if d.poolStatus === 'missing' || d.smartStatus === 'missing'}
-                <span class="r-badge r-badge-err" style="font-size:10px">No detectado</span>
-              {:else if d.poolStatus === 'faulted' || d.poolStatus === 'unavailable'}
-                <span class="r-badge r-badge-err" style="font-size:10px">Fallo</span>
-              {:else if d.smartStatus === 'critical'}
-                <span class="r-badge r-badge-err" style="font-size:10px">Riesgo</span>
-              {:else if d.smartStatus === 'warning'}
-                <span class="r-badge r-badge-warn" style="font-size:10px">Atención</span>
-              {:else if d.smartStatus === 'partial'}
-                <span class="r-badge" style="font-size:10px;background:var(--ibtn-bg);color:var(--text-3)">SMART parcial</span>
-              {:else if d.smartStatus === 'unknown'}
-                <span class="r-badge" style="font-size:10px;background:var(--ibtn-bg);color:var(--text-3)">Sin datos</span>
-              {:else}
-                <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
-              {/if}
             </div>
-          {:else}
-            <div style="font-size:11px;color:var(--text-3);padding:8px 0">Información de discos no disponible</div>
-          {/each}
-        </div>
 
-        <!-- Services -->
-        {#if poolServices.length > 0}
-          <div class="r-detail-card" style="margin-top:14px">
-            <div class="r-sec">Servicios que usan este volumen</div>
-            {#each poolServices as svc}
-              <div class="r-svc-row">
-                <span class="r-svc-dot" style="background:{svc.status === 'running' ? 'var(--green)' : 'var(--text-3)'}"></span>
-                <span class="r-svc-name">{svc.appName || svc.appId}</span>
-                <span class="r-svc-status">{svc.status === 'running' ? 'activo' : svc.status}</span>
+            <div class="dt-row">
+              <span class="dt-key">Sistema</span>
+              <span class="dt-val">{detailPool.type?.toUpperCase() || '—'}</span>
+            </div>
+
+            <div class="dt-row" style="border-bottom:none">
+              <span class="dt-key">Nombre</span>
+              <span class="dt-val dt-mono">{detailPool.name}</span>
+            </div>
+          </div>
+
+          <!-- Discos -->
+          <div class="dt-card">
+            <div class="dt-label">Discos en este volumen</div>
+            {#each poolDisks(detailPool) as d}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="dt-disk" class:dt-disk-selected={selectedPoolDisk?.name === d.name} on:click={() => selectedPoolDisk = selectedPoolDisk?.name === d.name ? null : d}>
+                <div class="dt-disk-ico" class:dt-disk-ico-warn={d.smartStatus === 'warning' || d.smartStatus === 'critical' || d.poolStatus === 'missing'}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                </div>
+                <div class="dt-disk-info">
+                  <div class="dt-disk-name">{d.name} · {d.model || '—'}</div>
+                  <div class="dt-disk-meta">
+                    {typeof d.size === 'string' ? d.size : fmt(d.size)}
+                    {#if d.smart?.temperature} · {d.smart.temperature}°C{/if}
+                    {#if d.ioErrors && (d.ioErrors.read > 0 || d.ioErrors.write > 0 || d.ioErrors.checksum > 0)}
+                      <span style="color:var(--amber)"> · IO: R:{d.ioErrors.read} W:{d.ioErrors.write} C:{d.ioErrors.checksum}</span>
+                    {/if}
+                  </div>
+                </div>
+                {#if d.poolStatus === 'missing' || d.smartStatus === 'missing'}
+                  <span class="dt-dbadge dt-dbadge-err">No detectado</span>
+                {:else if d.poolStatus === 'faulted' || d.poolStatus === 'unavailable'}
+                  <span class="dt-dbadge dt-dbadge-err">Fallo</span>
+                {:else if d.smartStatus === 'critical'}
+                  <span class="dt-dbadge dt-dbadge-err">Riesgo</span>
+                {:else if d.smartStatus === 'warning'}
+                  <span class="dt-dbadge dt-dbadge-warn">Atención</span>
+                {:else if d.smartStatus === 'partial'}
+                  <span class="dt-dbadge dt-dbadge-muted">SMART parcial</span>
+                {:else}
+                  <span class="dt-dbadge dt-dbadge-ok">Sano</span>
+                {/if}
               </div>
+            {:else}
+              <div style="font-size:12px;color:var(--text-3);padding:14px 18px">Información de discos no disponible</div>
             {/each}
           </div>
-        {/if}
 
-        <!-- Actions -->
-        <div class="r-sec" style="margin-top:14px">Acciones</div>
-        <div class="r-actions-row" style="flex-wrap:wrap; gap:8px;">
-          {#if (detailPool.vdevType === 'mirror' || detailPool.profile === 'raid1') && (detailPool.disks?.length || 0) <= 1 && eligible.length > 0}
-            <button class="r-btn r-btn-primary" on:click={() => openReplace(poolDisks(detailPool)[0])}>
-              Añadir disco al espejo
-            </button>
-          {/if}
-          {#if selectedPoolDisk && (detailPool.disks?.length || 0) > 1}
-            <button class="r-btn r-btn-warn" disabled={detaching} on:click={() => confirmDetach(selectedPoolDisk)}>
-              {detaching ? 'Desmontando...' : `Desmontar disco (${selectedPoolDisk.name})`}
-            </button>
-            {#if eligible.length > 0}
-              <button class="r-btn r-btn-primary" on:click={() => openReplace(selectedPoolDisk)}>
-                Reemplazar disco ({selectedPoolDisk.name})
+          <!-- Servicios + Capacidad en grid 2 cols -->
+          <div class="dt-row-2">
+            <!-- Servicios -->
+            <div class="dt-card">
+              <div class="dt-label">Servicios activos</div>
+              {#if poolServices.length > 0}
+                {#each poolServices as svc}
+                  <div class="dt-svc">
+                    <span class="dt-svc-name">
+                      <span class="dt-svc-dot" style="background:{svc.status === 'running' ? 'var(--green)' : 'var(--text-3)'}; box-shadow:{svc.status === 'running' ? '0 0 5px rgba(74,222,128,0.55)' : 'none'}"></span>
+                      {svc.appName || svc.appId}
+                    </span>
+                    <span class="dt-svc-status">{svc.status === 'running' ? 'activo' : svc.status}</span>
+                  </div>
+                {/each}
+              {:else}
+                <div style="font-size:12px;color:var(--text-3);padding:14px 18px">Sin servicios</div>
+              {/if}
+            </div>
+
+            <!-- Capacidad con donut -->
+            <div class="dt-card dt-cap-card">
+              <div class="dt-donut-wrap">
+                <svg viewBox="0 0 110 110">
+                  <circle class="dt-donut-track" cx="55" cy="55" r="42"/>
+                  <circle class="dt-donut-used" cx="55" cy="55" r="42"
+                    stroke-dasharray="263.9"
+                    stroke-dashoffset="{263.9 * (1 - poolUsedPct(detailPool) / 100)}"/>
+                </svg>
+                <div class="dt-donut-center">
+                  <span class="dt-donut-pct">{poolUsedPct(detailPool)}%</span>
+                  <span class="dt-donut-label">usado</span>
+                </div>
+              </div>
+              <div class="dt-cap-stats">
+                <div class="dt-cap-row">
+                  <span class="dt-cap-label">Usado</span>
+                  <span class="dt-cap-val">{fmt(detailPool.used || 0)}</span>
+                </div>
+                <div class="dt-cap-row">
+                  <span class="dt-cap-label">Libre</span>
+                  <span class="dt-cap-val">{fmt(detailPool.available || 0)}</span>
+                </div>
+                <div class="dt-cap-row" style="border-bottom:none">
+                  <span class="dt-cap-label">Total</span>
+                  <span class="dt-cap-val">{fmt(detailPool.total || 0)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Acciones -->
+          <div class="dt-actions-sec">
+            <div class="dt-label" style="padding:0 0 10px">Acciones</div>
+            <div class="dt-actions-row">
+              {#if (detailPool.vdevType === 'mirror' || detailPool.profile === 'raid1') && (detailPool.disks?.length || 0) <= 1 && eligible.length > 0}
+                <button class="dt-btn dt-btn-primary" on:click={() => openReplace(poolDisks(detailPool)[0])}>
+                  Añadir disco al espejo
+                </button>
+              {/if}
+              {#if selectedPoolDisk && (detailPool.disks?.length || 0) > 1}
+                <button class="dt-btn dt-btn-warn" disabled={detaching} on:click={() => confirmDetach(selectedPoolDisk)}>
+                  {detaching ? 'Desmontando...' : `Desmontar ${selectedPoolDisk.name}`}
+                </button>
+                {#if eligible.length > 0}
+                  <button class="dt-btn dt-btn-primary" on:click={() => openReplace(selectedPoolDisk)}>
+                    Reemplazar {selectedPoolDisk.name}
+                  </button>
+                {/if}
+              {/if}
+              <button class="dt-btn" on:click={() => startScrubForPool(detailPool.name)}>Verificar integridad</button>
+              <button class="dt-btn dt-btn-accent" class:loading={snapCreating[detailPool.name] === 'loading'} class:done={snapCreating[detailPool.name] === 'done'} class:fail={snapCreating[detailPool.name] === 'error'} disabled={snapCreating[detailPool.name] === 'loading'} on:click={() => quickSnapshot(detailPool.name)}>
+                {#if snapCreating[detailPool.name] === 'loading'}
+                  Creando...
+                {:else if snapCreating[detailPool.name] === 'done'}
+                  ✓ Creado
+                {:else if snapCreating[detailPool.name] === 'error'}
+                  ✕ Error
+                {:else}
+                  Crear punto de restauración
+                {/if}
               </button>
-            {/if}
-          {/if}
-          <button class="r-btn" on:click={() => startScrubForPool(detailPool.name)}>Verificar integridad</button>
-          <button class="r-btn r-btn-primary r-snap-btn" class:loading={snapCreating[detailPool.name] === 'loading'} class:done={snapCreating[detailPool.name] === 'done'} class:fail={snapCreating[detailPool.name] === 'error'} disabled={snapCreating[detailPool.name] === 'loading'} on:click={() => quickSnapshot(detailPool.name)}>
-            {#if snapCreating[detailPool.name] === 'loading'}
-              <span class="r-snap-spinner"></span> Creando...
-            {:else if snapCreating[detailPool.name] === 'done'}
-              <span class="r-snap-tick">✓</span> Creado
-            {:else if snapCreating[detailPool.name] === 'error'}
-              <span class="r-snap-fail">✕</span> Error
-            {:else}
-              Crear punto de restauración
-            {/if}
-          </button>
-          <button class="r-btn r-btn-danger" on:click={openDestroy}>Destruir volumen</button>
+              <button class="dt-btn dt-btn-danger" on:click={openDestroy}>Destruir volumen</button>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -2354,6 +2389,121 @@
   .r-btn-danger:disabled { opacity:.35; cursor:not-allowed; }
   .r-btn-warn { background:rgba(251,191,36,0.10); border-color:rgba(251,191,36,0.3); color:var(--amber); }
   .r-btn-warn:hover { background:rgba(251,191,36,0.18); }
+
+  /* ── DETAIL VIEW REDESIGN (dt-*) ── */
+  .dt-grid { display:flex; flex-direction:column; gap:14px; }
+  .dt-card {
+    background:rgba(28,30,45,0.7); border:1px solid rgba(255,255,255,0.07);
+    border-radius:14px; backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); overflow:hidden;
+  }
+  .dt-label {
+    font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    color:rgba(255,255,255,0.22); padding:16px 18px 0; margin-bottom:4px;
+  }
+  .dt-row {
+    display:flex; align-items:flex-start; justify-content:space-between;
+    padding:11px 18px; border-top:1px solid rgba(255,255,255,0.05); gap:24px;
+  }
+  .dt-key { font-size:12.5px; color:rgba(255,255,255,0.42); flex-shrink:0; padding-top:1px; }
+  .dt-val { font-size:12.5px; color:var(--text-1); font-weight:500; text-align:right; }
+  .dt-mono { font-family:'SF Mono','Fira Code','DM Mono',monospace; font-size:12px; }
+
+  .dt-estado-wrap { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .dt-estado-main { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:700; }
+  .dt-estado-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .dt-estado-sub { font-size:11px; color:rgba(255,255,255,0.42); text-align:right; }
+
+  .dt-prot-wrap { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .dt-prot-main { font-size:13px; font-weight:600; color:var(--text-1); }
+  .dt-prot-sub { font-size:11px; color:rgba(255,255,255,0.42); }
+
+  .dt-disk {
+    display:flex; align-items:center; gap:14px;
+    padding:13px 18px; border-top:1px solid rgba(255,255,255,0.05);
+    transition:background .12s; cursor:pointer;
+  }
+  .dt-disk:hover { background:rgba(255,255,255,0.04); }
+  .dt-disk-selected { background:rgba(91,138,245,0.08) !important; }
+
+  .dt-disk-ico {
+    width:38px; height:38px; border-radius:10px; flex-shrink:0;
+    background:rgba(91,138,245,0.1); border:1px solid rgba(91,138,245,0.18);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .dt-disk-ico svg { width:18px; height:18px; color:var(--accent); }
+  .dt-disk-ico-warn { background:rgba(224,168,90,0.1); border-color:rgba(224,168,90,0.2); }
+  .dt-disk-ico-warn svg { color:var(--amber); }
+
+  .dt-disk-info { flex:1; min-width:0; }
+  .dt-disk-name { font-size:13px; font-weight:600; color:var(--text-1); letter-spacing:-0.01em; }
+  .dt-disk-meta { font-size:11.5px; color:rgba(255,255,255,0.42); margin-top:2px; }
+
+  .dt-dbadge { padding:4px 11px; border-radius:20px; font-size:11.5px; font-weight:600; flex-shrink:0; }
+  .dt-dbadge-ok { background:rgba(76,175,130,0.12); color:var(--green); }
+  .dt-dbadge-warn { background:rgba(224,168,90,0.1); color:var(--amber); }
+  .dt-dbadge-err { background:rgba(224,90,90,0.1); color:var(--red, #e05a5a); }
+  .dt-dbadge-muted { background:rgba(255,255,255,0.06); color:rgba(255,255,255,0.35); }
+
+  .dt-row-2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+
+  .dt-svc {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:11px 18px; border-top:1px solid rgba(255,255,255,0.05);
+  }
+  .dt-svc-name { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-1); font-weight:500; }
+  .dt-svc-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .dt-svc-status { font-size:12px; color:rgba(255,255,255,0.22); }
+
+  .dt-cap-card { display:flex; align-items:center; gap:24px; padding:16px 20px 18px; }
+  .dt-donut-wrap { position:relative; width:110px; height:110px; flex-shrink:0; }
+  .dt-donut-wrap svg { width:110px; height:110px; transform:rotate(-90deg); }
+  .dt-donut-track { fill:none; stroke:rgba(255,255,255,0.06); stroke-width:11; }
+  .dt-donut-used { fill:none; stroke-width:11; stroke-linecap:round; stroke:var(--accent); }
+  .dt-donut-center {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:1px;
+  }
+  .dt-donut-pct { font-size:22px; font-weight:700; color:var(--text-1); letter-spacing:-0.04em; line-height:1; }
+  .dt-donut-label { font-size:9.5px; color:rgba(255,255,255,0.22); letter-spacing:.05em; text-transform:uppercase; }
+
+  .dt-cap-stats { display:flex; flex-direction:column; flex:1; }
+  .dt-cap-row {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:9px 0; border-bottom:1px solid rgba(255,255,255,0.05);
+  }
+  .dt-cap-row:last-child { border-bottom:none; }
+  .dt-cap-label { font-size:11.5px; color:rgba(255,255,255,0.42); }
+  .dt-cap-val { font-size:13px; font-weight:700; color:var(--text-1); letter-spacing:-0.02em; }
+
+  .dt-actions-sec { margin-top:4px; }
+  .dt-actions-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .dt-btn {
+    padding:9px 18px; border-radius:10px; font-size:13px; font-weight:500; cursor:pointer;
+    border:1px solid rgba(255,255,255,0.07); background:rgba(255,255,255,0.04);
+    color:var(--text-1); font-family:inherit; transition:all .13s;
+  }
+  .dt-btn:hover { background:rgba(255,255,255,0.07); }
+  .dt-btn:disabled { opacity:.35; cursor:not-allowed; }
+  .dt-btn-primary {
+    background:linear-gradient(135deg, var(--accent), var(--accent2, #a855f7));
+    border-color:transparent; color:#fff; font-weight:600;
+    box-shadow:0 2px 10px rgba(124,111,255,0.2);
+  }
+  .dt-btn-primary:hover { opacity:.88; }
+  .dt-btn-accent {
+    background:linear-gradient(135deg, #e05a8a 0%, #a060e0 100%);
+    border-color:transparent; color:#fff; font-weight:600;
+    box-shadow:0 4px 14px rgba(160,90,224,0.28);
+  }
+  .dt-btn-accent:hover { box-shadow:0 6px 20px rgba(160,90,224,0.4); transform:translateY(-1px); }
+  .dt-btn-danger {
+    background:rgba(224,90,90,0.1); border-color:rgba(224,90,90,0.2); color:var(--red, #e05a5a);
+  }
+  .dt-btn-danger:hover { background:rgba(224,90,90,0.18); }
+  .dt-btn-warn {
+    background:rgba(224,168,90,0.1); border-color:rgba(224,168,90,0.2); color:var(--amber);
+  }
+  .dt-btn-warn:hover { background:rgba(224,168,90,0.18); }
 
   /* ── DESTROY MODAL ── */
   .r-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:200; display:flex; align-items:center; justify-content:center; }

@@ -351,6 +351,7 @@
       if (detailPool) {
         detailPool = pools.find(p => p.name === detailPool.name) || null;
         if (!detailPool) activeTab = 'resumen';
+        else loadPoolServices(detailPool.name);
       }
     } catch (e) {
       console.error('[Storage] load failed', e);

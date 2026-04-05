@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getToken } from '$lib/stores/auth.js';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
   export let activeTab = 'disks';
 
@@ -21,21 +22,27 @@
   let replacing = false;
   let selectedPoolDisk = null; // disco seleccionado en la vista de detalle
   let detaching = false;
+  let showDetachDialog = false;
+  let detachDisk = null;
 
-  async function confirmDetach(disk) {
-    if (!detailPool || !disk) return;
-    const ok = confirm(`¿Desmontar ${disk.name} del volumen ${detailPool.name}?\n\nEl volumen quedará en modo degradado. Podrás reemplazar el disco después.`);
-    if (!ok) return;
+  function confirmDetach(disk) {
+    detachDisk = disk;
+    showDetachDialog = true;
+  }
+
+  async function doDetach() {
+    if (!detailPool || !detachDisk) return;
     detaching = true;
     try {
       const r = await fetch('/api/storage/pool/detach-disk', {
         method: 'POST', headers: hdrs(),
-        body: JSON.stringify({ pool: detailPool.name, disk: disk.name }),
+        body: JSON.stringify({ pool: detailPool.name, disk: detachDisk.name }),
       });
       const d = await r.json();
       if (d.error) {
         alert('Error: ' + d.error);
       } else {
+        showDetachDialog = false;
         selectedPoolDisk = null;
         load();
       }
@@ -1849,6 +1856,18 @@
     </div>
   </div>
 {/if}
+
+<ConfirmDialog
+  open={showDetachDialog}
+  variant="warning"
+  title="¿Desmontar {detachDisk?.name} del volumen {detailPool?.name}?"
+  message="El volumen quedará en modo degradado sin redundancia. Podrás reemplazar el disco después."
+  confirmText={detaching ? 'Desmontando...' : 'Desmontar disco'}
+  services={poolServices.filter(s => s.status === 'running')}
+  loading={detaching}
+  on:confirm={doDetach}
+  on:cancel={() => showDetachDialog = false}
+/>
 
 <style>
   .storage-root { width:100%; height:100%; display:flex; flex-direction:column; overflow:hidden; }

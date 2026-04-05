@@ -20,6 +20,30 @@
   let replaceTarget = '';   // selected new disk name
   let replacing = false;
   let selectedPoolDisk = null; // disco seleccionado en la vista de detalle
+  let detaching = false;
+
+  async function confirmDetach(disk) {
+    if (!detailPool || !disk) return;
+    const ok = confirm(`¿Desmontar ${disk.name} del volumen ${detailPool.name}?\n\nEl volumen quedará en modo degradado. Podrás reemplazar el disco después.`);
+    if (!ok) return;
+    detaching = true;
+    try {
+      const r = await fetch('/api/storage/pool/detach-disk', {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({ pool: detailPool.name, disk: disk.name }),
+      });
+      const d = await r.json();
+      if (d.error) {
+        alert('Error: ' + d.error);
+      } else {
+        selectedPoolDisk = null;
+        load();
+      }
+    } catch {
+      alert('Error de conexión');
+    }
+    detaching = false;
+  }
   let eligible = [];
   let provisioned = [];
   let nvme = [];
@@ -874,9 +898,14 @@
         <div class="r-sec" style="margin-top:14px">Acciones</div>
         <div class="r-actions-row">
           {#if selectedPoolDisk && (detailPool.disks?.length || 0) > 1}
-            <button class="r-btn r-btn-warn" on:click={() => openReplace(selectedPoolDisk)}>
-              Reemplazar disco ({selectedPoolDisk.name})
+            <button class="r-btn r-btn-warn" disabled={detaching} on:click={() => confirmDetach(selectedPoolDisk)}>
+              {detaching ? 'Desmontando...' : `Desmontar disco (${selectedPoolDisk.name})`}
             </button>
+            {#if eligible.length > 0}
+              <button class="r-btn r-btn-primary" on:click={() => openReplace(selectedPoolDisk)}>
+                Reemplazar disco ({selectedPoolDisk.name})
+              </button>
+            {/if}
           {/if}
           <button class="r-btn" on:click={() => startScrubForPool(detailPool.name)}>Verificar integridad</button>
           <button class="r-btn r-btn-primary r-snap-btn" class:loading={snapCreating[detailPool.name] === 'loading'} class:done={snapCreating[detailPool.name] === 'done'} class:fail={snapCreating[detailPool.name] === 'error'} disabled={snapCreating[detailPool.name] === 'loading'} on:click={() => quickSnapshot(detailPool.name)}>

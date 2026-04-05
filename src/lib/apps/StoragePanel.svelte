@@ -329,8 +329,8 @@
   }
 
 
-  async function load() {
-    loading = true;
+  async function load(silent = false) {
+    if (!silent) loading = true;
     try {
       const [statusRes, disksRes, capRes] = await Promise.all([
         fetch('/api/storage/status', { headers: hdrs() }),
@@ -355,7 +355,7 @@
     } catch (e) {
       console.error('[Storage] load failed', e);
     }
-    loading = false;
+    if (!silent) loading = false;
   }
 
   onMount(load);
@@ -469,7 +469,7 @@
   function startRefreshLoop() {
     stopRefreshLoop();
     const interval = getRefreshInterval(pools);
-    refreshTimer = setInterval(() => { load(); }, interval);
+    refreshTimer = setInterval(() => { load(true); }, interval);
   }
 
   function stopRefreshLoop() {

@@ -488,6 +488,49 @@ func appendFstab(uuid, mountPoint, filesystem string) {
 
 // ─── ZFS Pool Info (needed by getStoragePoolsGo) ────────────────────────────
 
+// enrichDisksWithSmart takes a flat disk name list and returns enriched objects
+// with SMART status from the cached monitor data. Does NOT run smartctl — only
+// reads from smartHistory to avoid false positives from stale or slow queries.
+// The pool-level status/health is NEVER modified by this function.
+func enrichDisksWithSmart(diskNames []interface{}) []interface{} {
+	smartMu.Lock()
+	defer smartMu.Unlock()
+
+	enriched := make([]interface{}, 0, len(diskNames))
+	for _, d := range diskNames {
+		name, _ := d.(string)
+		if name == "" {
+			continue
+		}
+
+		smartStatus := "unknown"
+		if s, ok := smartHistory[name]; ok {
+			smartStatus = s
+		}
+
+		// Get disk model and size from lsblk (fast, no smartctl)
+		model := ""
+		sizeStr := ""
+		if out, ok := run(fmt.Sprintf("lsblk -d -n -o MODEL,SIZE /dev/%s 2>/dev/null", name)); ok && out != "" {
+			parts := strings.Fields(strings.TrimSpace(out))
+			if len(parts) >= 2 {
+				sizeStr = parts[len(parts)-1]
+				model = strings.Join(parts[:len(parts)-1], " ")
+			} else if len(parts) == 1 {
+				sizeStr = parts[0]
+			}
+		}
+
+		enriched = append(enriched, map[string]interface{}{
+			"name":        name,
+			"model":       model,
+			"size":        sizeStr,
+			"smartStatus": smartStatus, // "ok" | "warning" | "critical" | "unknown"
+		})
+	}
+	return enriched
+}
+
 func getZfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[string]interface{} {
 	poolName, _ := poolConf["name"].(string)
 	zpoolName, _ := poolConf["zpoolName"].(string)
@@ -525,13 +568,14 @@ func getZfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[str
 		}
 	}
 
-	var disks []interface{}
+	var rawDisks []interface{}
 	if d, ok := poolConf["disks"].([]interface{}); ok {
-		disks = d
+		rawDisks = d
 	}
-	if disks == nil {
-		disks = []interface{}{}
+	if rawDisks == nil {
+		rawDisks = []interface{}{}
 	}
+	disks := enrichDisksWithSmart(rawDisks)
 
 	usagePct := 0
 	if total > 0 {
@@ -592,13 +636,14 @@ func getBtrfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[s
 		}
 	}
 
-	var disks []interface{}
+	var rawDisks []interface{}
 	if d, ok := poolConf["disks"].([]interface{}); ok {
-		disks = d
+		rawDisks = d
 	}
-	if disks == nil {
-		disks = []interface{}{}
+	if rawDisks == nil {
+		rawDisks = []interface{}{}
 	}
+	disks := enrichDisksWithSmart(rawDisks)
 
 	usagePct := 0
 	if total > 0 {

@@ -565,14 +565,41 @@ func getZfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[str
 			available = parseInt64(parts[3])
 			health = parts[4]
 
-			// For RAIDZ, 'size' is raw capacity (all disks), but 'alloc + free'
-			// reflects actual usable space after parity overhead.
-			// Use alloc + free as total so the UI shows real usable capacity.
-			if used+available > 0 {
-				total = used + available
-			} else {
-				total = rawSize
+			// ZFS reports raw capacity in size/alloc/free — does NOT subtract parity.
+			// Calculate usable capacity based on vdev type:
+			//   mirror:  size / N (only 1 disk of data)
+			//   raidz1:  size * (N-1)/N
+			//   raidz2:  size * (N-2)/N
+			//   raidz3:  size * (N-3)/N
+			//   stripe/single: size (no parity)
+			diskCount := 0
+			if d, ok := poolConf["disks"].([]interface{}); ok {
+				diskCount = len(d)
 			}
+
+			total = rawSize
+			if diskCount > 1 {
+				switch strings.ToLower(vdevType) {
+				case "mirror":
+					total = rawSize / int64(diskCount)
+				case "raidz", "raidz1":
+					total = rawSize * int64(diskCount-1) / int64(diskCount)
+				case "raidz2":
+					if diskCount > 2 {
+						total = rawSize * int64(diskCount-2) / int64(diskCount)
+					}
+				case "raidz3":
+					if diskCount > 3 {
+						total = rawSize * int64(diskCount-3) / int64(diskCount)
+					}
+				}
+			}
+
+			// Adjust available to match: usable_available = total - used
+			if total > used {
+				available = total - used
+			}
+
 			switch strings.ToUpper(health) {
 			case "ONLINE":
 				poolStatus = "active"

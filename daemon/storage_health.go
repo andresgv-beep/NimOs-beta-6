@@ -562,6 +562,14 @@ func ComputePoolHealth(
 			reasonMessage = fmt.Sprintf("Disco único ausente — datos inaccesibles")
 		}
 
+	// Mirror/RAID configured but not enough disks to provide redundancy
+	// (e.g., mirror with 1 disk after detach — disk was removed from config)
+	case canLose > 0 && totalDisks <= canLose:
+		status = "degraded"
+		reasonCode = "mirror_no_redundancy"
+		redundancy.Effective = 0
+		reasonMessage = fmt.Sprintf("Sin redundancia — %d disco(s), se necesitan %d para protección", totalDisks, canLose+1)
+
 	case hasCodes["io_errors"]:
 		status = "unstable"
 		reasonCode = "io_errors_detected"

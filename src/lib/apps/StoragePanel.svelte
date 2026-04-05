@@ -399,20 +399,12 @@
   // Get disks that belong to a specific pool
   function poolDisks(pool) {
     if (!pool.disks || pool.disks.length === 0) return [];
-    const name = devPath => typeof devPath === 'string' ? devPath.replace('/dev/', '') : devPath.name;
     return pool.disks.map(d => {
-      // New format: { name, model, size, smartStatus }
       if (typeof d === 'object' && d.name) {
-        const found = provisioned.find(p => p.name === d.name);
-        return {
-          name: d.name,
-          model: d.model || found?.model || '—',
-          size: found?.size || 0,
-          smartStatus: d.smartStatus || 'unknown',
-        };
+        return d; // Backend already provides { name, model, size, smartStatus }
       }
-      // Legacy format: string path "/dev/sda" or "sda"
-      const n = name(d);
+      // Legacy fallback: plain string
+      const n = typeof d === 'string' ? d.replace('/dev/', '') : String(d);
       const found = provisioned.find(p => p.name === n);
       return { name: n, model: found?.model || '—', size: found?.size || 0, smartStatus: 'unknown' };
     });
@@ -802,7 +794,7 @@
               <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
               <div class="r-disk-info">
                 <div class="r-disk-name">{d.name} · {d.model || '—'}</div>
-                <div class="r-disk-model">{fmt(d.size)}</div>
+                <div class="r-disk-model">{typeof d.size === 'string' ? d.size : fmt(d.size)}</div>
               </div>
               {#if d.smartStatus === 'critical'}
                 <span class="r-badge r-badge-err" style="font-size:10px">Riesgo</span>

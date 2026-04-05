@@ -590,6 +590,60 @@ func getZfsPoolInfo(poolConf map[string]interface{}, primaryPool string) map[str
 	// Parse per-disk pool status + IO errors
 	diskStatuses, _ := parseZpoolDiskStatus(zpoolName)
 
+	// ── Sync config disks with ZFS reality ──
+	// ZFS uses GUIDs internally, so even if device paths change (sda→sdc),
+	// the pool keeps working. But our config stores /dev/sdX paths which go stale.
+	// If zpool status shows disks that aren't in our config, update the config.
+	if len(diskStatuses) > 0 {
+		realDisks := make([]string, 0, len(diskStatuses))
+		for diskName := range diskStatuses {
+			realDisks = append(realDisks, "/dev/"+diskName)
+		}
+
+		// Check if config is out of sync
+		configSet := map[string]bool{}
+		for _, d := range configDisks {
+			configSet[d] = true
+		}
+		realSet := map[string]bool{}
+		for _, d := range realDisks {
+			realSet[d] = true
+		}
+
+		needsUpdate := false
+		if len(configSet) != len(realSet) {
+			needsUpdate = true
+		} else {
+			for d := range realSet {
+				if !configSet[d] {
+					needsUpdate = true
+					break
+				}
+			}
+		}
+
+		if needsUpdate {
+			logMsg("ZFS config sync: pool %s disks changed from %v to %v", poolName, configDisks, realDisks)
+			configDisks = realDisks
+
+			// Update storage.json
+			conf := getStorageConfigFull()
+			confPools, _ := conf["pools"].([]interface{})
+			for _, p := range confPools {
+				pm, _ := p.(map[string]interface{})
+				if n, _ := pm["name"].(string); n == poolName {
+					newDisks := make([]interface{}, len(realDisks))
+					for i, d := range realDisks {
+						newDisks[i] = d
+					}
+					pm["disks"] = newDisks
+					break
+				}
+			}
+			saveStorageConfigFull(conf)
+		}
+	}
+
 	// Enrich disks with full info (SMART details + pool status + IO errors)
 	enrichedDisks := enrichDisksComplete(configDisks, diskStatuses)
 	disksForJSON := make([]interface{}, 0, len(enrichedDisks))

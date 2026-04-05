@@ -336,6 +336,11 @@
       capabilities = caps;
       // Set default pool type from recommended
       if (caps.recommended) newPool.type = caps.recommended;
+      // Refresh detailPool if open
+      if (detailPool) {
+        detailPool = pools.find(p => p.name === detailPool.name) || null;
+        if (!detailPool) activeTab = 'resumen';
+      }
     } catch (e) {
       console.error('[Storage] load failed', e);
     }
@@ -452,15 +457,27 @@
     if (!detailPool || !replaceDisk || !replaceTarget) return;
     replacing = true;
     try {
-      const r = await fetch('/api/storage/pool/replace-disk', {
+      // If pool is mirror with only 1 disk, use attach (add disk to mirror)
+      // Otherwise use replace (swap old for new)
+      const isMirror = detailPool.vdevType === 'mirror' || detailPool.profile === 'raid1';
+      const onlyOneDisk = (detailPool.disks?.length || 0) <= 1;
+      const endpoint = (isMirror && onlyOneDisk)
+        ? '/api/storage/pool/attach-disk'
+        : '/api/storage/pool/replace-disk';
+      const body = (isMirror && onlyOneDisk)
+        ? { pool: detailPool.name, newDisk: replaceTarget }
+        : { pool: detailPool.name, oldDisk: replaceDisk.name, newDisk: replaceTarget };
+
+      const r = await fetch(endpoint, {
         method: 'POST', headers: hdrs(),
-        body: JSON.stringify({ pool: detailPool.name, oldDisk: replaceDisk.name, newDisk: replaceTarget }),
+        body: JSON.stringify(body),
       });
       const d = await r.json();
       if (d.error) {
         alert('Error: ' + d.error);
       } else {
         showReplace = false;
+        selectedPoolDisk = null;
         load();
       }
     } catch {
@@ -816,7 +833,15 @@
               <div class="r-detail-row">
                 <span class="r-detail-key">Estado</span>
                 <span class="r-detail-val" style="color:var(--green);font-weight:600">
-                  {detailPool.status === 'ONLINE' || detailPool.status === 'active' ? '● Normal' : detailPool.status === 'DEGRADED' ? '● Degradado' : detailPool.status || '—'}
+                  {#if (detailPool.vdevType === 'mirror' || detailPool.profile === 'raid1') && (detailPool.disks?.length || 0) <= 1}
+                    <span style="color:var(--amber)">● Sin redundancia</span>
+                  {:else if detailPool.status === 'ONLINE' || detailPool.status === 'active'}
+                    ● Normal
+                  {:else if detailPool.status === 'DEGRADED'}
+                    <span style="color:var(--amber)">● Degradado</span>
+                  {:else}
+                    {detailPool.status || '—'}
+                  {/if}
                 </span>
               </div>
               <div class="r-detail-row">
@@ -896,7 +921,12 @@
 
         <!-- Actions -->
         <div class="r-sec" style="margin-top:14px">Acciones</div>
-        <div class="r-actions-row">
+        <div class="r-actions-row" style="flex-wrap:wrap; gap:8px;">
+          {#if (detailPool.vdevType === 'mirror' || detailPool.profile === 'raid1') && (detailPool.disks?.length || 0) <= 1 && eligible.length > 0}
+            <button class="r-btn r-btn-primary" on:click={() => openReplace(poolDisks(detailPool)[0])}>
+              Añadir disco al espejo
+            </button>
+          {/if}
           {#if selectedPoolDisk && (detailPool.disks?.length || 0) > 1}
             <button class="r-btn r-btn-warn" disabled={detaching} on:click={() => confirmDetach(selectedPoolDisk)}>
               {detaching ? 'Desmontando...' : `Desmontar disco (${selectedPoolDisk.name})`}

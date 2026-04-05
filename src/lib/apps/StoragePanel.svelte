@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getToken } from '$lib/stores/auth.js';
+  import { openWindow } from '$lib/stores/windows.js';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
   export let activeTab = 'disks';
@@ -40,7 +41,8 @@
       });
       const d = await r.json();
       if (d.error === 'services_active') {
-        alert('No se puede desmontar: ' + (d.services?.join(', ') || 'servicios activos') + '. Detén los servicios primero.');
+        // Backend barrier caught it — refresh services list so dialog shows them
+        await loadPoolServices(detailPool.name);
       } else if (d.error) {
         alert('Error: ' + (d.message || d.error));
       } else {
@@ -1943,6 +1945,7 @@
   loading={detaching}
   on:confirm={doDetach}
   on:cancel={() => showDetachDialog = false}
+  on:openServices={() => { showDetachDialog = false; openWindow('nimhealth'); }}
 />
 
 <style>

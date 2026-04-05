@@ -15,6 +15,10 @@
   let destroyDeps = [];
   let destroying = false;
   let stoppingService = {};
+  let showReplace = false;
+  let replaceDisk = null;   // { name, model, size, smartStatus }
+  let replaceTarget = '';   // selected new disk name
+  let replacing = false;
   let eligible = [];
   let provisioned = [];
   let nvme = [];
@@ -409,6 +413,40 @@
       return { name: n, model: found?.model || '—', size: found?.size || 0, smartStatus: 'unknown' };
     });
   }
+
+  function openReplace(disk) {
+    replaceDisk = disk;
+    replaceTarget = '';
+    replacing = false;
+    showReplace = true;
+  }
+
+  async function doReplace() {
+    if (!detailPool || !replaceDisk || !replaceTarget) return;
+    replacing = true;
+    try {
+      const r = await fetch('/api/storage/pool/replace-disk', {
+        method: 'POST', headers: hdrs(),
+        body: JSON.stringify({ pool: detailPool.name, oldDisk: replaceDisk.name, newDisk: replaceTarget }),
+      });
+      const d = await r.json();
+      if (d.error) {
+        alert('Error: ' + d.error);
+      } else {
+        showReplace = false;
+        loadData();
+      }
+    } catch {
+      alert('Error de conexión');
+    }
+    replacing = false;
+  }
+
+  $: replaceCandidates = eligible.filter(d => {
+    // Only show disks not already in any pool
+    const poolDiskNames = (detailPool?.disks || []).map(pd => typeof pd === 'object' ? pd.name : pd.replace('/dev/', ''));
+    return !poolDiskNames.includes(d.name);
+  });
 
   async function openDestroy() {
     if (!detailPool) return;
@@ -806,6 +844,11 @@
                 <span class="r-badge" style="font-size:10px;background:var(--ibtn-bg);color:var(--text-3)">Sin datos</span>
               {:else}
                 <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+              {/if}
+              {#if (detailPool.disks?.length || 0) > 1}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <span class="r-replace-btn" on:click|stopPropagation={() => openReplace(d)}>Reemplazar</span>
               {/if}
             </div>
           {:else}
@@ -1676,6 +1719,67 @@
         <button class="r-btn" on:click={() => showDestroy = false}>Cancelar</button>
         <button class="r-btn r-btn-danger" disabled={!canDestroy || destroying} on:click={doDestroy}>
           {destroying ? 'Destruyendo...' : 'Destruir volumen'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showReplace && detailPool && replaceDisk}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="r-modal-overlay" on:click|self={() => showReplace = false}>
+    <div class="r-modal">
+      <div class="r-modal-header">
+        <span class="r-modal-title">Reemplazar disco</span>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span class="r-modal-close" on:click={() => showReplace = false}>✕</span>
+      </div>
+      <div class="r-modal-body">
+        <div class="r-sec">Disco a reemplazar</div>
+        <div class="r-replace-old">
+          <div class="r-disk-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>
+          <div class="r-disk-info">
+            <div class="r-disk-name">{replaceDisk.name} · {replaceDisk.model || '—'}</div>
+            <div class="r-disk-model">{typeof replaceDisk.size === 'string' ? replaceDisk.size : fmt(replaceDisk.size)}</div>
+          </div>
+          {#if replaceDisk.smartStatus === 'warning'}
+            <span class="r-badge r-badge-warn" style="font-size:10px">Atención</span>
+          {:else if replaceDisk.smartStatus === 'critical' || replaceDisk.smartStatus === 'missing'}
+            <span class="r-badge r-badge-err" style="font-size:10px">{replaceDisk.smartStatus === 'missing' ? 'No detectado' : 'Riesgo'}</span>
+          {:else}
+            <span class="r-badge r-badge-ok" style="font-size:10px">Sano</span>
+          {/if}
+        </div>
+
+        <div class="r-sec" style="margin-top:14px">Disco nuevo</div>
+        {#if replaceCandidates.length === 0}
+          <div style="font-size:11px;color:var(--text-3);padding:8px 0">No hay discos disponibles. Conecta un disco nuevo y pulsa Escanear.</div>
+          <button class="r-btn" style="margin-top:6px" on:click={loadData}>Escanear discos</button>
+        {:else}
+          {#each replaceCandidates as cd}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="r-replace-candidate" class:selected={replaceTarget === cd.name} on:click={() => replaceTarget = cd.name}>
+              <div class="r-replace-radio">{replaceTarget === cd.name ? '●' : '○'}</div>
+              <div class="r-disk-info">
+                <div class="r-disk-name">{cd.name} · {cd.model || '—'}</div>
+                <div class="r-disk-model">{cd.sizeFormatted || fmt(cd.size)}</div>
+              </div>
+            </div>
+          {/each}
+        {/if}
+
+        <div class="r-replace-warn" style="margin-top:14px">
+          <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:var(--amber);fill:none;stroke-width:2;stroke-linecap:round;flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span style="font-size:11px;color:var(--text-2)">El disco nuevo se formateará completamente. El proceso de reconstrucción puede tardar horas.</span>
+        </div>
+      </div>
+      <div class="r-modal-footer">
+        <button class="r-btn" on:click={() => showReplace = false}>Cancelar</button>
+        <button class="r-btn r-btn-primary" disabled={!replaceTarget || replacing} on:click={doReplace}>
+          {replacing ? 'Reemplazando...' : 'Iniciar reemplazo'}
         </button>
       </div>
     </div>

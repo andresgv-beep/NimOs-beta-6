@@ -797,6 +797,8 @@ func handleStorageRoutes(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, 503, "Pool restore pending implementation")
 		case "/api/storage/pool/replace-disk":
 			jsonOk(w, handleReplaceDisk(body))
+		case "/api/storage/pool/detach-disk":
+			jsonOk(w, handleDetachDisk(body))
 		case "/api/storage/pool/resilver-status":
 			poolName := bodyStr(body, "pool")
 			if poolName == "" {
@@ -852,6 +854,143 @@ func findPoolConfig(poolName string) (map[string]interface{}, string) {
 
 // POST /api/storage/pool/replace-disk
 // Body: { pool: "valume1", oldDisk: "sdb", newDisk: "sdc" }
+// POST /api/storage/pool/detach-disk
+// Body: { pool: "valume1", disk: "sdb" }
+// Removes a disk from a mirror pool WITHOUT requiring a replacement.
+// The pool continues in degraded mode with the remaining disk(s).
+func handleDetachDisk(body map[string]interface{}) map[string]interface{} {
+	poolName := bodyStr(body, "pool")
+	diskName := bodyStr(body, "disk")
+
+	if poolName == "" || diskName == "" {
+		return map[string]interface{}{"error": "Missing pool or disk"}
+	}
+
+	poolConf, poolType := findPoolConfig(poolName)
+	if poolConf == nil {
+		return map[string]interface{}{"error": "Pool not found"}
+	}
+
+	// Ensure disk belongs to the pool
+	disks, _ := poolConf["disks"].([]interface{})
+	found := false
+	for _, d := range disks {
+		ds, _ := d.(string)
+		if strings.TrimPrefix(ds, "/dev/") == diskName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return map[string]interface{}{"error": fmt.Sprintf("Disk %s is not part of pool %s", diskName, poolName)}
+	}
+
+	// Cannot detach if only 1 disk — would destroy the pool
+	if len(disks) <= 1 {
+		return map[string]interface{}{"error": "Cannot detach the only disk in the pool. Use 'Destroy volume' instead."}
+	}
+
+	switch poolType {
+	case "zfs":
+		return detachDiskZfs(poolConf, diskName)
+	case "btrfs":
+		return detachDiskBtrfs(poolConf, diskName)
+	default:
+		return map[string]interface{}{"error": fmt.Sprintf("Unsupported pool type: %s", poolType)}
+	}
+}
+
+// detachDiskZfs runs: zpool detach <pool> <disk>
+func detachDiskZfs(poolConf map[string]interface{}, diskName string) map[string]interface{} {
+	poolName, _ := poolConf["name"].(string)
+	zpoolName, _ := poolConf["zpoolName"].(string)
+	if zpoolName == "" {
+		zpoolName = "nimos-" + poolName
+	}
+
+	diskPart := partitionName("/dev/" + diskName)
+
+	res, err := runCmd("zpool", []string{"detach", zpoolName, diskPart}, CmdOptions{Timeout: 30 * time.Second})
+	if err != nil || !res.OK {
+		errMsg := res.Stderr
+		if errMsg == "" {
+			errMsg = res.Stdout
+		}
+		return map[string]interface{}{"error": fmt.Sprintf("zpool detach failed: %s", errMsg)}
+	}
+
+	// Remove disk from config
+	removeDiskFromPoolConfig(poolName, diskName)
+
+	addNotification("warning", "system",
+		fmt.Sprintf("Disco %s desmontado de %s", diskName, poolName),
+		fmt.Sprintf("El volumen %s funciona en modo degradado. Reemplaza el disco lo antes posible.", poolName))
+
+	logMsg("DISK DETACH: pool %s, removed %s (ZFS)", poolName, diskName)
+
+	return map[string]interface{}{"ok": true, "message": fmt.Sprintf("Disk %s detached. Pool is now degraded.", diskName)}
+}
+
+// detachDiskBtrfs runs: btrfs device delete <disk> <mountpoint>
+func detachDiskBtrfs(poolConf map[string]interface{}, diskName string) map[string]interface{} {
+	poolName, _ := poolConf["name"].(string)
+	mountPoint, _ := poolConf["mountPoint"].(string)
+
+	if mountPoint == "" {
+		return map[string]interface{}{"error": "Pool mount point not found"}
+	}
+
+	// Run in background — btrfs device delete can take a long time (rebalances data)
+	go func() {
+		res, err := runCmd("btrfs", []string{"device", "delete", "/dev/" + diskName, mountPoint}, CmdOptions{Timeout: 0})
+		if err == nil && res.OK {
+			removeDiskFromPoolConfig(poolName, diskName)
+			addNotification("warning", "system",
+				fmt.Sprintf("Disco %s desmontado de %s", diskName, poolName),
+				fmt.Sprintf("El volumen %s funciona con menos discos. Añade un disco de reemplazo.", poolName))
+			logMsg("DISK DETACH: pool %s, removed %s (BTRFS complete)", poolName, diskName)
+		} else {
+			errMsg := res.Stderr
+			if errMsg == "" && err != nil {
+				errMsg = err.Error()
+			}
+			addNotification("error", "system",
+				fmt.Sprintf("Error al desmontar disco de %s", poolName),
+				fmt.Sprintf("No se pudo eliminar %s: %s", diskName, errMsg))
+			logMsg("DISK DETACH FAILED: pool %s, %s: %s", poolName, diskName, errMsg)
+		}
+	}()
+
+	addNotification("info", "system",
+		fmt.Sprintf("Desmontando disco %s de %s", diskName, poolName),
+		"El proceso puede tardar un rato mientras se rebalancea la información.")
+
+	return map[string]interface{}{"ok": true, "message": "Disk removal started"}
+}
+
+// removeDiskFromPoolConfig removes a disk from the pool config
+func removeDiskFromPoolConfig(poolName, diskName string) {
+	conf := getStorageConfigFull()
+	confPools, _ := conf["pools"].([]interface{})
+	for _, p := range confPools {
+		pm, _ := p.(map[string]interface{})
+		if n, _ := pm["name"].(string); n == poolName {
+			disks, _ := pm["disks"].([]interface{})
+			var newDisks []interface{}
+			for _, d := range disks {
+				ds, _ := d.(string)
+				if strings.TrimPrefix(ds, "/dev/") != diskName {
+					newDisks = append(newDisks, d)
+				}
+			}
+			pm["disks"] = newDisks
+			break
+		}
+	}
+	conf["pools"] = confPools
+	saveStorageConfigFull(conf)
+}
+
 func handleReplaceDisk(body map[string]interface{}) map[string]interface{} {
 	poolName := bodyStr(body, "pool")
 	oldDisk := bodyStr(body, "oldDisk")

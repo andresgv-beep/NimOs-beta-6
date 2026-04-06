@@ -126,6 +126,231 @@ func saveInstalledApps(apps []map[string]interface{}) {
 }
 
 // ═══════════════════════════════════
+// Docker App Statuses — runtime state
+// Crosses docker ps (runtime) with
+// installed-apps.json (config).
+// Used by /api/services for NimHealth.
+// ═══════════════════════════════════
+
+// dockerContainer is a parsed line from docker ps -a
+type dockerContainer struct {
+	Name   string
+	Image  string
+	Status string // raw: "Up 3 hours", "Exited (0) 2h ago", etc.
+	Ports  string // raw: "0.0.0.0:8096->8096/tcp, ..."
+}
+
+// getDockerAppStatuses builds typed DockerAppStatus for each installed app
+// by crossing docker ps (runtime) with installed-apps.json (config).
+// Returns the list of app statuses and a count of orphan containers.
+func getDockerAppStatuses(dockerServiceID string) ([]DockerAppStatus, int) {
+	registeredApps := getInstalledApps()
+
+	// 1. docker ps -a (ALL containers, not just running)
+	out, _ := run(`docker ps -a --format '{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}' 2>/dev/null`)
+	containers := map[string]dockerContainer{}
+	if out != "" {
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			parts := strings.SplitN(line, "|", 4)
+			if len(parts) < 4 {
+				continue
+			}
+			containers[parts[0]] = dockerContainer{
+				Name:   parts[0],
+				Image:  parts[1],
+				Status: parts[2],
+				Ports:  parts[3],
+			}
+		}
+	}
+
+	// 2. Cross: for each registered app, find its container
+	var statuses []DockerAppStatus
+	matchedContainers := map[string]bool{}
+
+	for _, reg := range registeredApps {
+		appID, _ := reg["id"].(string)
+		if appID == "" {
+			continue
+		}
+		appName, _ := reg["name"].(string)
+		appIcon, _ := reg["icon"].(string)
+		appImage, _ := reg["image"].(string)
+
+		// Resolve openMode: prefer stored value, fall back to external bool
+		openMode := "internal"
+		if om, ok := reg["openMode"].(string); ok && om != "" {
+			openMode = om
+		} else if ext, ok := reg["external"].(bool); ok && ext {
+			openMode = "external"
+		}
+
+		// Find container — try exact match, then stack prefixes
+		var found *dockerContainer
+		var containerName string
+		for _, suffix := range []string{"", "_server", "-server", "_app", "-app"} {
+			candidate := appID + suffix
+			if c, ok := containers[candidate]; ok {
+				found = &c
+				containerName = candidate
+				matchedContainers[candidate] = true
+				break
+			}
+		}
+		// Also try prefix match for stacks (e.g. immich_server → immich)
+		if found == nil {
+			for name, c := range containers {
+				if strings.HasPrefix(name, appID+"_") || strings.HasPrefix(name, appID+"-") {
+					found = &c
+					containerName = name
+					matchedContainers[name] = true
+					break
+				}
+			}
+		}
+
+		// Build status
+		status := DockerAppStatus{
+			ServiceBase: ServiceBase{
+				ID:     appID,
+				Type:   "docker-app",
+				Parent: dockerServiceID,
+				Name:   appName,
+				Status: "stopped",
+				Health: "idle",
+			},
+			Image:         appImage,
+			Icon:          appIcon,
+			ContainerName: containerName,
+			OpenMode:      openMode,
+		}
+
+		if found != nil {
+			status.Status = NormalizeDockerStatus(found.Status)
+			if status.Status == "running" {
+				status.Health = "healthy"
+			}
+			status.Uptime = extractUptime(found.Status)
+			status.Ports = parsePorts(found.Ports, reg)
+		} else {
+			// Registered but no container found
+			status.Status = "stopped"
+			status.Health = "idle"
+			// Use declared port from config
+			if p := jsonToPortBinding(reg["port"]); p != nil {
+				status.Ports = []PortBinding{*p}
+			}
+		}
+
+		statuses = append(statuses, status)
+	}
+
+	// 3. Count orphan containers (in docker ps but not in installed-apps)
+	// Skip known sub-containers of stacks
+	orphanCount := 0
+	stackSubs := []string{"_redis", "_postgres", "_ml", "_machine", "_db", "_cache"}
+	for name := range containers {
+		if matchedContainers[name] {
+			continue
+		}
+		isStackSub := false
+		for _, sub := range stackSubs {
+			if strings.Contains(name, sub) {
+				isStackSub = true
+				break
+			}
+		}
+		// Also skip if it's a child of any matched container
+		if !isStackSub {
+			for matched := range matchedContainers {
+				prefix := strings.SplitN(matched, "_", 2)[0]
+				if strings.HasPrefix(name, prefix+"_") || strings.HasPrefix(name, prefix+"-") {
+					isStackSub = true
+					break
+				}
+			}
+		}
+		if !isStackSub {
+			orphanCount++
+		}
+	}
+
+	if statuses == nil {
+		statuses = []DockerAppStatus{}
+	}
+	return statuses, orphanCount
+}
+
+// extractUptime pulls the duration from docker ps STATUS, e.g. "Up 3 hours" → "3h"
+func extractUptime(rawStatus string) string {
+	lower := strings.ToLower(rawStatus)
+	if !strings.Contains(lower, "up") {
+		return ""
+	}
+	// Remove "Up " prefix and health suffix
+	s := strings.TrimPrefix(lower, "up ")
+	if idx := strings.Index(s, " ("); idx > 0 {
+		s = s[:idx]
+	}
+	s = strings.TrimSpace(s)
+	// Simplify: "3 hours" → "3h", "2 days" → "2d", "45 minutes" → "45m"
+	s = strings.ReplaceAll(s, " seconds", "s")
+	s = strings.ReplaceAll(s, " second", "s")
+	s = strings.ReplaceAll(s, " minutes", "m")
+	s = strings.ReplaceAll(s, " minute", "m")
+	s = strings.ReplaceAll(s, " hours", "h")
+	s = strings.ReplaceAll(s, " hour", "h")
+	s = strings.ReplaceAll(s, " days", "d")
+	s = strings.ReplaceAll(s, " day", "d")
+	s = strings.ReplaceAll(s, " weeks", "w")
+	s = strings.ReplaceAll(s, " week", "w")
+	s = strings.ReplaceAll(s, " months", "mo")
+	s = strings.ReplaceAll(s, " month", "mo")
+	s = strings.ReplaceAll(s, " ", "")
+	return s
+}
+
+// parsePorts parses Docker port string "0.0.0.0:8096->8096/tcp, ..." into []PortBinding.
+// Falls back to declared port from config if no runtime ports.
+func parsePorts(rawPorts string, config map[string]interface{}) []PortBinding {
+	var ports []PortBinding
+	if rawPorts != "" {
+		re := regexp.MustCompile(`(?:(\d+\.\d+\.\d+\.\d+):)?(\d+)->(\d+)/(tcp|udp)`)
+		matches := re.FindAllStringSubmatch(rawPorts, -1)
+		for _, m := range matches {
+			host := parseIntDefault(m[2], 0)
+			declared := parseIntDefault(m[3], 0)
+			proto := m[4]
+			ports = append(ports, PortBinding{Declared: declared, Host: host, Protocol: proto})
+		}
+	}
+	// If no runtime ports, use declared port from config
+	if len(ports) == 0 {
+		if p := jsonToPortBinding(config["port"]); p != nil {
+			ports = []PortBinding{*p}
+		}
+	}
+	return ports
+}
+
+// jsonToPortBinding converts a JSON port value (float64 or int) to a PortBinding.
+func jsonToPortBinding(v interface{}) *PortBinding {
+	var p int
+	switch val := v.(type) {
+	case float64:
+		p = int(val)
+	case int:
+		p = val
+	default:
+		return nil
+	}
+	if p <= 0 {
+		return nil
+	}
+	return &PortBinding{Declared: p, Host: p, Protocol: "tcp"}
+}
+
+// ═══════════════════════════════════
 // Native apps detection
 // ═══════════════════════════════════
 

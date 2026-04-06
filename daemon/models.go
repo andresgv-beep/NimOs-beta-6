@@ -1,5 +1,7 @@
 package main
 
+import "strings"
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // NimOS Models — Typed structs for database entities
 //
@@ -493,4 +495,161 @@ func (d EnrichedDisk) ToMap() map[string]interface{} {
 			"checksum": d.IoErrors.ChecksumErrors,
 		},
 	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Service Model — Unified base for ALL services displayed in NimHealth
+//
+// ServiceBase is the common shape for system services (NimTorrent, NimBackup),
+// Docker engine, and Docker apps. The UI receives these fields for every
+// service type and never needs to branch on type to render basic info.
+//
+// Status is NORMALIZED: only "running" | "stopped" | "error"
+// Health is NORMALIZED: only "healthy" | "degraded" | "unhealthy" | "idle"
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── ServiceBase ─────────────────────────────────────────────────────────────
+
+type ServiceBase struct {
+	ID     string // "docker@poolzfs1", "nimtorrent@poolzfs1", "jellyfin"
+	Type   string // "system" | "docker" | "docker-app"
+	Parent string // "" for root services, "docker@poolzfs1" for Docker apps
+	Name   string // "Docker Engine", "NimTorrent", "Jellyfin"
+	Status string // "running" | "stopped" | "error"
+	Health string // "healthy" | "degraded" | "unhealthy" | "idle"
+}
+
+func (s ServiceBase) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"id":     s.ID,
+		"type":   s.Type,
+		"parent": s.Parent,
+		"name":   s.Name,
+		"status": s.Status,
+		"health": s.Health,
+	}
+}
+
+// ─── PortBinding ─────────────────────────────────────────────────────────────
+
+// PortBinding represents a single port mapping for a Docker container.
+// A container can have multiple bindings (bridge, host, NAT, multiple ports).
+type PortBinding struct {
+	Declared int    // port from compose (e.g. 8096)
+	Host     int    // port on host (e.g. 8096, may differ)
+	Protocol string // "tcp" | "udp"
+}
+
+func (p PortBinding) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"declared": p.Declared,
+		"host":     p.Host,
+		"protocol": p.Protocol,
+	}
+}
+
+// ─── DockerAppStatus ─────────────────────────────────────────────────────────
+
+// DockerAppStatus is the runtime state of an installed Docker app.
+// Built by crossing docker ps (runtime) + installed-apps.json (config).
+// docker inspect is on-demand only (detail view), NOT during polling.
+type DockerAppStatus struct {
+	ServiceBase
+	Ports         []PortBinding // real port bindings (can be multiple)
+	Image         string        // "jellyfin/jellyfin:latest"
+	Icon          string        // URL of the app icon
+	ContainerName string        // actual container name in Docker
+	OpenMode      string        // "internal" | "external" | "auto"
+	Uptime        string        // "2d 14h" (from docker ps STATUS column)
+}
+
+func (d DockerAppStatus) ToMap() map[string]interface{} {
+	m := d.ServiceBase.ToMap()
+	ports := make([]map[string]interface{}, len(d.Ports))
+	for i, p := range d.Ports {
+		ports[i] = p.ToMap()
+	}
+	if ports == nil {
+		ports = []map[string]interface{}{}
+	}
+	m["ports"] = ports
+	m["image"] = d.Image
+	m["icon"] = d.Icon
+	m["containerName"] = d.ContainerName
+	m["openMode"] = d.OpenMode
+	m["uptime"] = d.Uptime
+	return m
+}
+
+// ─── State Normalization ─────────────────────────────────────────────────────
+
+// NormalizeDockerStatus maps raw Docker status strings to the 3 valid states.
+// NEVER expose raw Docker states to the UI.
+//
+//	"Up 3 hours"          → "running"
+//	"Exited (0) 2h ago"   → "stopped"
+//	"Created"             → "stopped"
+//	"Dead", "Removing"    → "error"
+func NormalizeDockerStatus(dockerStatus string) string {
+	lower := strings.ToLower(dockerStatus)
+	switch {
+	case strings.Contains(lower, "up"):
+		return "running"
+	case strings.Contains(lower, "exited"),
+		strings.Contains(lower, "created"):
+		return "stopped"
+	default:
+		return "error"
+	}
+}
+
+// NormalizeDockerHealth maps Docker health check output to the 4 valid states.
+//
+//	"healthy"   → "healthy"
+//	"unhealthy" → "unhealthy"
+//	"starting"  → "degraded"
+//	"none", ""  → "healthy" (no health check = trust status)
+func NormalizeDockerHealth(healthStatus string) string {
+	switch strings.ToLower(strings.TrimSpace(healthStatus)) {
+	case "healthy":
+		return "healthy"
+	case "unhealthy":
+		return "unhealthy"
+	case "starting":
+		return "degraded"
+	default:
+		return "healthy"
+	}
+}
+
+// ComputeDockerAggregateHealth calculates the parent Docker service health
+// from its children's statuses.
+//
+//	all running+healthy  → "healthy"
+//	any error            → "degraded"
+//	any stopped (no err) → "degraded"
+//	all stopped          → "idle"
+//	no children          → "healthy"
+func ComputeDockerAggregateHealth(children []DockerAppStatus) string {
+	if len(children) == 0 {
+		return "healthy"
+	}
+	allStopped := true
+	for _, c := range children {
+		if c.Status != "stopped" {
+			allStopped = false
+		}
+		if c.Status == "error" || c.Health == "unhealthy" {
+			return "degraded"
+		}
+	}
+	if allStopped {
+		return "idle"
+	}
+	for _, c := range children {
+		if c.Status == "stopped" {
+			return "degraded"
+		}
+	}
+	return "healthy"
 }

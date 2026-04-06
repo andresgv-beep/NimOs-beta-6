@@ -134,7 +134,7 @@
   .b-success .b-stripe  { background:var(--green); }
   .b-error .b-stripe    { background:var(--red); }
   .b-warning .b-stripe  { background:var(--amber); }
-  .b-info .b-stripe     { background:var(--accent); }
+  .b-info .b-stripe     { background:var(--blue); }
   .b-security .b-stripe { background:var(--red); }
 
   .b-ico { width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-left:6px; margin-top:1px; }
@@ -142,7 +142,7 @@
   .b-success .b-ico  { background:rgba(74,222,128,0.12); } .b-success .b-ico svg  { stroke:var(--green); }
   .b-error .b-ico    { background:rgba(248,113,113,0.12); } .b-error .b-ico svg    { stroke:var(--red); }
   .b-warning .b-ico  { background:rgba(251,191,36,0.12); } .b-warning .b-ico svg  { stroke:var(--amber); }
-  .b-info .b-ico     { background:rgba(124,111,255,0.12); } .b-info .b-ico svg     { stroke:var(--accent); }
+  .b-info .b-ico     { background:rgba(96,165,250,0.12); } .b-info .b-ico svg     { stroke:var(--blue); }
   .b-security .b-ico { background:rgba(248,113,113,0.12); } .b-security .b-ico svg { stroke:var(--red); }
 
   .b-body { flex:1; min-width:0; padding-bottom:10px; }
@@ -156,7 +156,7 @@
   .b-success .b-bar  { background:var(--green); }
   .b-error .b-bar    { background:var(--red); }
   .b-warning .b-bar  { background:var(--amber); }
-  .b-info .b-bar     { background:var(--accent); }
+  .b-info .b-bar     { background:var(--blue); }
   .b-security .b-bar { background:var(--red); }
 
   .b-close { width:20px; height:20px; flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-3); border-radius:4px; transition:color .15s; margin-top:1px; }
@@ -164,12 +164,12 @@
   .b-close svg { width:13px; height:13px; }
 
   .upload-dots { width:24px; height:24px; flex-shrink:0; margin-left:6px; margin-top:1px; display:flex; align-items:center; justify-content:center; gap:3px; }
-  .dot { width:4px; height:4px; border-radius:50%; background:var(--accent); animation:dotBounce 1.2s ease-in-out infinite; }
+  .dot { width:4px; height:4px; border-radius:50%; background:var(--blue); animation:dotBounce 1.2s ease-in-out infinite; }
   .dot2 { animation-delay:0.2s; }
   .dot3 { animation-delay:0.4s; }
   @keyframes dotBounce { 0%,100%{opacity:0.2;transform:scale(0.7)} 50%{opacity:1;transform:scale(1)} }
 
   .up-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:6px; }
-  .up-fill { height:100%; background:var(--accent); border-radius:2px; transition:width .3s ease; }
+  .up-fill { height:100%; background:var(--blue); border-radius:2px; transition:width .3s ease; }
   .up-pct { font-size:9px; color:var(--text-3); font-family:"DM Mono",monospace; margin-top:3px; }
 </style>

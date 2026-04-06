@@ -195,7 +195,7 @@
   .t-success { --tc:var(--green); } .t-success .np-ico { background:rgba(74,222,128,0.12); } .t-success .np-ico svg { stroke:var(--green); }
   .t-error   { --tc:var(--red);   } .t-error .np-ico   { background:rgba(248,113,113,0.12); } .t-error .np-ico svg   { stroke:var(--red); }
   .t-warning { --tc:var(--amber); } .t-warning .np-ico { background:rgba(251,191,36,0.12); }  .t-warning .np-ico svg { stroke:var(--amber); }
-  .t-info    { --tc:var(--accent);} .t-info .np-ico    { background:rgba(124,111,255,0.12); } .t-info .np-ico svg    { stroke:var(--accent); }
+  .t-info    { --tc:var(--blue);} .t-info .np-ico    { background:rgba(96,165,250,0.12); } .t-info .np-ico svg    { stroke:var(--blue); }
   .t-security{ --tc:var(--red);   } .t-security .np-ico{ background:rgba(248,113,113,0.12); } .t-security .np-ico svg{ stroke:var(--red); }
 
   .np-body { flex:1; min-width:0; }
@@ -223,11 +223,11 @@
   .task-ico svg { width:11px; height:11px; fill:none; stroke-width:2.5; stroke-linecap:round; }
   .t-success { background:rgba(74,222,128,0.12); } .t-success svg { stroke:var(--green); }
   .t-error   { background:rgba(248,113,113,0.12); } .t-error svg { stroke:var(--red); }
-  .t-info    { background:rgba(124,111,255,0.12); } .t-info svg { stroke:var(--accent); }
+  .t-info    { background:rgba(96,165,250,0.12); } .t-info svg { stroke:var(--blue); }
   .task-body { flex:1; min-width:0; }
   .task-name { font-size:11px; font-weight:600; color:var(--text-1); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .task-track { height:3px; background:var(--border); border-radius:2px; overflow:hidden; margin-top:5px; }
-  .task-fill { height:100%; background:var(--accent); border-radius:2px; transition:width .3s ease; }
+  .task-fill { height:100%; background:var(--blue); border-radius:2px; transition:width .3s ease; }
   .task-pct { font-size:9px; color:var(--text-3); font-family:"DM Mono",monospace; margin-top:3px; }
   .task-meta { font-size:10px; margin-top:2px; }
 </style>

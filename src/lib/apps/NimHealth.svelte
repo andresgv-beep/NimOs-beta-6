@@ -400,7 +400,7 @@
 
           <!-- Logs -->
           {#if detailLogs.length > 0}
-            <div class="d-block">
+            <div class="d-block log-block">
               <div class="d-block-title">
                 Logs recientes
                 <button class="log-refresh" on:click={() => loadLogs(selectedService)}>
@@ -511,6 +511,7 @@
 
   /* Detail blocks */
   .d-block { background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .log-block { flex:1; min-height:0; display:flex; flex-direction:column; }
   .d-block-title { font-size:9px; font-weight:600; color:var(--text-3); letter-spacing:.07em; text-transform:uppercase; margin-bottom:8px; }
   .d-row { display:flex; align-items:center; justify-content:space-between; padding:3px 0; }
   .d-row + .d-row { border-top:1px solid var(--border); }
@@ -549,7 +550,7 @@
   .empty-hint { text-align:center; padding:28px; border:1px dashed var(--border); border-radius:9px; color:var(--text-3); font-size:11px; }
 
   /* Logs */
-  .log-wrap { background:rgba(0,0,0,0.2); border-radius:7px; padding:10px; font-family:'DM Mono',monospace; font-size:9px; color:var(--text-2); line-height:1.7; max-height:140px; overflow-y:auto; }
+  .log-wrap { background:rgba(0,0,0,0.2); border-radius:7px; padding:10px; font-family:'DM Mono',monospace; font-size:9px; color:var(--text-2); line-height:1.7; flex:1; min-height:80px; overflow-y:auto; }
   .log-wrap::-webkit-scrollbar { width:2px; }
   .log-wrap::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
   .log-line { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

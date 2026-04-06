@@ -23,6 +23,11 @@ function saveToken(t) {
     if (t) localStorage.setItem(TOKEN_KEY, t);
     else localStorage.removeItem(TOKEN_KEY);
   } catch {}
+  // Sync token to cookie for iframe sub-requests (/app/ proxy)
+  try {
+    if (t) document.cookie = `nimos_token=${t};path=/;SameSite=Strict`;
+    else document.cookie = 'nimos_token=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  } catch {}
 }
 
 // Get current token value synchronously

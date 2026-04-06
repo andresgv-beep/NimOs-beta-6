@@ -5,7 +5,6 @@ export const APP_META = {
   network:      { name: 'Network',         icon: '/icons/network.png',     width: 860, height: 560 },
   nimtorrent:   { name: 'NimTorrent',      icon: '/icons/nimtorrent.png',  width: 820, height: 520 },
   transfermanager: { name: 'Transferencias', icon: '', width: 640, height: 480, hidden: true },
-  containers:   { name: 'Containers',      icon: '/icons/containers.png',  width: 800, height: 520 },
   mediaplayer:  { name: 'Media Player',    icon: '/icons/media.png',       width: 650, height: 500 },
   appstore:     { name: 'App Store',       icon: '/icons/appstore.png',    width: 900, height: 600 },
   nimbackup:    { name: 'NimBackup',       icon: '/icons/nimbackup.png',   width: 920, height: 600 },

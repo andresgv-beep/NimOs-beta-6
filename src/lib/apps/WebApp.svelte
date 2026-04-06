@@ -11,7 +11,8 @@
   // Use reverse proxy: /app/{appId}/ — same origin, no mixed content, no X-Frame-Options
   $: proxyUrl = `/app/${appId}/`;
   // Direct URL for "open in browser" fallback
-  $: directUrl = typeof window !== 'undefined' ? `http://${window.location.hostname}:${port}` : '';
+  // Direct URL uses same protocol + hostname as current page (works from LAN and WAN)
+  $: directUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:${port}` : '';
 
   onMount(() => {
     if (!port || !appId) { status = 'error'; return; }

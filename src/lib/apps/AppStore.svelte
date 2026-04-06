@@ -15,12 +15,16 @@
   let installing = {};
   let removing = {};
 
-  // Docker state
+  // Docker state — NO auto-install
   let dockerReady = false;
   let dockerInstalling = false;
   let dockerError = null;
   let hasPool = false;
   let dockerPath = '';
+
+  // Pool selector for Docker install
+  let pools = [];
+  let selectedPool = '';
 
   function generatePassword() {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -31,14 +35,14 @@
     try {
       const poolRes = await fetch('/api/storage/status', { headers: hdrs() });
       const poolData = await poolRes.json();
-      const pools = poolData.pools || [];
+      pools = poolData.pools || [];
       hasPool = poolData.hasPool === true || pools.length > 0;
 
       if (!hasPool) { loading = false; return; }
 
-      // Find primary pool or first pool — Docker will install here
+      // Pre-select primary pool
       const primaryPool = pools.find(p => p.isPrimary) || pools[0];
-      const poolName = primaryPool?.name || '';
+      selectedPool = primaryPool?.name || '';
 
       const res = await fetch('/api/docker/status', { headers: hdrs() });
       if (!res.ok && res.status === 403) {
@@ -54,23 +58,25 @@
         dockerReady = true;
         await loadCatalog();
       } else {
-        await installDocker(poolName);
+        // Docker NOT installed — don't auto-install, show install screen
+        loading = false;
       }
     } catch(e) {
       console.error('[AppStore] Docker check failed:', e);
-      dockerReady = true;
-      await loadCatalog();
+      // If check fails, still show the store but without Docker
+      loading = false;
     }
   }
 
-  async function installDocker(poolName = '') {
+  async function installDocker() {
+    if (!selectedPool) return;
     dockerInstalling = true;
     dockerError = null;
     try {
       const res = await fetch('/api/docker/install', {
         method: 'POST',
         headers: { ...hdrs(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pool: poolName }),
+        body: JSON.stringify({ pool: selectedPool }),
       });
       const data = await res.json();
       if (data.ok && data.dockerAvailable) {
@@ -79,11 +85,9 @@
         await loadCatalog();
       } else {
         dockerError = data.error || 'Docker installation failed';
-        loading = false;
       }
     } catch(e) {
       dockerError = 'Failed to install Docker: ' + e.message;
-      loading = false;
     }
     dockerInstalling = false;
   }
@@ -141,6 +145,9 @@
         }
       }
 
+      // Resolve openMode: prefer catalog value, fall back to external bool
+      let openMode = app.openMode || (app.external ? 'external' : 'internal');
+
       const res = await fetch('/api/docker/stack', {
         method: 'POST',
         headers: { ...hdrs(), 'Content-Type': 'application/json' },
@@ -153,6 +160,7 @@
           color: app.color || '#607D8B',
           port: app.port,
           external: app.external || false,
+          openMode,
         }),
       });
       const d = await res.json();
@@ -174,7 +182,7 @@
 
   onMount(checkDocker);
 
-  const CAT_ICONS = { media:'🎬', cloud:'☁', downloads:'⬇', homelab:'🏠', development:'⌨', security:'🔒', monitoring:'📊' };
+  const CAT_ICONS = { system:'⚙', media:'🎬', cloud:'☁', downloads:'⬇', homelab:'🏠', development:'⌨', security:'🔒', monitoring:'📊' };
 
   $: categories = catalog ? [
     { id: 'all', label: 'Todas', icon: '⊟' },
@@ -183,6 +191,8 @@
 
   $: filteredApps = catalog ? Object.entries(catalog.apps)
     .filter(([id, app]) => {
+      // Hide system apps (docker-engine) from the grid — they have their own UI
+      if (app.isSystem) return false;
       if (activeCategory === '_installed') return !!installed[id];
       const matchCat = activeCategory === 'all' || app.category === activeCategory;
       const q = search.toLowerCase();
@@ -208,29 +218,50 @@
     <div class="setup-screen">
       <div class="setup-icon">💾</div>
       <h2>Storage Required</h2>
-      <p>The App Store needs a storage pool to install Docker apps.<br>Open <strong>NimSettings → Storage</strong> to create one.</p>
-    </div>
-  {:else if dockerInstalling}
-    <!-- Installing Docker -->
-    <div class="setup-screen">
-      <div class="spinner"></div>
-      <h2>Installing Docker...</h2>
-      <p>This may take a few minutes. Please wait.</p>
-    </div>
-  {:else if dockerError}
-    <!-- Docker install failed -->
-    <div class="setup-screen">
-      <div class="setup-icon">⚠️</div>
-      <h2>Docker Installation Failed</h2>
-      <p>{dockerError}</p>
-      <button class="btn-retry" on:click={installDocker}>Retry</button>
+      <p>The App Store needs a storage pool to install Docker apps.<br>Open <strong>Storage</strong> to create one.</p>
     </div>
   {:else if !dockerReady && !loading}
-    <!-- Docker not ready -->
+    <!-- Docker not installed — explicit install screen with pool selector -->
     <div class="setup-screen">
-      <div class="setup-icon">🐳</div>
-      <h2>Setting up Docker...</h2>
-      <p>Preparing the container engine.</p>
+      {#if dockerInstalling}
+        <div class="spinner"></div>
+        <h2>Instalando Docker Engine...</h2>
+        <p>Esto puede tardar unos minutos. Por favor espera.</p>
+      {:else if dockerError}
+        <div class="setup-icon">⚠️</div>
+        <h2>Error al instalar Docker</h2>
+        <p>{dockerError}</p>
+        <button class="btn-retry" on:click={installDocker}>Reintentar</button>
+      {:else}
+        <div class="setup-icon">🐳</div>
+        <h2>Docker Engine necesario</h2>
+        <p>Las apps se ejecutan en contenedores Docker.<br>Elige en qué pool de almacenamiento instalar Docker y los datos de las apps.</p>
+        <div class="pool-selector">
+          <label class="pool-label">Pool de almacenamiento</label>
+          <div class="pool-options">
+            {#each pools as pool}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="pool-option" class:selected={selectedPool === pool.name} on:click={() => selectedPool = pool.name}>
+                <div class="pool-radio" class:checked={selectedPool === pool.name}></div>
+                <div class="pool-info">
+                  <div class="pool-name">{pool.name}</div>
+                  <div class="pool-meta">{pool.fsType || 'unknown'} · {pool.mountPoint || ''}</div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
+        <button class="btn-install-docker" disabled={!selectedPool} on:click={installDocker}>
+          Instalar Docker en {selectedPool || '...'}
+        </button>
+        <p class="setup-hint">Los datos de Docker y todas las apps se guardarán en este pool.<br>No se instalará nada en el disco del sistema.</p>
+      {/if}
+    </div>
+  {:else if loading}
+    <div class="setup-screen">
+      <div class="spinner"></div>
+      <p>Cargando...</p>
     </div>
   {:else}
   <div class="sidebar">
@@ -502,4 +533,19 @@
   .setup-screen p{font-size:13px;color:var(--text-2);line-height:1.6;max-width:400px}
   .setup-icon{font-size:48px}
   .btn-retry{padding:10px 22px;border-radius:9px;border:none;cursor:pointer;background:var(--accent);color:#fff;font-size:13px;font-weight:600;font-family:inherit}
+  .pool-selector{width:100%;max-width:360px;text-align:left}
+  .pool-label{font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:8px}
+  .pool-options{display:flex;flex-direction:column;gap:6px}
+  .pool-option{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--ibtn-bg);cursor:pointer;transition:all .15s}
+  .pool-option:hover{border-color:var(--border-hi)}
+  .pool-option.selected{border-color:var(--accent);background:rgba(124,111,255,0.08)}
+  .pool-radio{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);flex-shrink:0;transition:all .15s;position:relative}
+  .pool-radio.checked{border-color:var(--accent)}
+  .pool-radio.checked::after{content:'';position:absolute;inset:2px;border-radius:50%;background:var(--accent)}
+  .pool-name{font-size:13px;font-weight:600;color:var(--text-1)}
+  .pool-meta{font-size:10px;color:var(--text-3);font-family:'DM Mono',monospace;margin-top:1px}
+  .btn-install-docker{padding:12px 28px;border-radius:10px;border:none;cursor:pointer;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:14px;font-weight:600;font-family:inherit;transition:all .15s;margin-top:4px}
+  .btn-install-docker:hover{opacity:.88;transform:translateY(-1px)}
+  .btn-install-docker:disabled{opacity:.35;cursor:not-allowed;transform:none}
+  .setup-hint{font-size:11px;color:var(--text-3);max-width:340px;margin-top:2px}
 </style>

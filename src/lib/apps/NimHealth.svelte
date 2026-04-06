@@ -457,7 +457,7 @@
   .nav-back:hover { background:var(--ibtn-bg); color:var(--text-1); }
 
   /* Content */
-  .content { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .content { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; min-height:0; }
   .content::-webkit-scrollbar { width:3px; } .content::-webkit-scrollbar-thumb { background:rgba(128,128,128,0.15); border-radius:2px; }
 
   /* Metrics */

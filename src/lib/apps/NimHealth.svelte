@@ -445,7 +445,7 @@
   .sb-badge.amber { background:rgba(251,191,36,0.12); color:var(--amber); }
 
   /* Inner wrap */
-  .inner-wrap { flex:1; padding:8px; display:flex; }
+  .inner-wrap { flex:1; padding:8px; display:flex; min-height:0; overflow:hidden; }
   .inner { flex:1; border-radius:10px; border:1px solid var(--border); background:var(--bg-inner); display:flex; flex-direction:column; overflow:hidden; }
 
   /* Titlebar */

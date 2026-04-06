@@ -317,7 +317,7 @@
   .row-progress { padding-right:12px; }
   .prog-wrap { height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-bottom:3px; }
   .prog-bar { height:100%; border-radius:2px; transition:width .4s ease; }
-  .prog-bar.upload { background:var(--accent); }
+  .prog-bar.upload { background:var(--blue); }
   .prog-bar.done { background:var(--green); }
   .prog-bar.error { background:var(--red); }
   .prog-bar.paused { background:var(--amber); }
@@ -331,7 +331,7 @@
     padding:2px 7px; border-radius:5px;
     display:inline-block;
   }
-  .sp-uploading { background:rgba(124,111,255,0.12); color:var(--accent); }
+  .sp-uploading { background:rgba(96,165,250,0.12); color:var(--blue); }
   .sp-paused   { background:rgba(251,191,36,0.12); color:var(--amber); }
   .sp-done     { background:rgba(74,222,128,0.12); color:var(--green); }
   .sp-error    { background:rgba(248,113,113,0.12); color:var(--red); }

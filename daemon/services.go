@@ -666,7 +666,7 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Enrich with app name
+		// Enrich with app name + Docker children
 		result := make([]map[string]interface{}, len(instances))
 		for i, inst := range instances {
 			var appName string
@@ -679,6 +679,21 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 				depsMap[j] = d.ToMap()
 			}
 			result[i]["dependencies"] = depsMap
+
+			// If this is the Docker service, inject app children + aggregate health
+			if inst.AppID == "containers" && isDockerInstalledGo() {
+				children, orphanCount := getDockerAppStatuses(inst.ID)
+				childrenMaps := make([]map[string]interface{}, len(children))
+				for j, c := range children {
+					childrenMaps[j] = c.ToMap()
+				}
+				result[i]["children"] = childrenMaps
+				result[i]["orphanCount"] = orphanCount
+
+				// Override health with aggregate from children
+				aggHealth := ComputeDockerAggregateHealth(children)
+				result[i]["health"] = aggHealth
+			}
 		}
 		jsonOk(w, map[string]interface{}{"services": result})
 		return
@@ -713,6 +728,10 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 	// POST /api/services/{id}/start
 	// POST /api/services/{id}/restart
 	// GET  /api/services/{id}/logs
+	//
+	// Works for both registry services (docker@pool, nimtorrent@pool) and
+	// Docker app containers (jellyfin, immich, etc.) by falling through to
+	// docker commands if the ID is not in the service registry.
 	if strings.HasPrefix(path, "/api/services/") {
 		trimmed := strings.TrimPrefix(path, "/api/services/")
 		parts := strings.SplitN(trimmed, "/", 2)
@@ -727,9 +746,27 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		action := parts[1]
 
-		if err := validateInstanceID(instanceID); err != nil {
-			jsonError(w, 400, err.Error())
+		// Check if this is a registered service or a docker-app container
+		registeredSvc, _ := dbServiceGet(instanceID)
+		isDockerApp := registeredSvc == nil && isDockerInstalledGo()
+
+		// Validate: must be either a registered service or a known docker app
+		if registeredSvc == nil && !isDockerApp {
+			jsonError(w, 404, "Service not found")
 			return
+		}
+
+		// For docker-app: find the actual container name
+		containerName := instanceID
+		if isDockerApp {
+			// Look up in installed apps to find the container name
+			apps := getInstalledApps()
+			for _, app := range apps {
+				if appID, _ := app["id"].(string); appID == instanceID {
+					containerName = instanceID // default to appID
+					break
+				}
+			}
 		}
 
 		// GET /api/services/{id}/logs
@@ -740,12 +777,37 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 					n = parsed
 				}
 			}
-			lines, err := getServiceLogs(instanceID, n)
-			if err != nil {
-				jsonError(w, 500, err.Error())
-				return
+
+			if isDockerApp {
+				// Docker container logs
+				out, _ := run(fmt.Sprintf(`docker logs --tail %d --timestamps %s 2>&1`, n, containerName))
+				var lines []map[string]interface{}
+				if out != "" {
+					for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+						ts := ""
+						msg := line
+						// Try to split timestamp from message (docker --timestamps format)
+						if len(line) > 30 && line[4] == '-' {
+							if idx := strings.Index(line, " "); idx > 0 && idx < 35 {
+								ts = line[:idx]
+								msg = line[idx+1:]
+							}
+						}
+						lines = append(lines, map[string]interface{}{"timestamp": ts, "message": msg})
+					}
+				}
+				if lines == nil {
+					lines = []map[string]interface{}{}
+				}
+				jsonOk(w, map[string]interface{}{"logs": lines})
+			} else {
+				lines, err := getServiceLogs(instanceID, n)
+				if err != nil {
+					jsonError(w, 500, err.Error())
+					return
+				}
+				jsonOk(w, map[string]interface{}{"logs": lines})
 			}
-			jsonOk(w, map[string]interface{}{"logs": lines})
 			return
 		}
 
@@ -756,29 +818,60 @@ func handleServiceRoutes(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			switch action {
-			case "stop":
-				if err := serviceStop(instanceID); err != nil {
-					jsonError(w, 500, err.Error())
+			if isDockerApp {
+				// Docker container actions
+				var cmdErr error
+				switch action {
+				case "stop":
+					_, ok := run(fmt.Sprintf(`docker stop %s 2>&1`, containerName))
+					if !ok {
+						cmdErr = fmt.Errorf("failed to stop container %s", containerName)
+					}
+				case "start":
+					_, ok := run(fmt.Sprintf(`docker start %s 2>&1`, containerName))
+					if !ok {
+						cmdErr = fmt.Errorf("failed to start container %s", containerName)
+					}
+				case "restart":
+					_, ok := run(fmt.Sprintf(`docker restart %s 2>&1`, containerName))
+					if !ok {
+						cmdErr = fmt.Errorf("failed to restart container %s", containerName)
+					}
+				default:
+					jsonError(w, 404, "Unknown action")
 					return
 				}
-				jsonOk(w, map[string]interface{}{"ok": true, "status": "stopped"})
-			case "start":
-				if err := serviceStart(instanceID); err != nil {
-					jsonError(w, 500, err.Error())
+				if cmdErr != nil {
+					jsonError(w, 500, cmdErr.Error())
 					return
 				}
-				jsonOk(w, map[string]interface{}{"ok": true, "status": "running"})
-			case "restart":
-				serviceStop(instanceID)
-				time.Sleep(1 * time.Second)
-				if err := serviceStart(instanceID); err != nil {
-					jsonError(w, 500, err.Error())
-					return
+				jsonOk(w, map[string]interface{}{"ok": true, "action": action, "container": containerName})
+			} else {
+				// Registry service actions (systemd)
+				switch action {
+				case "stop":
+					if err := serviceStop(instanceID); err != nil {
+						jsonError(w, 500, err.Error())
+						return
+					}
+					jsonOk(w, map[string]interface{}{"ok": true, "status": "stopped"})
+				case "start":
+					if err := serviceStart(instanceID); err != nil {
+						jsonError(w, 500, err.Error())
+						return
+					}
+					jsonOk(w, map[string]interface{}{"ok": true, "status": "running"})
+				case "restart":
+					serviceStop(instanceID)
+					time.Sleep(1 * time.Second)
+					if err := serviceStart(instanceID); err != nil {
+						jsonError(w, 500, err.Error())
+						return
+					}
+					jsonOk(w, map[string]interface{}{"ok": true, "status": "running"})
+				default:
+					jsonError(w, 404, "Unknown action")
 				}
-				jsonOk(w, map[string]interface{}{"ok": true, "status": "running"})
-			default:
-				jsonError(w, 404, "Unknown action")
 			}
 			return
 		}

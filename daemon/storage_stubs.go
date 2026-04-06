@@ -1044,6 +1044,14 @@ func handleDetachDisk(body map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{"error": "Cannot detach the only disk in the pool. Use 'Destroy volume' instead."}
 	}
 
+	// Detach is only valid for mirror/raid1 — RAIDZ does not support removing individual disks
+	vdevType, _ := poolConf["vdevType"].(string)
+	profile, _ := poolConf["profile"].(string)
+	vt := strings.ToLower(vdevType + profile)
+	if strings.Contains(vt, "raidz") || strings.Contains(vt, "raid5") || strings.Contains(vt, "raid6") {
+		return map[string]interface{}{"error": "No se puede desmontar un disco de un pool RAIDZ. Usa 'Reemplazar disco' en su lugar."}
+	}
+
 	// ── Service barrier (obligatoria) ──
 	// SIEMPRE comprobar justo antes de ejecutar — el backend no confía en el frontend
 	activeSvcs, err := checkPoolDependencies(poolName)

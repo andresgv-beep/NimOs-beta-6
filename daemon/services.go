@@ -588,6 +588,28 @@ func reconcileServices() {
 	// Auto-register first — detect services that exist but aren't registered
 	autoRegisterServices()
 
+	// ── Clean orphan services whose pool no longer exists ──
+	storageConf := getStorageConfigFull()
+	confPools, _ := storageConf["pools"].([]interface{})
+	poolNames := map[string]bool{}
+	for _, p := range confPools {
+		if pm, ok := p.(map[string]interface{}); ok {
+			if name, _ := pm["name"].(string); name != "" {
+				poolNames[name] = true
+			}
+		}
+	}
+
+	allInstances, _ := dbServiceList("")
+	for _, inst := range allInstances {
+		if inst.PoolName != "" && !poolNames[inst.PoolName] {
+			db.Exec(`DELETE FROM service_dependencies WHERE instance_id = ?`, inst.ID)
+			dbServiceDelete(inst.ID)
+			logMsg("service reconcile: cleaned orphan %s (pool %s no longer exists)", inst.ID, inst.PoolName)
+		}
+	}
+
+	// ── Reconcile remaining services ──
 	instances, err := dbServiceList("")
 	if err != nil {
 		logMsg("service reconcile: error loading instances: %v", err)

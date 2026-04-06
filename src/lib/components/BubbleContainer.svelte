@@ -21,6 +21,19 @@
     type: t.status === 'done' ? 'success' : t.status === 'error' ? 'error' : 'info'
   }));
 
+  // Auto-hide completed/error tasks after 5s
+  const taskTimers = new Map();
+  $: {
+    for (const t of $uploadTasks) {
+      if ((t.status === 'done' || t.status === 'error') && t.showBubble && !taskTimers.has(t.id)) {
+        taskTimers.set(t.id, setTimeout(() => {
+          hideBubbleTask(t.id);
+          taskTimers.delete(t.id);
+        }, 5000));
+      }
+    }
+  }
+
   $: allBubbles = [...notifBubbles, ...taskBubbles]
     .sort((a, b) => a._priority - b._priority)
     .slice(0, MAX);
@@ -35,15 +48,10 @@
 
   function getIcon(type) { return ICONS[type] || ICONS.info; }
 
-  function autoHide(node, { id, type, kind, status }) {
+  function autoHide(node, { id, type, kind }) {
+    if (kind === 'task') return { destroy() {} };
     if (PERSISTENT_TYPES.has(type)) return { destroy() {} };
-    // Tasks: only auto-hide when done or error
-    if (kind === 'task' && status !== 'done' && status !== 'error') return { destroy() {} };
-    const delay = kind === 'task' ? 5000 : DURATION;
-    const t = setTimeout(() => {
-      if (kind === 'task') hideBubbleTask(id);
-      else hideBubble(id);
-    }, delay);
+    const t = setTimeout(() => hideBubble(id), DURATION);
     return { destroy() { clearTimeout(t); } };
   }
 
@@ -69,7 +77,7 @@
       class="bubble b-{b.type}" class:persistent={b._kind === 'notif' && PERSISTENT_TYPES.has(b.type)}
       in:fly={{ x: 100, duration: 300 }}
       out:fly={{ x: 100, duration: 220 }}
-      use:autoHide={{ id: b.id, type: b.type, kind: b._kind, status: b.status }}
+      use:autoHide={{ id: b.id, type: b.type, kind: b._kind }}
       on:click={() => onBubbleClick(b)}
     >
       <div class="b-stripe"></div>

@@ -81,6 +81,10 @@ func getBearerToken(r *http.Request) string {
 	if strings.HasPrefix(auth, "Bearer ") {
 		return auth[7:]
 	}
+	// Fallback: check cookie (needed for iframe sub-requests in /app/ proxy)
+	if cookie, err := r.Cookie("nimos_token"); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
 	return ""
 }
 

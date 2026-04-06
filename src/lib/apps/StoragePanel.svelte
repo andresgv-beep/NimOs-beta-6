@@ -1062,9 +1062,11 @@
                 </button>
               {/if}
               {#if selectedPoolDisk && (detailPool.disks?.length || 0) > 1}
-                <button class="dt-btn dt-btn-warn" disabled={detaching} on:click={() => confirmDetach(selectedPoolDisk)}>
-                  {detaching ? 'Desmontando...' : `Desmontar ${selectedPoolDisk.name}`}
-                </button>
+                {#if detailPool.vdevType === 'mirror' || detailPool.profile === 'raid1'}
+                  <button class="dt-btn dt-btn-warn" disabled={detaching} on:click={() => confirmDetach(selectedPoolDisk)}>
+                    {detaching ? 'Desmontando...' : `Desmontar ${selectedPoolDisk.name}`}
+                  </button>
+                {/if}
                 {#if eligible.length > 0}
                   <button class="dt-btn dt-btn-primary" on:click={() => openReplace(selectedPoolDisk)}>
                     Reemplazar {selectedPoolDisk.name}

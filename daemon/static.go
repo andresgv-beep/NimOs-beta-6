@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,9 +19,9 @@ import (
 // ═══════════════════════════════════
 
 const (
-	installDir = "/opt/nimbusos"
-	distDir    = "/opt/nimbusos/dist"
-	publicDir  = "/opt/nimbusos/public"
+	installDir = "/opt/nimos"
+	distDir    = "/opt/nimos/dist"
+	publicDir  = "/opt/nimos/public"
 )
 
 var mimeTypes = map[string]string{
@@ -83,7 +85,29 @@ func serveStatic(w http.ResponseWriter, r *http.Request) {
 			}
 			cacheControl := "public, max-age=31536000, immutable"
 			if ext == ".html" {
-				cacheControl = "no-cache"
+				// No caching for HTML with user-specific prefs
+				cacheControl = "no-store, no-cache, must-revalidate"
+				// ── Security Headers ──
+				// CSP: pragmatic policy compatible with SvelteKit SPA
+				// Note: Trusted Types incompatible with SvelteKit (uses innerHTML internally)
+				// Note: script-src 'unsafe-inline' required for SvelteKit hydration
+				// Future: migrate to nonce-based CSP when SvelteKit supports it
+				w.Header().Set("Content-Security-Policy",
+					"default-src 'self'; "+
+						"script-src 'self' 'unsafe-inline'; "+
+						"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
+						"img-src 'self' data: blob: https://raw.githubusercontent.com; "+
+						"connect-src 'self' https://raw.githubusercontent.com; "+
+						"font-src 'self' https://fonts.gstatic.com; "+
+						"frame-src 'self' http://127.0.0.1:* http://localhost:*; "+
+						"frame-ancestors 'self'; "+
+						"object-src 'none'; "+
+						"base-uri 'self'")
+				w.Header().Set("X-Content-Type-Options", "nosniff")
+				w.Header().Set("X-Frame-Options", "DENY")
+				w.Header().Set("Referrer-Policy", "no-referrer")
+				// Server-side prefs injection
+				data = injectUserPrefs(r, data)
 			}
 			w.Header().Set("Content-Type", ct)
 			w.Header().Set("Cache-Control", cacheControl)
@@ -127,7 +151,7 @@ func handleTorrentProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Special: torrent file upload (multipart)
 	if urlPath == "/api/torrent/upload" && r.Method == "POST" {
-		handleTorrentUploadGo(w, r)
+		handleTorrentUploadGo(w, r, session)
 		return
 	}
 
@@ -144,6 +168,20 @@ func handleTorrentProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Read body
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1*1024*1024))
+
+	// ── SEGURIDAD: NimTorrent SOLO puede escribir dentro de carpetas
+	// compartidas existentes, NUNCA libre al disco del sistema. ──
+	// En /torrent/add el frontend manda `share` (nombre), no un path.
+	// Aquí lo resolvemos al path real, verificamos permiso rw y que esté
+	// en un pool montado, y reescribimos el body con el save_path real.
+	// Si el share no existe / no hay permiso / no está montado → 403/404.
+	if daemonPath == "/torrent/add" && len(body) > 0 {
+		newBody, ok := resolveTorrentSavePath(w, session, body)
+		if !ok {
+			return // resolveTorrentSavePath ya escribió el error
+		}
+		body = newBody
+	}
 
 	// Proxy to NimTorrent
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -171,23 +209,137 @@ func handleTorrentProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Forward response
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 }
 
+// resolveTorrentSavePath toma el body JSON de /torrent/add, lee el campo
+// `share` (nombre de carpeta compartida elegida en la UI), lo resuelve a su
+// path real en disco y reescribe el body con un `save_path` validado.
+//
+// SEGURIDAD (requisito de diseño): NimTorrent jamás escribe libre al disco
+// del sistema. El destino DEBE ser una carpeta compartida existente sobre la
+// que el usuario tiene permiso de escritura, y que esté en un pool montado.
+// Los torrents se guardan en <share>/torrents (subcarpeta creada si falta).
+//
+// Devuelve (nuevoBody, true) si todo valida; si no, escribe el error HTTP
+// apropiado y devuelve (nil, false).
+func resolveTorrentSavePath(w http.ResponseWriter, session *DBSession, body []byte) ([]byte, bool) {
+	var req map[string]interface{}
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonError(w, 400, "JSON inválido")
+		return nil, false
+	}
+
+	shareName, _ := req["share"].(string)
+	if shareName == "" {
+		jsonError(w, 400, "Falta la carpeta de destino (share)")
+		return nil, false
+	}
+
+	// Resolver share → path real
+	share, err := resolveShare(shareName)
+	if err != nil || share == nil {
+		jsonError(w, 404, "Carpeta compartida no encontrada")
+		return nil, false
+	}
+
+	// Permiso de escritura
+	if getSharePermission(session, share) != "rw" {
+		jsonError(w, 403, "Sin permiso de escritura en esa carpeta")
+		return nil, false
+	}
+
+	// Debe estar en un pool montado (no en el disco de sistema).
+	// Las carpetas remotas se permiten (ya validadas por el montaje NFS).
+	if !share.IsRemote() && !isPathOnMountedPool(share.Path) {
+		jsonError(w, 409, "La carpeta no está en un pool montado")
+		return nil, false
+	}
+
+	// Destino final: <share>/torrents — confinado dentro del share.
+	savePath := filepath.Join(share.Path, "torrents")
+	// Defensa en profundidad: tras Join+Clean, el destino debe seguir
+	// colgando del path del share (nunca escaparse con ../).
+	if savePath != share.Path && !strings.HasPrefix(savePath, share.Path+string(filepath.Separator)) {
+		jsonError(w, 400, "Ruta de destino inválida")
+		return nil, false
+	}
+	ensureTorrentDir(savePath, shareName)
+
+	// Reescribir body: quitar `share`, fijar `save_path` real validado.
+	delete(req, "share")
+	req["save_path"] = savePath
+	out, err := json.Marshal(req)
+	if err != nil {
+		jsonError(w, 500, "Error serializando petición")
+		return nil, false
+	}
+	return out, true
+}
+
+// ensureTorrentDir crea (si no existe) la subcarpeta <share>/torrents con el
+// MISMO modelo de permisos que el share padre, para que el daemon de torrent
+// (usuario `nimos`, miembro del grupo del share) pueda escribir.
+//
+// El bug que esto corrige: os.MkdirAll(path, 0755) creaba la carpeta con el
+// grupo sin permiso de escritura (quedaba drwxr-s---, grupo en r-s). Aunque
+// `nimos` esté en el grupo nimos-share-<X>, sin la `w` de grupo no puede
+// crear los ficheros de descarga: el torrent recibe datos pero no los
+// persiste (total_done=0, peers que conectan y se caen en bucle).
+//
+// Solución (igual que el share padre y que docker_install.go):
+//
+//	chown root:nimos-share-<X>  +  chmod 2770  (rwx grupo + setgid)
+func ensureTorrentDir(path, shareName string) {
+	if err := os.MkdirAll(path, 0770); err != nil {
+		return
+	}
+	// Las carpetas remotas (NFS) no tienen grupo de share local: dejarlas.
+	if strings.HasPrefix(shareName, "remote:") {
+		return
+	}
+	group := groupName(shareName) // "nimos-share-" + shareName (main.go)
+	runSafe("chown", "root:"+group, path)
+	runSafe("chmod", "2770", path)
+	// ACL por defecto: lo que se cree dentro hereda rwx para el grupo.
+	runSafe("setfacl", "-d", "-m", "g:"+group+":rwx", path)
+}
+
 // Torrent file upload: parse multipart, save .torrent to disk, forward as JSON to NimTorrent
-func handleTorrentUploadGo(w http.ResponseWriter, r *http.Request) {
+func handleTorrentUploadGo(w http.ResponseWriter, r *http.Request, session *DBSession) {
 	// Parse multipart (max 50MB)
 	if err := r.ParseMultipartForm(50 << 20); err != nil {
 		jsonError(w, 400, "Failed to parse upload")
 		return
 	}
 
-	savePath := r.FormValue("save_path")
-	if savePath == "" {
-		savePath = "/data/torrents"
+	// SEGURIDAD: el destino se deriva de la carpeta compartida elegida
+	// (campo `share`), nunca de un path libre. Mismas reglas que /add.
+	shareName := r.FormValue("share")
+	if shareName == "" {
+		jsonError(w, 400, "Falta la carpeta de destino (share)")
+		return
 	}
+	share, err := resolveShare(shareName)
+	if err != nil || share == nil {
+		jsonError(w, 404, "Carpeta compartida no encontrada")
+		return
+	}
+	if getSharePermission(session, share) != "rw" {
+		jsonError(w, 403, "Sin permiso de escritura en esa carpeta")
+		return
+	}
+	if !share.IsRemote() && !isPathOnMountedPool(share.Path) {
+		jsonError(w, 409, "La carpeta no está en un pool montado")
+		return
+	}
+	savePath := filepath.Join(share.Path, "torrents")
+	if savePath != share.Path && !strings.HasPrefix(savePath, share.Path+string(filepath.Separator)) {
+		jsonError(w, 400, "Ruta de destino inválida")
+		return
+	}
+	ensureTorrentDir(savePath, shareName)
 
 	file, header, err := r.FormFile("torrent")
 	if err != nil {
@@ -230,11 +382,192 @@ func handleTorrentUploadGo(w http.ResponseWriter, r *http.Request) {
 
 	respBody, _ := io.ReadAll(resp.Body)
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(200)
 	if len(respBody) > 0 {
 		w.Write(respBody)
 	} else {
 		w.Write([]byte(`{"ok":true}`))
 	}
+}
+
+// injectUserPrefs reads the session cookie, loads the user's preferences,
+// and injects them as a JSON tag into the HTML before </head>.
+//
+// SECURITY HARDENING:
+// 1. Whitelist: only 16 visual keys pass through
+// 2. Value validation: type + range + charset checks per key
+// 3. Size limit: JSON > 8KB = use defaults (prevent DoS)
+// 4. Injection method: <script type="application/json"> not window global
+// 5. Go json.Marshal escapes <, >, & as \u003c etc (prevents script breakout)
+// 6. Double injection guard: checks if tag already present
+// 7. Safe fallback: any error = return original HTML unmodified
+// 8. Telemetry: logs when prefs are discarded for security reasons
+
+const prefsTagID = "__nimos_prefs_v1"
+
+// safeString strips control characters and enforces max length.
+func safeString(s string, maxLen int) string {
+	if len(s) > maxLen {
+		return ""
+	}
+	return strings.Map(func(r rune) rune {
+		if r < 32 {
+			return -1 // strip control characters
+		}
+		return r
+	}, s)
+}
+
+func injectUserPrefs(r *http.Request, html []byte) []byte {
+	// Double injection guard
+	if bytes.Contains(html, []byte(prefsTagID)) {
+		return html
+	}
+
+	cookie, err := r.Cookie("nimos_token")
+	if err != nil || cookie.Value == "" {
+		return html
+	}
+
+	session, err := dbSessionGet(sha256Hex(cookie.Value))
+	if err != nil || session == nil {
+		return html
+	}
+
+	allPrefs := getUserPreferences(session.Username)
+	if len(allPrefs) == 0 {
+		return html
+	}
+
+	// WHITELIST + VALIDATE each key
+	safePrefs := map[string]interface{}{}
+	discarded := 0
+
+	// String enums
+	if v, ok := allPrefs["theme"].(string); ok && (v == "dark" || v == "light") {
+		safePrefs["theme"] = v
+	}
+	if v, ok := allPrefs["accentColor"].(string); ok {
+		if s := safeString(v, 20); s != "" {
+			safePrefs["accentColor"] = s
+		}
+	}
+	if v, ok := allPrefs["taskbarSize"].(string); ok && (v == "small" || v == "medium" || v == "large") {
+		safePrefs["taskbarSize"] = v
+	}
+	if v, ok := allPrefs["taskbarPosition"].(string); ok && (v == "bottom" || v == "top" || v == "left" || v == "right") {
+		safePrefs["taskbarPosition"] = v
+	}
+	// Wallpaper: path only, no protocols, max 200 chars, no control chars
+	if v, ok := allPrefs["wallpaper"].(string); ok {
+		s := safeString(v, 200)
+		if s != "" && !strings.Contains(s, "javascript:") && !strings.Contains(s, "data:") &&
+			!strings.Contains(s, "<") && !strings.Contains(s, ">") {
+			safePrefs["wallpaper"] = s
+		} else if v != "" {
+			discarded++
+		}
+	}
+	if v, ok := allPrefs["playlistName"].(string); ok {
+		if s := safeString(v, 100); s != "" {
+			safePrefs["playlistName"] = s
+		}
+	}
+
+	// Booleans
+	for _, key := range []string{"autoHideTaskbar", "clock24", "showDesktopIcons", "showWidgets"} {
+		if v, ok := allPrefs[key].(bool); ok {
+			safePrefs[key] = v
+		}
+	}
+
+	// Numbers with range
+	for _, spec := range []struct {
+		key      string
+		min, max float64
+	}{
+		{"glowIntensity", 0, 100},
+		{"textScale", 50, 200},
+		{"widgetScale", 50, 200},
+	} {
+		if v, ok := allPrefs[spec.key].(float64); ok && v >= spec.min && v <= spec.max {
+			safePrefs[spec.key] = v
+		} else if ok {
+			discarded++
+		}
+	}
+
+	// Complex objects: visibleWidgets
+	if v, ok := allPrefs["visibleWidgets"].(map[string]interface{}); ok && len(v) <= 20 {
+		clean := map[string]interface{}{}
+		for k, val := range v {
+			if len(k) <= 30 {
+				if b, ok := val.(bool); ok {
+					clean[k] = b
+				}
+			}
+		}
+		safePrefs["visibleWidgets"] = clean
+	}
+	// pinnedApps
+	if v, ok := allPrefs["pinnedApps"].([]interface{}); ok && len(v) <= 30 {
+		clean := []interface{}{}
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				if cs := safeString(s, 50); cs != "" {
+					clean = append(clean, cs)
+				}
+			}
+		}
+		safePrefs["pinnedApps"] = clean
+	}
+	// Widget layout: array of position objects, clamped
+	if v, ok := allPrefs["widgetLayout"].([]interface{}); ok && len(v) <= 30 {
+		clean := []interface{}{}
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				w := map[string]interface{}{}
+				if id, ok := m["id"].(string); ok {
+					if cs := safeString(id, 50); cs != "" {
+						w["id"] = cs
+					}
+				}
+				if t, ok := m["type"].(string); ok {
+					if cs := safeString(t, 50); cs != "" {
+						w["type"] = cs
+					}
+				}
+				for _, posKey := range []string{"col", "row", "cols", "rows"} {
+					if n, ok := m[posKey].(float64); ok && n >= 0 && n <= 50 {
+						w[posKey] = n
+					}
+				}
+				if len(w) > 0 {
+					clean = append(clean, w)
+				}
+			}
+		}
+		safePrefs["widgetLayout"] = clean
+	}
+
+	if discarded > 0 {
+		logMsg("prefs injection: discarded %d invalid values for user %s", discarded, session.Username)
+	}
+
+	prefsJSON, err := json.Marshal(safePrefs)
+	if err != nil {
+		return html
+	}
+
+	// Size limit: prevent inflated prefs from bloating the HTML
+	if len(prefsJSON) > 8192 {
+		logMsg("prefs injection: JSON too large (%d bytes) for user %s, skipping", len(prefsJSON), session.Username)
+		return html
+	}
+
+	// Inject as <meta> tag with base64-encoded JSON — immune to CSP,
+	// immune to quote/character escaping issues in HTML attributes
+	b64 := base64.StdEncoding.EncodeToString(prefsJSON)
+	injection := fmt.Sprintf(`<meta id="%s" content="%s">`, prefsTagID, b64)
+	return bytes.Replace(html, []byte("</head>"), []byte(injection+"</head>"), 1)
 }
